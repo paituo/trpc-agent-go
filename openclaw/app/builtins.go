@@ -74,6 +74,19 @@ func init() {
 		newPGVectorMemoryBackend,
 	))
 
+	must(registry.RegisterPlanner(
+		plannerTypeBuiltin,
+		newBuiltinPlanner,
+	))
+	must(registry.RegisterPlanner(
+		plannerTypeReact,
+		newReactPlanner,
+	))
+	must(registry.RegisterPlanner(
+		plannerTypeA2UI,
+		newA2UIPlanner,
+	))
+
 	must(registry.RegisterKnowledgeProvider(
 		"builtin",
 		newBuiltinKnowledge,

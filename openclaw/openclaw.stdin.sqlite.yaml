@@ -15,7 +15,7 @@ agent:
 #   gpt52
 model:
   mode: "openai"
-  name: "gpt-5.2"
+  name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
 
 # Mock mode example for local smoke tests:
@@ -41,3 +41,31 @@ memory:
   config:
     path: "./memories.sqlite"
     skip_db_init: false
+
+skills:
+  root: "./skills"
+  tool_profile: "full"
+  load_mode: "turn"
+
+tools:
+  enable_local_exec: true
+  enable_openclaw_tools: true
+  enable_parallel_tools: true
+  providers:
+  toolsets:
+    - type: "file"
+      name: "fs"
+      config:
+        base_dir: "."
+        read_only: false
+        enable_save: true
+        enable_replace: true
+
+debug_recorder:
+  enabled: true
+  mode: "full"
+
+observability:
+  langfuse:
+    enabled: false
+    required: false
