@@ -38,6 +38,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	memextractor "trpc.group/trpc-go/trpc-agent-go/memory/extractor"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/summary"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -191,6 +192,22 @@ type ToolSetProviderFactory func(
 	spec PluginSpec,
 ) (tool.ToolSet, error)
 
+// PlannerDeps contains dependencies passed to planner factories.
+type PlannerDeps struct {
+	AppName  string
+	StateDir string
+}
+
+// PlannerSpec holds the metadata for a planner plugin.
+type PlannerSpec struct {
+	Type   string
+	Name   string
+	Config map[string]any
+}
+
+// PlannerFactory is the function signature for creating a planner.
+type PlannerFactory func(deps PlannerDeps, spec PlannerSpec) (planner.Planner, error)
+
 // ModelSpec describes which model to create.
 type ModelSpec struct {
 	Type                 string
@@ -215,6 +232,7 @@ var (
 	toolFactories      = map[string]ToolProviderFactory{}
 	toolSetFactories   = map[string]ToolSetProviderFactory{}
 	modelFactories     = map[string]ModelFactory{}
+	plannerFactories   = map[string]PlannerFactory{}
 )
 
 // RegisterChannel registers a channel factory under typeName.
@@ -451,6 +469,37 @@ func LookupModel(typeName string) (ModelFactory, bool) {
 	return f, ok
 }
 
+// RegisterPlanner registers a planner factory under typeName.
+//
+// Planner factories can be registered in init() functions of imported
+// packages, similar to tool providers or channels.
+func RegisterPlanner(typeName string, f PlannerFactory) error {
+	name := strings.ToLower(strings.TrimSpace(typeName))
+	if name == "" {
+		return fmt.Errorf("planner type name is empty")
+	}
+	if f == nil {
+		return fmt.Errorf("planner factory is nil: %s", name)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if _, ok := plannerFactories[name]; ok {
+		return fmt.Errorf("planner type already registered: %s", name)
+	}
+	plannerFactories[name] = f
+	return nil
+}
+
+// LookupPlanner returns the planner factory for typeName, or nil if not found.
+func LookupPlanner(typeName string) (PlannerFactory, bool) {
+	mu.RLock()
+	defer mu.RUnlock()
+	name := strings.ToLower(strings.TrimSpace(typeName))
+	f, ok := plannerFactories[name]
+	return f, ok
+}
+
 func normalizeType(typeName string) string {
 	return strings.ToLower(strings.TrimSpace(typeName))
 }
@@ -482,6 +531,8 @@ func Types(kind string) []string {
 		keys = mapKeys(toolFactories)
 	case "toolset provider":
 		keys = mapKeys(toolSetFactories)
+	case "planner":
+		keys = mapKeys(plannerFactories)
 	case "model":
 		keys = mapKeys(modelFactories)
 	default:
