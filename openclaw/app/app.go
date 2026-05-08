@@ -43,6 +43,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -1044,6 +1045,8 @@ func NewRuntimeWithOptions(
 			MaxHistoryRuns:   opts.MaxHistoryRuns,
 			PreloadMemory:    opts.PreloadMemory,
 			GenerationConfig: opts.GenerationConfig,
+			PlannerType:      opts.PlannerType,
+			PlannerConfig:    opts.PlannerConfig,
 			Instruction:      prompts.Instruction,
 			SystemPrompt:     prompts.SystemPrompt,
 
@@ -2542,7 +2545,32 @@ func newAgent(
 	callbacks.RegisterToolResultMessages(openClawToolResultMessages)
 	opts = append(opts, llmagent.WithToolCallbacks(callbacks))
 
+	if cfg.PlannerType != "" {
+		if pl := buildPlannerFromConfig(cfg); pl != nil {
+			opts = append(opts, llmagent.WithPlanner(pl))
+		}
+	}
 	return llmagent.New(defaultAgentName, opts...), repo, nil
+}
+
+func buildPlannerFromConfig(cfg agentConfig) planner.Planner {
+	typeName := strings.ToLower(strings.TrimSpace(cfg.PlannerType))
+	if typeName == "" {
+		return nil
+	}
+	factory, ok := registry.LookupPlanner(typeName)
+	if !ok {
+		log.Warnf("planner type not registered: %s", typeName)
+		return nil
+	}
+	deps := registry.PlannerDeps{AppName: cfg.AppName, StateDir: cfg.StateDir}
+	spec := registry.PlannerSpec{Type: typeName, Name: typeName, Config: cfg.PlannerConfig}
+	pl, err := factory(deps, spec)
+	if err != nil {
+		log.Warnf("create planner failed: %v", err)
+		return nil
+	}
+	return pl
 }
 
 func buildOpenClawToolingGuidance(cfg agentConfig) string {
@@ -2733,6 +2761,8 @@ type agentConfig struct {
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 	GenerationConfig                              *model.GenerationConfig
+	PlannerType                                   string
+	PlannerConfig                                 map[string]any
 	Instruction                                   string
 	SystemPrompt                                  string
 

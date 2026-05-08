@@ -148,6 +148,8 @@ type runOptions struct {
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
+	PlannerType            string
+	PlannerConfig          map[string]any
 	AgentInstruction       string
 	AgentInstructionFiles  string
 	AgentInstructionDir    string
@@ -988,6 +990,9 @@ type agentRunConfig struct {
 	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
 	PreloadMemory                                 *int  `yaml:"preload_memory,omitempty"`
 
+	PlannerType   string         `yaml:"planner_type"`
+	PlannerConfig map[string]any `yaml:"planner_config"`
+
 	Instruction      *string  `yaml:"instruction,omitempty"`
 	InstructionFiles []string `yaml:"instruction_files,omitempty"`
 	InstructionDir   *string  `yaml:"instruction_dir,omitempty"`
@@ -1376,6 +1381,14 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.PreloadMemory != nil &&
 			!flagWasSet(set, flagPreloadMemory) {
 			opts.PreloadMemory = *cfg.Agent.PreloadMemory
+		}
+		if cfg.Agent.PlannerType != "" &&
+			!flagWasSet(set, "agent-planner-type") {
+			opts.PlannerType = cfg.Agent.PlannerType
+		}
+		if cfg.Agent.PlannerConfig != nil &&
+			!flagWasSet(set, "agent-planner-config") {
+			opts.PlannerConfig = cfg.Agent.PlannerConfig
 		}
 		if cfg.Agent.Instruction != nil &&
 			!flagWasSet(set, flagAgentInstruction) {
