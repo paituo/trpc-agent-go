@@ -44,6 +44,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	publicsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -1048,7 +1049,7 @@ func NewRuntimeWithOptions(
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
-			ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
+ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
 			ContextCompactionKeepToolNames:                opts.ContextCompactionKeepToolNames,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,

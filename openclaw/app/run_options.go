@@ -1088,6 +1088,9 @@ type agentRunConfig struct {
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
 
+	PlannerType   string         `yaml:"planner_type"`
+	PlannerConfig map[string]any `yaml:"planner_config"`
+
 	Instruction      *string  `yaml:"instruction,omitempty"`
 	InstructionFiles []string `yaml:"instruction_files,omitempty"`
 	InstructionDir   *string  `yaml:"instruction_dir,omitempty"`
