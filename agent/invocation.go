@@ -1879,6 +1879,14 @@ func (inv *Invocation) GetParentInvocation() *Invocation {
 	return inv.parent
 }
 
+// GetParentInvocationID returns the parent invocation ID for trace linking.
+func (inv *Invocation) GetParentInvocationID() string {
+	if inv == nil {
+		return ""
+	}
+	return inv.parentInvocationID
+}
+
 // InjectIntoEvent inject invocation information into event.
 func InjectIntoEvent(inv *Invocation, e *event.Event) {
 	if e == nil || inv == nil {
