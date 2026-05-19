@@ -133,6 +133,8 @@ func StartExecutionTraceStep(
 	parentInvocationID := ""
 	if inv.parent != nil {
 		parentInvocationID = inv.parent.InvocationID
+	} else if inv.parentInvocationID != "" {
+		parentInvocationID = inv.parentInvocationID
 	}
 	return capture.StartStep(tracecapture.StartStepInput{
 		InvocationID:       inv.InvocationID,
