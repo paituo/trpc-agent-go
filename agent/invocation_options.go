@@ -135,3 +135,12 @@ func WithInvocationEventFilterKey(key string) InvocationOptions {
 		inv.eventFilterKey = key
 	}
 }
+
+// WithInvocationParentInvocationID sets the parent invocation ID for trace linking.
+// This is used when the invocation is created independently but needs to be
+// linked to a parent invocation's trace (e.g., async subagent runs).
+func WithInvocationParentInvocationID(parentID string) InvocationOptions {
+	return func(inv *Invocation) {
+		inv.parentInvocationID = parentID
+	}
+}

@@ -514,7 +514,7 @@ func (r *runner) Run(
 		eventFilterKey = ro.EventFilterKey
 	}
 
-	invocation := agent.NewInvocation(
+	invocationOpts := []agent.InvocationOptions{
 		agent.WithInvocationSession(sess),
 		agent.WithInvocationSessionService(r.sessionService),
 		agent.WithInvocationMessage(invocationMessage),
@@ -526,7 +526,16 @@ func (r *runner) Run(
 		agent.WithInvocationArtifactService(r.artifactService),
 		agent.WithInvocationEventFilterKey(eventFilterKey),
 		agent.WithInvocationPlugins(r.pluginManager),
-	)
+	}
+
+	if ro.ParentInvocationID != "" {
+		invocationOpts = append(
+			invocationOpts,
+			agent.WithInvocationParentInvocationID(ro.ParentInvocationID),
+		)
+	}
+
+	invocation := agent.NewInvocation(invocationOpts...)
 	if rootLookupName := r.selectedRootLookupName(
 		ro,
 		awaitUserReplyRootName,

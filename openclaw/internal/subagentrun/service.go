@@ -112,6 +112,14 @@ func (s *Service) Spawn(
 		}
 	}
 	runOptions := runOptionsFromContext(ctx)
+	runOptions = append(runOptions,
+		agent.WithExecutionTraceEnabled(true),
+	)
+	if req.ParentInvocationID != "" {
+		runOptions = append(runOptions,
+			agent.WithParentInvocationID(req.ParentInvocationID),
+		)
+	}
 	runContext := runContextFromContext(ctx)
 	metadata := metadataForDelivery(req.Delivery)
 	if req.SuppressCompletionNotification {
