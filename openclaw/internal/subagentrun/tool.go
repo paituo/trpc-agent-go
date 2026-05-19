@@ -280,6 +280,7 @@ func (t *spawnTool) Call(
 			Channel: delivery.Channel,
 			Target:  delivery.Target,
 		},
+		ParentInvocationID: parentInvocationIDFromContext(ctx),
 	})
 	if err != nil {
 		return nil, err
@@ -582,4 +583,12 @@ func isNestedSubagent(ctx context.Context) bool {
 		openclawsubagent.RuntimeStateKeyRun,
 	)
 	return ok && nested
+}
+
+func parentInvocationIDFromContext(ctx context.Context) string {
+	inv, ok := agent.InvocationFromContext(ctx)
+	if !ok || inv == nil {
+		return ""
+	}
+	return inv.InvocationID
 }
