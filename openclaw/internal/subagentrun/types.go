@@ -54,6 +54,7 @@ type SpawnRequest struct {
 	TimeoutSeconds                 int
 	Delivery                       deliveryTarget
 	SuppressCompletionNotification bool
+	ParentInvocationID             string
 }
 
 func subagentStorePath(stateDir string) string {
