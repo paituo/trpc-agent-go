@@ -38,6 +38,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent/claudecode"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	localexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/flow/processor"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -1037,18 +1038,22 @@ func NewRuntimeWithOptions(
 			}
 		}
 		agentCfg := agentConfig{
-			AppName:                 opts.AppName,
-			AddSessionSummary:       opts.AddSessionSummary,
-			EnableContextCompaction: opts.EnableContextCompaction,
-			ContextCompactionOversizedToolResultMaxTokens: opts.
-				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
-			GenerationConfig: opts.GenerationConfig,
-			PlannerType:      opts.PlannerType,
-			PlannerConfig:    opts.PlannerConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			AppName:                                       opts.AppName,
+			AddSessionSummary:                             opts.AddSessionSummary,
+			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
+			EnableContextCompaction:                       opts.EnableContextCompaction,
+			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			MaxHistoryRuns:                                opts.MaxHistoryRuns,
+			PreloadMemory:                                 opts.PreloadMemory,
+			GenerationConfig:                              opts.GenerationConfig,
+			PlannerType:                                   opts.PlannerType,
+			PlannerConfig:                                 opts.PlannerConfig,
+			Instruction:                                   prompts.Instruction,
+			SystemPrompt:                                  prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1560,16 +1565,22 @@ func run(
 			}
 		}
 		agentCfg := agentConfig{
-			AppName:                 opts.AppName,
-			AddSessionSummary:       opts.AddSessionSummary,
-			EnableContextCompaction: opts.EnableContextCompaction,
-			ContextCompactionOversizedToolResultMaxTokens: opts.
-				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
-			GenerationConfig: opts.GenerationConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			AppName:                                       opts.AppName,
+			AddSessionSummary:                             opts.AddSessionSummary,
+			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
+			EnableContextCompaction:                       opts.EnableContextCompaction,
+			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			MaxHistoryRuns:                                opts.MaxHistoryRuns,
+			PreloadMemory:                                 opts.PreloadMemory,
+			GenerationConfig:                              opts.GenerationConfig,
+			PlannerType:                                   opts.PlannerType,
+			PlannerConfig:                                 opts.PlannerConfig,
+			Instruction:                                   prompts.Instruction,
+			SystemPrompt:                                  prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1592,9 +1603,10 @@ func run(
 			StateDir:            resolvedStateDir,
 			MemoryFileStore:     fileMemoryStore,
 
-			EnableLocalExec:     opts.EnableLocalExec,
-			EnableOpenClawTools: opts.EnableOpenClawTools,
-			EnableParallelTools: opts.EnableParallelTools,
+			EnableLocalExec:      opts.EnableLocalExec,
+			EnableOpenClawTools:  opts.EnableOpenClawTools,
+			OpenClawToolingGuide: opts.OpenClawToolingGuide,
+			EnableParallelTools:  opts.EnableParallelTools,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -2478,10 +2490,12 @@ func newAgent(
 		llmagent.WithGlobalInstruction(strings.TrimSpace(cfg.SystemPrompt)),
 		llmagent.WithGenerationConfig(genConfig),
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
+		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
-		llmagent.WithContextCompactionOversizedToolResultMaxTokens(
-			cfg.ContextCompactionOversizedToolResultMaxTokens,
-		),
+		llmagent.WithContextCompactionThresholdRatio(cfg.ContextCompactionThresholdRatio),
+		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
+		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
+		llmagent.WithContextCompactionOversizedToolResultMaxTokens(cfg.ContextCompactionOversizedToolResultMaxTokens),
 		llmagent.WithMaxHistoryRuns(cfg.MaxHistoryRuns),
 		llmagent.WithPreloadMemory(cfg.PreloadMemory),
 		llmagent.WithEventMessageProjector(
@@ -2492,6 +2506,14 @@ func newAgent(
 		llmagent.WithSkillFilter(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
+	}
+	if cfg.SessionSummaryInjectionMode != "" {
+		opts = append(
+			opts,
+			llmagent.WithSessionSummaryInjectionMode(
+				processor.SessionSummaryInjectionMode(cfg.SessionSummaryInjectionMode),
+			),
+		)
 	}
 	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
@@ -2756,7 +2778,12 @@ type agentConfig struct {
 	AppName string
 
 	AddSessionSummary                             bool
+	SessionSummaryInjectionMode                   string
+	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
+	ContextCompactionThresholdRatio               float64
+	ContextCompactionToolResultMaxTokens          int
+	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
@@ -3119,6 +3146,9 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if baseURL != "" {
 		opts = append(opts, openai.WithBaseURL(baseURL))
 	}
+	if spec.ContextWindow > 0 {
+		opts = append(opts, openai.WithContextWindow(spec.ContextWindow))
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3144,6 +3174,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		BaseURL:              baseURL,
 		OpenAIVariant:        opts.OpenAIVariant,
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
+		ContextWindow:        opts.ModelContextWindow,
 		Config:               opts.ModelConfig,
 	}
 	return f(spec)
