@@ -28,7 +28,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
-	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 const (
@@ -71,7 +70,6 @@ const (
 	flagSessionSummaryInjectionMode                   = "session-summary-injection-mode"
 	flagSyncSummaryIntraRun                           = "sync-summary-intra-run"
 	flagEnableContextCompaction                       = "enable-context-compaction"
-	flagEnableDetailedMetrics                         = "enable-detailed-context-metrics"
 	flagContextCompactionThresholdRatio               = "context-compaction-threshold-ratio"
 	flagContextCompactionToolResultMaxTokens          = "context-compaction-tool-result-max-tokens"
 	flagContextCompactionKeepRecentRequests           = "context-compaction-keep-recent-requests"
@@ -107,10 +105,6 @@ const (
 	flagSkillsMaxLoaded     = "skills-max-loaded"
 	flagSkillsToolResults   = "skills-loaded-content-in-tool-results"
 	flagSkillsSkipFallback  = "skills-skip-fallback-on-session-summary"
-
-	flagSkillsProjectAgentsRoot  = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot = "skills-personal-agents-root"
-	flagSkillsManagedRoot        = "skills-managed-root"
 
 	flagDebugRecorder     = "debug-recorder"
 	flagDebugRecorderDir  = "debug-recorder-dir"
@@ -157,13 +151,10 @@ type runOptions struct {
 	SessionSummaryInjectionMode                   string
 	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
-	EnableDetailedMetrics                         bool
 	ContextCompactionThresholdRatio               float64
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
-	ContextCompactionForceCleanToolNames          []string
-	ContextCompactionKeepToolNames                []string
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
@@ -194,34 +185,29 @@ type runOptions struct {
 	ClaudeEnv          string
 	ClaudeWorkDir      string
 
-	ModelMode                   string
-	OpenAIModel                 string
-	OpenAIVariant               string
-	OpenAIBaseURL               string
-	GenerationConfig            *model.GenerationConfig
-	ModelContextWindow          int
-	ModelEnableTokenTailoring   bool
-	ModelTokenTailoringStrategy string
-	ModelConfig                 *yaml.Node
-	KnowledgesConfig            []knowledgeEntry
-	SkillsRoot                  string
-	SkillsExtraDir              string
-	SkillsDebug                 bool
-	SkillsAllowBundled          string
-	SkillConfigs                map[string]ocskills.SkillConfig
-	SkillsWatch                 bool
-	SkillsWatchBundled          bool
-	SkillsWatchDebounce         time.Duration
-	SkillsToolProfile           string
-	SkillsLoadMode              string
-	SkillsMaxLoaded             int
-	SkillsToolResults           bool
-	SkillsSkipFallback          bool
-	SkillsToolingGuide          *string
-	SkillsProjectAgentsRoot     bool
-	SkillsPersonalAgentsRoot    bool
-	SkillsManagedRoot           bool
-	StateDir                    string
+	ModelMode           string
+	OpenAIModel         string
+	OpenAIVariant       string
+	OpenAIBaseURL       string
+	GenerationConfig    *model.GenerationConfig
+	ModelContextWindow  int
+	ModelConfig         *yaml.Node
+	KnowledgesConfig    []knowledgeEntry
+	SkillsRoot          string
+	SkillsExtraDir      string
+	SkillsDebug         bool
+	SkillsAllowBundled  string
+	SkillConfigs        map[string]ocskills.SkillConfig
+	SkillsWatch         bool
+	SkillsWatchBundled  bool
+	SkillsWatchDebounce time.Duration
+	SkillsToolProfile   string
+	SkillsLoadMode      string
+	SkillsMaxLoaded     int
+	SkillsToolResults   bool
+	SkillsSkipFallback  bool
+	SkillsToolingGuide  *string
+	StateDir            string
 
 	DebugRecorderEnabled bool
 	DebugRecorderDir     string
@@ -265,8 +251,6 @@ type runOptions struct {
 	EnableOpenClawTools  bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
-
-	ToolCallRetryPolicy *tool.RetryPolicy
 
 	enableOpenClawToolsExplicit bool
 
@@ -599,18 +583,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"",
 		"OpenAI base URL override (mode=openai, optional)",
 	)
-	fs.BoolVar(
-		&opts.ModelEnableTokenTailoring,
-		"enable-token-tailoring",
-		false,
-		"Enable automatic token tailoring based on model context window",
-	)
-	fs.StringVar(
-		&opts.ModelTokenTailoringStrategy,
-		"token-tailoring-strategy",
-		"",
-		"Token tailoring strategy: middle_out|head_out|tail_out (empty uses default middle_out)",
-	)
 	fs.StringVar(
 		&opts.AllowUsers,
 		"allow-users",
@@ -701,24 +673,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		true,
 		"Skip skill fallback system message when session "+
 			"summary exists",
-	)
-	fs.BoolVar(
-		&opts.SkillsProjectAgentsRoot,
-		flagSkillsProjectAgentsRoot,
-		false,
-		"Enable {cwd}/.agents/skills as a skill root",
-	)
-	fs.BoolVar(
-		&opts.SkillsPersonalAgentsRoot,
-		flagSkillsPersonalAgentsRoot,
-		false,
-		"Enable $HOME/.agents/skills as a skill root",
-	)
-	fs.BoolVar(
-		&opts.SkillsManagedRoot,
-		flagSkillsManagedRoot,
-		false,
-		"Enable <state-dir>/skills as a skill root",
 	)
 	fs.StringVar(
 		&opts.StateDir,
@@ -1075,18 +1029,12 @@ type agentRunConfig struct {
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
 	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
-	EnableDetailedMetrics                         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
 	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
-	ContextCompactionForceCleanToolNames          []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
-	ContextCompactionKeepToolNames                []string `yaml:"context_compaction_keep_tool_names,omitempty"`
 	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
-
-	PlannerType   string         `yaml:"planner_type"`
-	PlannerConfig map[string]any `yaml:"planner_config"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -1132,13 +1080,7 @@ type modelConfig struct {
 	OpenAIVariant    *string               `yaml:"openai_variant,omitempty"`
 	GenerationConfig *generationConfigYAML `yaml:"generation_config,omitempty"`
 	ContextWindow    *int                  `yaml:"context_window,omitempty"`
-	TokenTailoring   *tokenTailoringConfig `yaml:"token_tailoring,omitempty"`
 	Config           *rawYAMLNode          `yaml:"config,omitempty"`
-}
-
-type tokenTailoringConfig struct {
-	Enabled  *bool   `yaml:"enabled,omitempty"`
-	Strategy *string `yaml:"strategy,omitempty"`
 }
 
 type generationConfigYAML struct {
@@ -1186,13 +1128,6 @@ type skillsConfig struct {
 	ToolingGuidance      *string `yaml:"tooling_guidance,omitempty"`
 	ToolingGuidanceCamel *string `yaml:"toolingGuidance,omitempty"`
 
-	ProjectAgentsRoot       *bool `yaml:"project_agents_root,omitempty"`
-	ProjectAgentsRootCamel  *bool `yaml:"projectAgentsRoot,omitempty"`
-	PersonalAgentsRoot      *bool `yaml:"personal_agents_root,omitempty"`
-	PersonalAgentsRootCamel *bool `yaml:"personalAgentsRoot,omitempty"`
-	ManagedRoot             *bool `yaml:"managed_root,omitempty"`
-	ManagedRootCamel        *bool `yaml:"managedRoot,omitempty"`
-
 	Entries map[string]skillEntryConfig `yaml:"entries,omitempty"`
 }
 
@@ -1203,45 +1138,13 @@ type skillEntryConfig struct {
 	Env         map[string]string `yaml:"env,omitempty"`
 }
 
-type toolCallRetryPolicyConfig struct {
-	MaxAttempts     *int     `yaml:"max_attempts,omitempty"`
-	InitialInterval *int     `yaml:"initial_interval_ms,omitempty"`
-	BackoffFactor   *float64 `yaml:"backoff_factor,omitempty"`
-	MaxInterval     *int     `yaml:"max_interval_ms,omitempty"`
-	Jitter          *bool    `yaml:"jitter,omitempty"`
-}
-
-func (c *toolCallRetryPolicyConfig) toRetryPolicy() *tool.RetryPolicy {
-	if c == nil {
-		return nil
-	}
-	p := &tool.RetryPolicy{}
-	if c.MaxAttempts != nil {
-		p.MaxAttempts = *c.MaxAttempts
-	}
-	if c.InitialInterval != nil {
-		p.InitialInterval = time.Duration(*c.InitialInterval) * time.Millisecond
-	}
-	if c.BackoffFactor != nil {
-		p.BackoffFactor = *c.BackoffFactor
-	}
-	if c.MaxInterval != nil {
-		p.MaxInterval = time.Duration(*c.MaxInterval) * time.Millisecond
-	}
-	if c.Jitter != nil {
-		p.Jitter = *c.Jitter
-	}
-	return p
-}
-
 type toolsConfig struct {
-	EnableLocalExec           *bool                      `yaml:"enable_local_exec,omitempty"`
-	EnableOpenClawTools       *bool                      `yaml:"enable_openclaw_tools,omitempty"`
-	OpenClawToolingGuide      *string                    `yaml:"openclaw_tooling_guidance,omitempty"`
-	OpenClawToolingGuideCamel *string                    `yaml:"openClawToolingGuidance,omitempty"`
-	EnableParallelTools       *bool                      `yaml:"enable_parallel_tools,omitempty"`
-	RefreshToolSetsOnRun      *bool                      `yaml:"refresh_toolsets_on_run,omitempty"`
-	ToolCallRetryPolicy       *toolCallRetryPolicyConfig `yaml:"tool_call_retry_policy,omitempty"`
+	EnableLocalExec           *bool   `yaml:"enable_local_exec,omitempty"`
+	EnableOpenClawTools       *bool   `yaml:"enable_openclaw_tools,omitempty"`
+	OpenClawToolingGuide      *string `yaml:"openclaw_tooling_guidance,omitempty"`
+	OpenClawToolingGuideCamel *string `yaml:"openClawToolingGuidance,omitempty"`
+	EnableParallelTools       *bool   `yaml:"enable_parallel_tools,omitempty"`
+	RefreshToolSetsOnRun      *bool   `yaml:"refresh_toolsets_on_run,omitempty"`
 
 	Providers []filePluginSpec `yaml:"providers,omitempty"`
 	ToolSets  []filePluginSpec `yaml:"toolsets,omitempty"`
@@ -1524,10 +1427,6 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagEnableContextCompaction) {
 			opts.EnableContextCompaction = *cfg.Agent.EnableContextCompaction
 		}
-		if cfg.Agent.EnableDetailedMetrics != nil &&
-			!flagWasSet(set, flagEnableDetailedMetrics) {
-			opts.EnableDetailedMetrics = *cfg.Agent.EnableDetailedMetrics
-		}
 		if cfg.Agent.ContextCompactionThresholdRatio != nil &&
 			!flagWasSet(set, flagContextCompactionThresholdRatio) {
 			opts.ContextCompactionThresholdRatio = *cfg.Agent.ContextCompactionThresholdRatio
@@ -1543,14 +1442,6 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.ContextCompactionOversizedToolResultMaxTokens != nil &&
 			!flagWasSet(set, flagContextCompactionOversizedToolResultMaxTokens) {
 			opts.ContextCompactionOversizedToolResultMaxTokens = *cfg.Agent.ContextCompactionOversizedToolResultMaxTokens
-		}
-		if cfg.Agent.ContextCompactionForceCleanToolNames != nil &&
-			!flagWasSet(set, "context-compaction-force-clean-tool-names") {
-			opts.ContextCompactionForceCleanToolNames = cfg.Agent.ContextCompactionForceCleanToolNames
-		}
-		if cfg.Agent.ContextCompactionKeepToolNames != nil &&
-			!flagWasSet(set, "context-compaction-keep-tool-names") {
-			opts.ContextCompactionKeepToolNames = cfg.Agent.ContextCompactionKeepToolNames
 		}
 		if cfg.Agent.MaxHistoryRuns != nil &&
 			!flagWasSet(set, flagMaxHistoryRuns) {
@@ -1663,18 +1554,6 @@ func (cfg *fileConfig) apply(
 			opts.OpenAIVariant = strings.TrimSpace(
 				*cfg.Model.OpenAIVariant,
 			)
-		}
-		if cfg.Model.TokenTailoring != nil {
-			if cfg.Model.TokenTailoring.Enabled != nil &&
-				!flagWasSet(set, "enable-token-tailoring") {
-				opts.ModelEnableTokenTailoring = *cfg.Model.TokenTailoring.Enabled
-			}
-			if cfg.Model.TokenTailoring.Strategy != nil &&
-				!flagWasSet(set, "token-tailoring-strategy") {
-				opts.ModelTokenTailoringStrategy = strings.TrimSpace(
-					*cfg.Model.TokenTailoring.Strategy,
-				)
-			}
 		}
 		if cfg.Model.Config != nil {
 			opts.ModelConfig = cfg.Model.Config.Node
@@ -1826,30 +1705,6 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagSkillsSkipFallback) {
 			opts.SkillsSkipFallback = *skipFallback
 		}
-		projectAgentsRoot := firstBoolPtr(
-			cfg.Skills.ProjectAgentsRoot,
-			cfg.Skills.ProjectAgentsRootCamel,
-		)
-		if projectAgentsRoot != nil &&
-			!flagWasSet(set, flagSkillsProjectAgentsRoot) {
-			opts.SkillsProjectAgentsRoot = *projectAgentsRoot
-		}
-		personalAgentsRoot := firstBoolPtr(
-			cfg.Skills.PersonalAgentsRoot,
-			cfg.Skills.PersonalAgentsRootCamel,
-		)
-		if personalAgentsRoot != nil &&
-			!flagWasSet(set, flagSkillsPersonalAgentsRoot) {
-			opts.SkillsPersonalAgentsRoot = *personalAgentsRoot
-		}
-		managedRoot := firstBoolPtr(
-			cfg.Skills.ManagedRoot,
-			cfg.Skills.ManagedRootCamel,
-		)
-		if managedRoot != nil &&
-			!flagWasSet(set, flagSkillsManagedRoot) {
-			opts.SkillsManagedRoot = *managedRoot
-		}
 		opts.SkillsToolingGuide = firstStringPtr(
 			cfg.Skills.ToolingGuidance,
 			cfg.Skills.ToolingGuidanceCamel,
@@ -1880,7 +1735,6 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "refresh-toolsets-on-run") {
 			opts.RefreshToolSetsOnRun = *cfg.Tools.RefreshToolSetsOnRun
 		}
-		opts.ToolCallRetryPolicy = cfg.Tools.ToolCallRetryPolicy.toRetryPolicy()
 		if len(cfg.Tools.Providers) > 0 {
 			opts.ToolProviders = convertPluginSpecs(cfg.Tools.Providers)
 		}

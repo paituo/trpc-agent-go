@@ -69,7 +69,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
-	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 )
 
 const (
@@ -278,13 +277,9 @@ const (
 		"OPENCLAW_RECENT_UPLOADS_JSON instead of guessing " +
 		"attachment paths. For long-running work, independent " +
 		"verification, or background work that can continue after " +
-		"this turn, use subagents_spawn with mode=async. When a " +
-		"subagent result is required before continuing, use " +
-		"mode=sync. When the user must review the subagent result " +
-		"before you continue, use mode=review, show the result, " +
-		"and wait for the next user reply. Do not use subagents " +
-		"for small, tightly-coupled steps, and do not spawn " +
-		"nested subagents. " +
+		"this turn, use subagents_spawn. Do not use background " +
+		"subagents for small, tightly-coupled steps, and do not " +
+		"spawn nested subagents. " +
 		"When a user follows up about a " +
 		"recent upload in the current chat, assume they mean " +
 		"that existing upload unless the reference is " +
@@ -404,14 +399,6 @@ const (
 //
 // args should not include the program name.
 func Main(args []string) int {
-	return MainWithOptions(args)
-}
-
-// MainWithOptions runs the OpenClaw-like CLI with runtime options and returns
-// an exit code.
-//
-// args should not include the program name.
-func MainWithOptions(args []string, options ...RuntimeOption) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case subcmdPairing:
@@ -432,7 +419,7 @@ func MainWithOptions(args []string, options ...RuntimeOption) int {
 	)
 	defer stop()
 
-	if err := RunWithOptions(ctx, args, options...); err != nil {
+	if err := run(ctx, args); err != nil {
 		var exitErr *exitError
 		if errors.As(err, &exitErr) {
 			if errors.Is(exitErr.Err, flag.ErrHelp) {
@@ -447,15 +434,6 @@ func MainWithOptions(args []string, options ...RuntimeOption) int {
 		return 1
 	}
 	return 0
-}
-
-// RunWithOptions runs OpenClaw until ctx is canceled or the runtime exits.
-func RunWithOptions(
-	ctx context.Context,
-	args []string,
-	options ...RuntimeOption,
-) error {
-	return run(ctx, args, options...)
 }
 
 type exitError struct {
@@ -659,7 +637,7 @@ type Runtime struct {
 	adminCfg *admin.Config
 	appName  string
 	session  session.Service
-	subagent SubagentService
+	subagent publicsubagent.Service
 
 	runner            runner.Runner
 	cronRunner        closeFunc
@@ -742,21 +720,7 @@ func (r *Runtime) SessionService() session.Service {
 	return r.session
 }
 
-// SubagentService is the OpenClaw subagent control-plane service exposed by
-// Runtime.
-type SubagentService interface {
-	ListForUser(
-		userID string,
-		filter openclawsubagent.ListFilter,
-	) []openclawsubagent.Run
-	GetForUser(userID string, runID string) (*openclawsubagent.Run, error)
-	CancelForUser(
-		userID string,
-		runID string,
-	) (*openclawsubagent.Run, bool, error)
-}
-
-func (r *Runtime) SubagentService() SubagentService {
+func (r *Runtime) SubagentService() publicsubagent.Service {
 	if r == nil {
 		return nil
 	}
@@ -1044,13 +1008,10 @@ func NewRuntimeWithOptions(
 			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
 			EnableContextCompaction:                       opts.EnableContextCompaction,
-			EnableDetailedMetrics:                         opts.EnableDetailedMetrics,
 			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
-ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
-			ContextCompactionKeepToolNames:                opts.ContextCompactionKeepToolNames,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,
 			GenerationConfig:                              opts.GenerationConfig,
@@ -1065,29 +1026,25 @@ ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanT
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:             opts.SkillConfigs,
-			SkillConfigKeys:          resolveSkillConfigKeys(opts),
-			SkillsWatch:              opts.SkillsWatch,
-			SkillsWatchBundled:       opts.SkillsWatchBundled,
-			SkillsWatchDebounce:      opts.SkillsWatchDebounce,
-			SkillsToolProfile:        opts.SkillsToolProfile,
-			SkillsLoadMode:           opts.SkillsLoadMode,
-			SkillsMaxLoaded:          opts.SkillsMaxLoaded,
-			SkillsToolResults:        opts.SkillsToolResults,
-			SkillsSkipFallback:       opts.SkillsSkipFallback,
-			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
-			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
-			SkillsManagedRoot:        opts.SkillsManagedRoot,
-			SkillsToolingGuide:       opts.SkillsToolingGuide,
-			KnowledgesConfig:         opts.KnowledgesConfig,
-			StateDir:                 resolvedStateDir,
-			MemoryFileStore:          fileMemoryStore,
+			SkillConfigs:        opts.SkillConfigs,
+			SkillConfigKeys:     resolveSkillConfigKeys(opts),
+			SkillsWatch:         opts.SkillsWatch,
+			SkillsWatchBundled:  opts.SkillsWatchBundled,
+			SkillsWatchDebounce: opts.SkillsWatchDebounce,
+			SkillsToolProfile:   opts.SkillsToolProfile,
+			SkillsLoadMode:      opts.SkillsLoadMode,
+			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
+			SkillsToolResults:   opts.SkillsToolResults,
+			SkillsSkipFallback:  opts.SkillsSkipFallback,
+			SkillsToolingGuide:  opts.SkillsToolingGuide,
+			KnowledgesConfig:    opts.KnowledgesConfig,
+			StateDir:            resolvedStateDir,
+			MemoryFileStore:     fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
-			ToolCallRetryPolicy:  opts.ToolCallRetryPolicy,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -1129,7 +1086,6 @@ ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanT
 	runnerOpts := []runner.Option{
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
-		runner.WithAwaitUserReplyRouting(true),
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
@@ -1390,13 +1346,8 @@ func (r *Runtime) Close() error {
 	return errors.Join(errs...)
 }
 
-func run(
-	ctx context.Context,
-	args []string,
-	options ...RuntimeOption,
-) error {
+func run(ctx context.Context, args []string) error {
 	startedAt := time.Now()
-	runtimeOpts := buildRuntimeOptions(options)
 	opts, err := parseRunOptions(args)
 	if err != nil {
 		return err
@@ -1578,13 +1529,10 @@ func run(
 			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
 			EnableContextCompaction:                       opts.EnableContextCompaction,
-			EnableDetailedMetrics:                         opts.EnableDetailedMetrics,
 			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
-			ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
-			ContextCompactionKeepToolNames:                opts.ContextCompactionKeepToolNames,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,
 			GenerationConfig:                              opts.GenerationConfig,
@@ -1599,29 +1547,25 @@ func run(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:             opts.SkillConfigs,
-			SkillConfigKeys:          resolveSkillConfigKeys(opts),
-			SkillsWatch:              opts.SkillsWatch,
-			SkillsWatchBundled:       opts.SkillsWatchBundled,
-			SkillsWatchDebounce:      opts.SkillsWatchDebounce,
-			SkillsToolProfile:        opts.SkillsToolProfile,
-			SkillsLoadMode:           opts.SkillsLoadMode,
-			SkillsMaxLoaded:          opts.SkillsMaxLoaded,
-			SkillsToolResults:        opts.SkillsToolResults,
-			SkillsSkipFallback:       opts.SkillsSkipFallback,
-			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
-			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
-			SkillsManagedRoot:        opts.SkillsManagedRoot,
-			SkillsToolingGuide:       opts.SkillsToolingGuide,
-			KnowledgesConfig:         opts.KnowledgesConfig,
-			StateDir:                 resolvedStateDir,
-			MemoryFileStore:          fileMemoryStore,
+			SkillConfigs:        opts.SkillConfigs,
+			SkillConfigKeys:     resolveSkillConfigKeys(opts),
+			SkillsWatch:         opts.SkillsWatch,
+			SkillsWatchBundled:  opts.SkillsWatchBundled,
+			SkillsWatchDebounce: opts.SkillsWatchDebounce,
+			SkillsToolProfile:   opts.SkillsToolProfile,
+			SkillsLoadMode:      opts.SkillsLoadMode,
+			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
+			SkillsToolResults:   opts.SkillsToolResults,
+			SkillsSkipFallback:  opts.SkillsSkipFallback,
+			SkillsToolingGuide:  opts.SkillsToolingGuide,
+			KnowledgesConfig:    opts.KnowledgesConfig,
+			StateDir:            resolvedStateDir,
+			MemoryFileStore:     fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
-			ToolCallRetryPolicy:  opts.ToolCallRetryPolicy,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -1659,7 +1603,6 @@ func run(
 	runnerOpts := []runner.Option{
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
-		runner.WithAwaitUserReplyRouting(true),
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
@@ -1680,7 +1623,7 @@ func run(
 	runtimeProfileResolver, runtimeProfileCatalog, runtimeProfileRequired :=
 		runtimeProfileResolverFromOptions(
 			opts.RuntimeProfiles,
-			runtimeOpts,
+			runtimeOptions{},
 		)
 
 	gwOpts := makeGatewayOptions(
@@ -2443,8 +2386,7 @@ func newAgent(
 		instruction = defaultAgentInstruction
 	}
 	if cfg.EnableOpenClawTools {
-		guidance := buildOpenClawToolingGuidance(cfg)
-		if strings.TrimSpace(guidance) != "" {
+		if guidance := buildOpenClawToolingGuidance(cfg); strings.TrimSpace(guidance) != "" {
 			instruction = strings.TrimSpace(
 				instruction + "\n\n" + guidance,
 			)
@@ -2507,7 +2449,6 @@ func newAgent(
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
 		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
-		llmagent.WithEnableDetailedMetrics(cfg.EnableDetailedMetrics),
 		llmagent.WithContextCompactionThresholdRatio(cfg.ContextCompactionThresholdRatio),
 		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
 		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
@@ -2522,22 +2463,6 @@ func newAgent(
 		llmagent.WithSkillFilter(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
-	}
-	if backends.SharedTokenCounter != nil {
-		opts = append(opts,
-			llmagent.WithContextCompactionTokenCounter(backends.SharedTokenCounter),
-		)
-	}
-	if len(cfg.ContextCompactionForceCleanToolNames) > 0 ||
-		len(cfg.ContextCompactionKeepToolNames) > 0 {
-		opts = append(opts,
-			llmagent.WithToolResultCompactionConfig(
-				&llmagent.ToolResultCompactionConfig{
-					ForceCleanToolNames: cfg.ContextCompactionForceCleanToolNames,
-					KeepToolNames:       cfg.ContextCompactionKeepToolNames,
-				},
-			),
-		)
 	}
 	if cfg.SessionSummaryInjectionMode != "" {
 		opts = append(
@@ -2588,12 +2513,6 @@ func newAgent(
 	if cfg.EnableLocalExec {
 		exec := localexec.New()
 		opts = append(opts, llmagent.WithCodeExecutor(exec))
-	}
-	if cfg.ToolCallRetryPolicy != nil {
-		opts = append(
-			opts,
-			llmagent.WithToolCallRetryPolicy(cfg.ToolCallRetryPolicy),
-		)
 	}
 
 	callbacks := tool.NewCallbacks()
@@ -2819,13 +2738,10 @@ type agentConfig struct {
 	SessionSummaryInjectionMode                   string
 	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
-	EnableDetailedMetrics                         bool
 	ContextCompactionThresholdRatio               float64
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
-	ContextCompactionForceCleanToolNames          []string
-	ContextCompactionKeepToolNames                []string
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 	GenerationConfig                              *model.GenerationConfig
@@ -2834,25 +2750,22 @@ type agentConfig struct {
 	Instruction                                   string
 	SystemPrompt                                  string
 
-	SkillsRoot               string
-	SkillsExtraDirs          []string
-	SkillsDebug              bool
-	SkillsAllowBundled       []string
-	SkillConfigs             map[string]ocskills.SkillConfig
-	SkillConfigKeys          []string
-	SkillsWatch              bool
-	SkillsWatchBundled       bool
-	SkillsWatchDebounce      time.Duration
-	SkillsToolProfile        string
-	SkillsLoadMode           string
-	SkillsMaxLoaded          int
-	SkillsToolResults        bool
-	SkillsSkipFallback       bool
-	SkillsProjectAgentsRoot  bool
-	SkillsPersonalAgentsRoot bool
-	SkillsManagedRoot        bool
-	SkillsToolingGuide       *string
-	KnowledgesConfig         []knowledgeEntry
+	SkillsRoot          string
+	SkillsExtraDirs     []string
+	SkillsDebug         bool
+	SkillsAllowBundled  []string
+	SkillConfigs        map[string]ocskills.SkillConfig
+	SkillConfigKeys     []string
+	SkillsWatch         bool
+	SkillsWatchBundled  bool
+	SkillsWatchDebounce time.Duration
+	SkillsToolProfile   string
+	SkillsLoadMode      string
+	SkillsMaxLoaded     int
+	SkillsToolResults   bool
+	SkillsSkipFallback  bool
+	SkillsToolingGuide  *string
+	KnowledgesConfig    []knowledgeEntry
 
 	StateDir string
 
@@ -2863,8 +2776,6 @@ type agentConfig struct {
 	EnableOpenClawTools  bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
-
-	ToolCallRetryPolicy *tool.RetryPolicy
 
 	ToolProviders []pluginSpec
 
@@ -3006,15 +2917,9 @@ func resolveSkillRoots(cwd string, cfg agentConfig) []string {
 
 	roots := make([]string, 0, 6+len(cfg.SkillsExtraDirs))
 	roots = append(roots, workspaceSkills)
-	if cfg.SkillsProjectAgentsRoot {
-		roots = append(roots, projectAgentsSkills)
-	}
-	if cfg.SkillsPersonalAgentsRoot {
-		roots = append(roots, personalAgentsSkills)
-	}
-	if cfg.SkillsManagedRoot {
-		roots = append(roots, managedSkills)
-	}
+	roots = append(roots, projectAgentsSkills)
+	roots = append(roots, personalAgentsSkills)
+	roots = append(roots, managedSkills)
 	if bundledSkills != workspaceSkills &&
 		bundledSkills != managedSkills {
 		roots = append(roots, bundledSkills)
@@ -3201,29 +3106,7 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if spec.ContextWindow > 0 {
 		opts = append(opts, openai.WithContextWindow(spec.ContextWindow))
 	}
-	if spec.EnableTokenTailoring {
-		opts = append(opts, openai.WithEnableTokenTailoring(true))
-		if strategy := parseTokenTailoringStrategy(spec.TokenTailoringStrategy); strategy != nil {
-			opts = append(opts, openai.WithTailoringStrategy(strategy))
-		}
-	}
-	if spec.TokenCounter != nil {
-		opts = append(opts, openai.WithTokenCounter(spec.TokenCounter))
-	}
 	return openai.New(name, opts...), nil
-}
-
-func parseTokenTailoringStrategy(strategy string) model.TailoringStrategy {
-	switch strings.ToLower(strings.TrimSpace(strategy)) {
-	case "middle_out":
-		return model.NewMiddleOutStrategy(nil)
-	case "head_out":
-		return model.NewHeadOutStrategy(nil)
-	case "tail_out":
-		return model.NewTailOutStrategy(nil)
-	default:
-		return nil
-	}
 }
 
 func modelFromOptions(opts runOptions) (model.Model, error) {
@@ -3243,16 +3126,13 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 	}
 
 	spec := registry.ModelSpec{
-		Type:                   mode,
-		Name:                   opts.OpenAIModel,
-		BaseURL:                baseURL,
-		OpenAIVariant:          opts.OpenAIVariant,
-		DebugRecorderEnabled:   opts.DebugRecorderEnabled,
-		ContextWindow:          opts.ModelContextWindow,
-		EnableTokenTailoring:   opts.ModelEnableTokenTailoring,
-		TokenTailoringStrategy: opts.ModelTokenTailoringStrategy,
-		TokenCounter:           backends.SharedTokenCounter,
-		Config:                 opts.ModelConfig,
+		Type:                 mode,
+		Name:                 opts.OpenAIModel,
+		BaseURL:              baseURL,
+		OpenAIVariant:        opts.OpenAIVariant,
+		DebugRecorderEnabled: opts.DebugRecorderEnabled,
+		ContextWindow:        opts.ModelContextWindow,
+		Config:               opts.ModelConfig,
 	}
 	return f(spec)
 }
