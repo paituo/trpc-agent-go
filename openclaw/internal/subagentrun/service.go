@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -172,6 +173,12 @@ func (s *Service) Spawn(
 	view := record.publicView()
 
 	s.wg.Add(1)
+	// Propagate the current request's span context into the background context
+	// so that subagent spans are linked to the parent span.
+	runCtx := s.baseCtx
+	if spanCtx := trace.SpanContextFromContext(ctx); spanCtx.IsValid() {
+		runCtx = trace.ContextWithSpanContext(s.baseCtx, spanCtx)
+	}
 	go func(
 		parent context.Context,
 		runID string,
@@ -180,7 +187,7 @@ func (s *Service) Spawn(
 	) {
 		defer s.wg.Done()
 		s.execute(parent, runID, timeoutSeconds, parentInvocationID)
-	}(s.baseCtx, record.ID, req.TimeoutSeconds, req.ParentInvocationID)
+	}(runCtx, record.ID, req.TimeoutSeconds, req.ParentInvocationID)
 
 	return view, nil
 }
