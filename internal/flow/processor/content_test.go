@@ -720,7 +720,7 @@ func TestContentRequestProcessor_getFilterIncrementalMessagesWithTime(t *testing
 				agent.WithInvocationEventFilterKey("test-filter"),
 			)
 
-			messages := p.getIncrementMessages(inv, tt.summaryUpdatedAt)
+			messages, _ := p.getIncrementMessages(inv, tt.summaryUpdatedAt)
 
 			assert.Len(t, messages, tt.expectedCount)
 
@@ -763,7 +763,7 @@ func TestContentRequestProcessor_getIncrementMessages_ProjectsEvents(
 		agent.WithInvocationEventFilterKey("test-filter"),
 	)
 
-	messages := p.getIncrementMessages(inv, time.Time{})
+	messages, _ := p.getIncrementMessages(inv, time.Time{})
 	assert.Len(t, messages, 1)
 	assert.Equal(t, "Projected: hello", messages[0].Content)
 }
@@ -808,7 +808,7 @@ func TestContentRequestProcessor_getIncrementMessages_DropsReasoningOnlyAssistan
 		agent.WithInvocationEventFilterKey("test-filter"),
 	)
 
-	messages := p.getIncrementMessages(inv, time.Time{})
+	messages, _ := p.getIncrementMessages(inv, time.Time{})
 	assert.Empty(t, messages)
 }
 
@@ -1035,7 +1035,7 @@ func TestContentRequestProcessor_ConcurrentFilterIncrementalMessages(t *testing.
 	)
 
 	// Test single call
-	messages := p.getIncrementMessages(inv, time.Time{})
+	messages, _ := p.getIncrementMessages(inv, time.Time{})
 	assert.Len(t, messages, 1, "Should get one message")
 	assert.Equal(t, "test message", messages[0].Content)
 
@@ -1047,8 +1047,8 @@ func TestContentRequestProcessor_ConcurrentFilterIncrementalMessages(t *testing.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			messages := p.getIncrementMessages(inv, time.Time{})
-			results <- len(messages)
+			msgs, _ := p.getIncrementMessages(inv, time.Time{})
+			results <- len(msgs)
 		}()
 	}
 
@@ -1230,7 +1230,10 @@ func TestContentRequestProcessor_getFilterHistoryMessages(t *testing.T) {
 				agent.WithInvocationEventFilterKey("test-filter"),
 			)
 
-			messages := tt.processor.getIncrementMessages(inv, time.Time{})
+			messages, _ := tt.processor.getIncrementMessages(inv, time.Time{})
+			if !tt.processor.AddSessionSummary && tt.processor.MaxHistoryRuns > 0 {
+				messages = applyMaxHistoryRuns(messages, tt.processor.MaxHistoryRuns)
+			}
 
 			assert.Equal(t, tt.expectedCount, len(messages))
 			for i, expectedContent := range tt.expectedContent {
@@ -1403,7 +1406,8 @@ func TestContentRequestProcessor_MaxHistoryRuns_SkipsOrphanedToolResults(t *test
 				agent.WithInvocationEventFilterKey("test-filter"),
 			)
 
-			messages := processor.getIncrementMessages(inv, time.Time{})
+			messages, _ := processor.getIncrementMessages(inv, time.Time{})
+			messages = applyMaxHistoryRuns(messages, tt.maxHistoryRuns)
 
 			assert.Equal(t, tt.expectedCount, len(messages), tt.description)
 			for i, expectedContent := range tt.expectedContent {
@@ -2786,7 +2790,7 @@ func TestContentRequestProcessor_getFilterIncrementMessages(t *testing.T) {
 				WithTimelineFilterMode(tt.timelineFilterMode),
 			)
 
-			messages := p.getIncrementMessages(inv, tt.summaryUpdatedAt)
+			messages, _ := p.getIncrementMessages(inv, tt.summaryUpdatedAt)
 
 			assert.Len(t, messages, tt.expectedCount)
 
@@ -2901,7 +2905,7 @@ func TestContentRequestProcessor_getIncrementMessages_ForceCleanWithScopedTimeli
 				WithContextCompactionForceCleanToolNames("shell"),
 			)
 
-			messages := p.getIncrementMessages(inv, time.Time{})
+			messages, _ := p.getIncrementMessages(inv, time.Time{})
 			require.Len(t, messages, 2)
 			require.Len(t, messages[0].ToolCalls, 1)
 			require.Equal(t, "shell", messages[0].ToolCalls[0].Function.Name)
@@ -2986,7 +2990,7 @@ func TestContentRequestProcessor_getIncrementMessages_DoesNotInferMissingToolNam
 		WithContextCompactionForceCleanToolNames("shell"),
 	)
 
-	messages := p.getIncrementMessages(inv, time.Time{})
+	messages, _ := p.getIncrementMessages(inv, time.Time{})
 
 	require.Len(t, messages, 2)
 	require.Len(t, messages[0].ToolCalls, 1)
@@ -3972,7 +3976,7 @@ func TestContentRequestProcessor_getIncrementMessages_SummaryPreservesToolState(
 	inv.AgentName = "test-agent"
 
 	p := NewContentRequestProcessor(WithAddSessionSummary(true))
-	messages := p.getIncrementMessages(inv, baseTime.Add(2*time.Second))
+	messages, _ := p.getIncrementMessages(inv, baseTime.Add(2*time.Second))
 
 	if assert.Len(t, messages, 5) {
 		assert.True(t, model.MessagesEqual(userMsg, messages[0]))
@@ -4058,7 +4062,7 @@ func TestContentRequestProcessor_getIncrementMessages_MixedToolContinuationPrese
 	)
 	inv.AgentName = "test-agent"
 	p := NewContentRequestProcessor()
-	messages := p.getIncrementMessages(inv, time.Time{})
+	messages, _ := p.getIncrementMessages(inv, time.Time{})
 	require.Len(t, messages, 4)
 	require.True(t, model.MessagesEqual(userMsg, messages[0]))
 	require.Equal(t, model.RoleAssistant, messages[1].Role)
@@ -5115,7 +5119,7 @@ func TestContentRequestProcessor_GetIncrementMessagesWithReasoningContent(t *tes
 				WithReasoningContentMode(tt.mode),
 			)
 
-			messages := p.getIncrementMessages(inv, time.Time{})
+			messages, _ := p.getIncrementMessages(inv, time.Time{})
 
 			assert.Equal(t, tt.expectedMessageCount, len(messages),
 				"expected %d messages, got %d", tt.expectedMessageCount, len(messages))

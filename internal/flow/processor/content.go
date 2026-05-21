@@ -29,6 +29,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	iflow "trpc.group/trpc-go/trpc-agent-go/internal/flow"
 	"trpc.group/trpc-go/trpc-agent-go/internal/util/message"
+	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -666,10 +667,24 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 			messages = p.getCurrentInvocationMessages(invocation)
 		}
 	} else {
-		messages = p.getIncrementMessages(invocation, summaryUpdatedAt)
+		var compactionStats ContextCompactionStats
+		messages, compactionStats = p.getIncrementMessages(invocation, summaryUpdatedAt)
 		if p.hasCompactedCurrentInvocationToolResults(invocation, summaryUpdatedAt) {
 			invocation.SetState(contentHasCompactedToolResultsStateKey, true)
 		}
+		tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+		tracker.RecordToolCompaction(compactionStats.ToolResultsCompacted > 0, compactionStats.EstimatedTokensSaved)
+		tracker.RecordOversizedTruncation(compactionStats.OversizedResultsTruncated > 0, compactionStats.OversizedTokensSaved)
+	}
+
+	// Apply MaxHistoryRuns limit when AddSessionSummary is false.
+	if !skipHistory && !p.AddSessionSummary && p.MaxHistoryRuns > 0 {
+		before := len(messages)
+		messages = applyMaxHistoryRuns(messages, p.MaxHistoryRuns)
+		after := len(messages)
+		trimmed := before > after
+		tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+		tracker.RecordHistoryTrim(trimmed, before, after)
 	}
 
 	// When user-mode summary injection is active, prepend the summary as a
@@ -681,6 +696,9 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 	if summaryText != "" && p.SessionSummaryInjectionMode == SessionSummaryInjectionUser {
 		messages = p.prependSummaryUserMessage(summaryText, messages, req.Messages)
 	}
+
+	tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+	tracker.RecordSummaryTriggered(p.AddSessionSummary && summaryText != "")
 
 	req.Messages = append(req.Messages, messages...)
 	return len(messages) == 0
@@ -892,9 +910,9 @@ func (p *ContentRequestProcessor) formatSummary(summary string) string {
 
 // getHistoryMessages gets history messages for the current filter, potentially truncated by MaxHistoryRuns.
 // This method is used when AddSessionSummary is false to get recent history messages.
-func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) []model.Message {
+func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) ([]model.Message, ContextCompactionStats) {
 	if inv.Session == nil {
-		return nil
+		return nil, ContextCompactionStats{}
 	}
 	isZeroTime := since.IsZero()
 	filter := inv.GetEventFilterKey()
@@ -940,20 +958,20 @@ func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, si
 	// Apply compaction to the already timeline-filtered projection. Tool-result
 	// policy (force-clean/keep) and historical passes must run for scoped modes
 	// such as request/invocation, not only when TimelineFilterAll is selected.
-	var stats ContextCompactionStats
-	resultEvents, stats = compactIncrementEvents(
+	var compactionStats ContextCompactionStats
+	resultEvents, compactionStats = compactIncrementEvents(
 		context.Background(),
 		resultEvents,
 		inv.RunOptions.RequestID,
 		inv.InvocationID,
 		p.ContextCompactionConfig,
 	)
-	if stats.ToolResultsCompacted > 0 {
+	if compactionStats.ToolResultsCompacted > 0 {
 		log.DebugfContext(
 			context.Background(),
 			"Context compaction omitted %d historical tool results (~%d tokens) for agent %s",
-			stats.ToolResultsCompacted,
-			stats.EstimatedTokensSaved,
+			compactionStats.ToolResultsCompacted,
+			compactionStats.EstimatedTokensSaved,
 			inv.AgentName,
 		)
 	}
@@ -991,13 +1009,8 @@ func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, si
 	}
 
 	messages = p.mergeUserMessages(messages)
-
-	// Apply MaxHistoryRuns limit when AddSessionSummary is false.
-	if !p.AddSessionSummary && p.MaxHistoryRuns > 0 {
-		messages = applyMaxHistoryRuns(messages, p.MaxHistoryRuns)
-	}
 	messages = annotateUserMessagesWithAttachedFiles(messages)
-	return messages
+	return messages, compactionStats
 }
 
 // compactCurrentInvocationEvent preserves the minimum structured state needed
