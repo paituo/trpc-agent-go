@@ -105,6 +105,8 @@ type options struct {
 	TokenCounter model.TokenCounter
 	// TailoringStrategy defines the strategy for token tailoring.
 	TailoringStrategy model.TailoringStrategy
+	// tailoringStrategyName is the name of the tailoring strategy for metrics.
+	tailoringStrategyName string
 	// MaxInputTokens is the max input tokens for token tailoring.
 	MaxInputTokens int
 	// ContextWindow is the model context window size in tokens.

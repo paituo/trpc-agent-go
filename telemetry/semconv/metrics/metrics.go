@@ -79,4 +79,27 @@ const (
 	MeterNameWorkflow = "trpc_agent_go.internal.workflow"
 	// MeterNameInvokeAgent is the meter name for invoke agent operations.
 	MeterNameInvokeAgent = "trpc_agent_go.internal.invoke_agent"
+	// MeterNameContext is the meter name for context control operations.
+	MeterNameContext = "trpc_agent_go.internal.context"
+
+	////////////////////////// context control metrics ////////////////////////
+
+	// Context histogram metric names.
+	MetricContextInputTokens         = "context.input_tokens"          // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextWindowSize          = "context.window_size"           // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextUsageRatio          = "context.usage_ratio"           // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextInitialTokens       = "context.initial_tokens"        // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextInitialMessageCount = "context.initial_message_count" // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextTailoredTokens      = "context.tailored_tokens"       // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextTailoredMessages    = "context.tailored_messages"     // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextCompactedTokens     = "context.compacted_tokens"      // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextMessageCount        = "context.message_count"         // #nosec G101 - this is a metric key name, not a credential.
+
+	// Context counter metric names.
+	MetricContextCompactionTrigger          = "context.compaction.trigger"           // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextTailoringTrigger           = "context.tailoring.trigger"            // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextSummaryTrigger             = "context.summary.trigger"              // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextToolCompactionTrigger      = "context.tool_compaction.trigger"      // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextOversizedTruncationTrigger = "context.oversized_truncation.trigger" // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextHistoryTrimTrigger         = "context.history_trim.trigger"         // #nosec G101 - this is a metric key name, not a credential.
 )

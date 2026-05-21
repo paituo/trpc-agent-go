@@ -71,8 +71,10 @@ type ContextCompactionSkipRecentFunc func(events []event.Event) int
 // ContextCompactionStats reports how much prompt history was compacted during
 // request projection.
 type ContextCompactionStats struct {
-	ToolResultsCompacted int
-	EstimatedTokensSaved int
+	ToolResultsCompacted    int
+	EstimatedTokensSaved    int
+	OversizedResultsTruncated int
+	OversizedTokensSaved    int
 }
 
 type toolResultCompactionRules struct {
@@ -190,6 +192,8 @@ func compactIncrementEvents(
 			cfg,
 		)
 		compacted = passEvents
+		stats.OversizedResultsTruncated = passStats.ToolResultsCompacted
+		stats.OversizedTokensSaved = passStats.EstimatedTokensSaved
 		stats = mergeContextCompactionStats(stats, passStats)
 	}
 
@@ -392,6 +396,8 @@ func mergeContextCompactionStats(
 ) ContextCompactionStats {
 	base.ToolResultsCompacted += delta.ToolResultsCompacted
 	base.EstimatedTokensSaved += delta.EstimatedTokensSaved
+	base.OversizedResultsTruncated += delta.OversizedResultsTruncated
+	base.OversizedTokensSaved += delta.OversizedTokensSaved
 	return base
 }
 
