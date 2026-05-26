@@ -153,6 +153,41 @@ func ResolveTargetFromSessionID(sessionID string) (DeliveryTarget, bool) {
 			Target:  target,
 		}, true
 	}
+	if target, ok := resolveGenericTarget(sessionID); ok {
+		return target, true
+	}
+	return DeliveryTarget{}, false
+}
+
+// resolveGenericTarget parses session IDs following the format
+// <channel>:dm:<userID> or <channel>:thread:<threadID> for non-Telegram,
+// non-WeCom channels.
+func resolveGenericTarget(sessionID string) (DeliveryTarget, bool) {
+	const dmSuffix = ":dm:"
+	const threadSuffix = ":thread:"
+
+	if idx := strings.LastIndex(sessionID, dmSuffix); idx >= 0 {
+		channel := sessionID[:idx]
+		userID := sessionID[idx+len(dmSuffix):]
+		if channel != "" && userID != "" {
+			return DeliveryTarget{
+				Channel: channel,
+				Target:  userID,
+			}, true
+		}
+	}
+
+	if idx := strings.LastIndex(sessionID, threadSuffix); idx >= 0 {
+		channel := sessionID[:idx]
+		threadID := sessionID[idx+len(threadSuffix):]
+		if channel != "" && threadID != "" {
+			return DeliveryTarget{
+				Channel: channel,
+				Target:  threadID,
+			}, true
+		}
+	}
+
 	return DeliveryTarget{}, false
 }
 
