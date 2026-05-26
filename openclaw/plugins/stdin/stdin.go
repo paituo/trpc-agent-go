@@ -153,7 +153,7 @@ func (c *channel) Run(ctx context.Context) error {
 		}
 
 		rsp, err := c.gw.SendMessage(ctx, gwclient.MessageRequest{
-			Channel: pluginType,
+			Channel: c.id,
 			From:    c.from,
 			Thread:  c.thread,
 			Text:    text,

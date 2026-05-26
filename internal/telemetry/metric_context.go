@@ -140,8 +140,12 @@ func (t *ContextMetricsTracker) RecordInitialState(messages []model.Message, tok
 		return
 	}
 	t.initialMessageCount = len(messages)
-	if tokenCounter != nil && len(messages) > 0 {
-		tokens, err := tokenCounter.CountTokensRange(t.ctx, messages, 0, len(messages))
+	if len(messages) > 0 {
+		counter := tokenCounter
+		if counter == nil {
+			counter = model.NewSimpleTokenCounter()
+		}
+		tokens, err := counter.CountTokensRange(t.ctx, messages, 0, len(messages))
 		if err == nil {
 			t.initialTokens = tokens
 		}
