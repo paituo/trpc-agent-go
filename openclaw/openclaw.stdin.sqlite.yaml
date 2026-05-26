@@ -7,7 +7,7 @@ admin:
 agent:
   type: "llm"
   planner_type: "react"
-  instruction: "You are a helpful assistant for terminal chat."
+  #instruction: "You are a helpful assistant for terminal chat."
   add_session_summary: true
   session_summary_injection_mode: "system"
   sync_summary_intra_run: true
@@ -15,8 +15,7 @@ agent:
   context_compaction_threshold_ratio: 0.5
   context_compaction_tool_result_max_tokens: 1024
   context_compaction_keep_recent_requests: 2
-  context_compaction_oversized_tool_result_max_tokens: 11000
-
+  context_compaction_oversized_tool_result_max_tokens: 4096
 #   source ~/.zshrc
 
 #   gpt52
@@ -27,7 +26,7 @@ model:
   context_window: 128000
   generation_config:
     max_tokens: 12000
-    temperature: 0.7
+    temperature: 0.1
     stream: true
 # Mock mode example for local smoke tests:
 
@@ -43,11 +42,28 @@ channels:
       show_role_labels: true
 session:
   backend: "sqlite"
+  summary:
+    enabled: true
+    mode: "auto"
+    policy: "any"
+    max_words: 1000
+    # 触发条件（任一满足即触发）
+    event_threshold: 20           # 自上次摘要后新增 20 个事件后触发
+    token_threshold: 8192         # 自上次摘要后新增 4000 个 token 后触发
+    idle_threshold: "10m"
+    approx_runes_per_token: 60000
+
   config:
     path: "./sessions.sqlite"
     skip_db_init: false
+
 memory:
   backend: "sqlite"
+  limit: 200
+  auto:
+    enabled: true
+    policy: "any"
+    message_threshold: 10  
   config:
     path: "./memories.sqlite"
     skip_db_init: false
@@ -55,6 +71,38 @@ skills:
   root: "./skills"
   tool_profile: "full"
   load_mode: "turn"
+  tooling_guidance: >
+    ## Skill Rules
+
+    1. **Match → Load immediately.** If the user names a skill, slash command,
+    or the task matches a skill description, call `skill_load` in the same turn.
+    No delay, no exceptions.
+
+    2. **Act, don't announce.** Mentioning a skill requires the `skill_load`
+    call in the same message. Brief preamble only; no capability disclaimers.
+
+    3. **Load before answer.** Never answer a matching task from memory or
+    short summaries. Always load `SKILL.md` first.
+
+    4. **Resolve & minimize.** Relative paths resolve from the skill directory.
+    Read only what's needed; keep context small.
+
+    5. **Durable → skill; lightweight → memory.** Durable capabilities
+    (workflows, integrations, rules) → create or update a local skill at a
+    user-managed root. Simple facts or preferences → use memory instead.
+
+    6. **Stable vs. evolving.** Platform code handles stable boundaries
+    (secrets, permissions, validation, execution guarantees). Skill context
+    handles evolving behavior (triggers, constraints, examples, recovery,
+    domain knowledge).
+
+    7. **Finish what you start.** Creating a skill? Write files, store no raw
+    secrets, validate, refresh if the runtime provides a path, then use it.
+    Reuse bundled assets when they fit.
+
+    8. **Minimal & honest.** Use the smallest skill set covering the task.
+    Don't invent from partial memory. Explore locally before asking. Missing
+    skill? State the issue briefly and fallback gracefully.
   entries:
     apple-notes:
       enabled: false
@@ -72,6 +120,35 @@ tools:
   enable_local_exec: true
   enable_openclaw_tools: true
   enable_parallel_tools: true
+  openclaw_tooling_guidance: >
+    Tool selection: prefer read_document/read_spreadsheet for uploaded
+    documents and spreadsheets; use write_stdin and kill_session for
+    interactive input; avoid exec_command for reading uploads or printing
+    OPENCLAW_* vars when a matching chat file exists.
+    Messaging: use message to send to current chat or explicit target.
+    Always send media (PDF/image/audio/video) via message with host refs
+    or local paths—mentioning a filename alone does not send it. If a
+    command returns media_files/media_dirs, call message with those paths
+    unless the reply already includes MEDIA:/MEDIA_DIR: lines. For
+    Telegram voice replies use as_voice=true or [[audio_as_voice]].
+    Uploads: match existing uploads by media kind (voice→audio,
+    video note→video, MIME-based media kind) before asking for re-upload.
+    Prefer OPENCLAW_LAST_UPLOAD_PATH or OPENCLAW_SESSION_UPLOADS_DIR for
+    paths; use OPENCLAW_LAST_*_NAME (not basename of PATH) for output
+    filenames. Refer to uploads by filename and media kind only—never
+    expose local host paths. Complete create/send/publish/upload/update
+    actions in the same turn and return the result link/ID/file marker.
+    Memory: use conversation_history for active chat questions; reserve
+    memory tools for cross-session durable facts only. OPENCLAW_MEMORY_FILE
+    stores stable facts/preferences/workflow rules—read when asked what
+    you remember, update with short bullet on 'remember this'. Never store
+    secrets or large transcripts. Prefer installed local tools for
+    OCR/PDF/audio/image/video work.
+    Subagents and cron: use subagents_spawn for long-running background
+    work; avoid for small tightly-coupled steps and never nest. For cron,
+    omit channel to default to current chat; write one-time execution
+    instructions. Use cron for future/recurring work.
+
   providers:
   toolsets:
     - type: "file"
@@ -86,5 +163,5 @@ debug_recorder:
   mode: "full"
 observability:
   langfuse:
-    enabled: false
+    enabled: true
     required: false

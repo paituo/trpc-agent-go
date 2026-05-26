@@ -585,6 +585,14 @@ func (f *Flow) runOneStep(
 	if invocation.EndInvocation {
 		return lastEvent, nil
 	}
+	if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
+		contextWindow := 0
+		if callModel != nil {
+			contextWindow = callModel.Info().ContextWindow
+		}
+		ctxTracker.RecordPreTailoring(llmRequest.Messages, contextWindow, "", f.tokenCounter())
+		ctxTracker.RecordPostTailoring(llmRequest.Messages, f.tokenCounter())
+	}
 	observabilityInvocation := invocationViewForModel(invocation, callModel)
 	stepID := agent.StartExecutionTraceStep(
 		invocation,
