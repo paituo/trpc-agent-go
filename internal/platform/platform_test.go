@@ -29,7 +29,8 @@ func TestShell_ReturnsValidSpec(t *testing.T) {
 }
 
 func TestBuildCommand_ReturnsValidCommand(t *testing.T) {
-	cmd, args, err := BuildCommand(nil, "echo hello")
+	const testCommand = "echo hello"
+	cmd, args, err := BuildCommand(nil, testCommand)
 	if err != nil {
 		t.Fatalf("BuildCommand() returned error: %v", err)
 	}
@@ -38,6 +39,9 @@ func TestBuildCommand_ReturnsValidCommand(t *testing.T) {
 	}
 	if len(args) < 2 {
 		t.Fatalf("BuildCommand() returned too few args: %v", args)
+	}
+	if args[len(args)-1] != testCommand {
+		t.Errorf("BuildCommand() last arg = %q, want %q (user command should be the final argument)", args[len(args)-1], testCommand)
 	}
 	t.Logf("BuildCommand: %s %v", cmd, args)
 }
