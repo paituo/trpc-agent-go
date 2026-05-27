@@ -213,14 +213,17 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 	j := s.job
 	s.mu.Unlock()
 
-	if cancel != nil {
-		cancel()
-	}
 	// On Windows, close the Job Object to terminate the process tree.
+	// This is the equivalent of SIGKILL for the entire tree and must
+	// happen before the grace select, because doneCh will close as a
+	// result of the process exiting due to the Job Object closure.
 	if j != nil {
 		_ = j.close()
 	}
 	if cmd == nil || cmd.Process == nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil
 	}
 
@@ -230,8 +233,14 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 
 	select {
 	case <-s.doneCh:
+		if cancel != nil {
+			cancel()
+		}
 		return nil
 	case <-time.After(grace):
+		if cancel != nil {
+			cancel()
+		}
 		err := cmd.Process.Kill()
 		if err != nil && errors.Is(err, os.ErrProcessDone) {
 			return nil
