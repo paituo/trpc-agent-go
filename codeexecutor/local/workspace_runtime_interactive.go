@@ -47,7 +47,11 @@ type interactiveSession struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	closeIO func() error
-	cancel  context.CancelFunc
+	cancel context.CancelFunc
+
+	// job is the Windows Job Object for process tree management.
+	// nil on non-Windows or if Job Object creation failed.
+	job *localJobObject
 
 	doneCh chan struct{}
 	ioDone chan struct{}
@@ -206,12 +210,17 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 	s.mu.Lock()
 	cmd := s.cmd
 	cancel := s.cancel
+	j := s.job
 	s.mu.Unlock()
 
+	if cancel != nil {
+		cancel()
+	}
+	// On Windows, close the Job Object to terminate the process tree.
+	if j != nil {
+		_ = j.close()
+	}
 	if cmd == nil || cmd.Process == nil {
-		if cancel != nil {
-			cancel()
-		}
 		return nil
 	}
 
@@ -221,14 +230,8 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 
 	select {
 	case <-s.doneCh:
-		if cancel != nil {
-			cancel()
-		}
 		return nil
 	case <-time.After(grace):
-		if cancel != nil {
-			cancel()
-		}
 		err := cmd.Process.Kill()
 		if err != nil && errors.Is(err, os.ErrProcessDone) {
 			return nil
@@ -433,6 +436,18 @@ func (r *Runtime) StartProgram(
 			_ = sess.Close()
 			return nil, err
 		}
+		// Windows: create Job Object for process tree management.
+		if runtime.GOOS == "windows" && cmd.Process != nil {
+			job, err := newLocalJobObject()
+			if err == nil {
+				_ = job.enableKillOnClose()
+				if err := job.assignProcess(cmd.Process); err == nil {
+					sess.job = job
+				} else {
+					_ = job.close()
+				}
+			}
+		}
 		sess.ioWG.Add(2)
 		go func() {
 			defer sess.ioWG.Done()
@@ -456,6 +471,12 @@ func (r *Runtime) StartProgram(
 			time.Since(startedAt),
 			errors.Is(tctx.Err(), context.DeadlineExceeded),
 		)
+		// On Windows, close the Job Object as a safety net.
+		// If the session was killed via Kill(), the job was already
+		// closed and this is a no-op.
+		if sess.job != nil {
+			_ = sess.job.close()
+		}
 		cancel()
 		_ = sess.Close()
 	}()
