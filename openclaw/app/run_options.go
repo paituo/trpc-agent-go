@@ -28,6 +28,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 const (
@@ -264,6 +265,8 @@ type runOptions struct {
 	EnableOpenClawTools  bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
+
+	ToolCallRetryPolicy *tool.RetryPolicy
 
 	enableOpenClawToolsExplicit bool
 
@@ -1197,13 +1200,45 @@ type skillEntryConfig struct {
 	Env         map[string]string `yaml:"env,omitempty"`
 }
 
+type toolCallRetryPolicyConfig struct {
+	MaxAttempts     *int     `yaml:"max_attempts,omitempty"`
+	InitialInterval *int     `yaml:"initial_interval_ms,omitempty"`
+	BackoffFactor   *float64 `yaml:"backoff_factor,omitempty"`
+	MaxInterval     *int     `yaml:"max_interval_ms,omitempty"`
+	Jitter          *bool    `yaml:"jitter,omitempty"`
+}
+
+func (c *toolCallRetryPolicyConfig) toRetryPolicy() *tool.RetryPolicy {
+	if c == nil {
+		return nil
+	}
+	p := &tool.RetryPolicy{}
+	if c.MaxAttempts != nil {
+		p.MaxAttempts = *c.MaxAttempts
+	}
+	if c.InitialInterval != nil {
+		p.InitialInterval = time.Duration(*c.InitialInterval) * time.Millisecond
+	}
+	if c.BackoffFactor != nil {
+		p.BackoffFactor = *c.BackoffFactor
+	}
+	if c.MaxInterval != nil {
+		p.MaxInterval = time.Duration(*c.MaxInterval) * time.Millisecond
+	}
+	if c.Jitter != nil {
+		p.Jitter = *c.Jitter
+	}
+	return p
+}
+
 type toolsConfig struct {
-	EnableLocalExec           *bool   `yaml:"enable_local_exec,omitempty"`
-	EnableOpenClawTools       *bool   `yaml:"enable_openclaw_tools,omitempty"`
-	OpenClawToolingGuide      *string `yaml:"openclaw_tooling_guidance,omitempty"`
-	OpenClawToolingGuideCamel *string `yaml:"openClawToolingGuidance,omitempty"`
-	EnableParallelTools       *bool   `yaml:"enable_parallel_tools,omitempty"`
-	RefreshToolSetsOnRun      *bool   `yaml:"refresh_toolsets_on_run,omitempty"`
+	EnableLocalExec           *bool                      `yaml:"enable_local_exec,omitempty"`
+	EnableOpenClawTools       *bool                      `yaml:"enable_openclaw_tools,omitempty"`
+	OpenClawToolingGuide      *string                    `yaml:"openclaw_tooling_guidance,omitempty"`
+	OpenClawToolingGuideCamel *string                    `yaml:"openClawToolingGuidance,omitempty"`
+	EnableParallelTools       *bool                      `yaml:"enable_parallel_tools,omitempty"`
+	RefreshToolSetsOnRun      *bool                      `yaml:"refresh_toolsets_on_run,omitempty"`
+	ToolCallRetryPolicy       *toolCallRetryPolicyConfig `yaml:"tool_call_retry_policy,omitempty"`
 
 	Providers []filePluginSpec `yaml:"providers,omitempty"`
 	ToolSets  []filePluginSpec `yaml:"toolsets,omitempty"`
@@ -1842,6 +1877,7 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "refresh-toolsets-on-run") {
 			opts.RefreshToolSetsOnRun = *cfg.Tools.RefreshToolSetsOnRun
 		}
+		opts.ToolCallRetryPolicy = cfg.Tools.ToolCallRetryPolicy.toRetryPolicy()
 		if len(cfg.Tools.Providers) > 0 {
 			opts.ToolProviders = convertPluginSpecs(cfg.Tools.Providers)
 		}
