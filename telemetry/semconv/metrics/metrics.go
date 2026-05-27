@@ -85,6 +85,14 @@ const (
 	MetricContextCompactedTokens     = "context.compacted_tokens"      // #nosec G101 - this is a metric key name, not a credential.
 	MetricContextMessageCount        = "context.message_count"         // #nosec G101 - this is a metric key name, not a credential.
 
+	// Extended context histogram metric names (only recorded when EnableDetailedMetrics is true).
+	MetricContextCompletionTokens         = "context.completion_tokens"           // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextTotalTokens              = "context.total_tokens"                // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextCachedTokens             = "context.cached_tokens"               // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextReasoningTokens          = "context.reasoning_tokens"            // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextToolDefinitionTokens     = "context.tool_definition_tokens"      // #nosec G101 - this is a metric key name, not a credential.
+	MetricContextUsageRatioByInitial      = "context.usage_ratio_by_initial"     // #nosec G101 - this is a metric key name, not a credential.
+
 	// Context counter metric names.
 	MetricContextCompactionTrigger          = "context.compaction.trigger"           // #nosec G101 - this is a metric key name, not a credential.
 	MetricContextTailoringTrigger           = "context.tailoring.trigger"            // #nosec G101 - this is a metric key name, not a credential.

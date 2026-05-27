@@ -702,8 +702,13 @@ func (f *Flow) processStreamingResponses(
 			response,
 			tracker,
 		)
-		// Record final usage for context metrics tracker.
-		if response != nil && response.Done && !response.IsPartial {
+		// Record final usage for context metrics tracker when the response
+		// contains meaningful data. This covers two cases:
+		//   a) Final text response (Done=true, Usage populated)
+		//   b) Tool call response (Done=false, Usage populated) — streaming
+		//      creates a final aggregated response with Done=false when tool
+		//      calls are present, but the API still returns usage data.
+		if response != nil && !response.IsPartial && (response.Done || response.Usage != nil) {
 			if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
 				contextWindow := 0
 				if callModel != nil {

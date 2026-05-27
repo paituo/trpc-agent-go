@@ -38,12 +38,12 @@ var (
 	ContextMetricCompactedTokens     *histogram.DynamicInt64Histogram
 	ContextMetricMessageCount        *histogram.DynamicInt64Histogram
 	// Extended metrics (only recorded when EnableDetailedMetrics is true).
-	ContextMetricCompletionTokens         *histogram.DynamicInt64Histogram
-	ContextMetricTotalTokens              *histogram.DynamicInt64Histogram
-	ContextMetricCachedTokens             *histogram.DynamicInt64Histogram
-	ContextMetricReasoningTokens          *histogram.DynamicInt64Histogram
-	ContextMetricToolDefinitionTokens     *histogram.DynamicInt64Histogram
-	ContextMetricUsageRatioByInitial      *histogram.DynamicFloat64Histogram
+	ContextMetricCompletionTokens     *histogram.DynamicInt64Histogram
+	ContextMetricTotalTokens          *histogram.DynamicInt64Histogram
+	ContextMetricCachedTokens         *histogram.DynamicInt64Histogram
+	ContextMetricReasoningTokens      *histogram.DynamicInt64Histogram
+	ContextMetricToolDefinitionTokens *histogram.DynamicInt64Histogram
+	ContextMetricUsageRatioByInitial  *histogram.DynamicFloat64Histogram
 
 	// Context counter metrics.
 	ContextMetricCompactionTrigger          metric.Int64Counter
@@ -124,14 +124,14 @@ type ContextMetricsTracker struct {
 	actualPromptTokens int
 
 	// Detailed metrics (only populated when EnableDetailedMetrics is true).
-	actualCompletionTokens  int
-	actualTotalTokens       int
-	cachedTokens            int
-	cacheCreationTokens     int
-	cacheReadTokens         int
-	reasoningTokens         int
-	toolDefinitionTokens    int
-	protocolOverheadTokens  int
+	actualCompletionTokens int
+	actualTotalTokens      int
+	cachedTokens           int
+	cacheCreationTokens    int
+	cacheReadTokens        int
+	reasoningTokens        int
+	toolDefinitionTokens   int
+	protocolOverheadTokens int
 
 	// Configuration snapshot.
 	config ContextConfigSnapshot
@@ -400,6 +400,12 @@ func contextMetricsEnabled() bool {
 		ContextMetricTailoredMessages != nil ||
 		ContextMetricCompactedTokens != nil ||
 		ContextMetricMessageCount != nil ||
+		ContextMetricCompletionTokens != nil ||
+		ContextMetricTotalTokens != nil ||
+		ContextMetricCachedTokens != nil ||
+		ContextMetricReasoningTokens != nil ||
+		ContextMetricToolDefinitionTokens != nil ||
+		ContextMetricUsageRatioByInitial != nil ||
 		ContextMetricCompactionTrigger != nil ||
 		ContextMetricTailoringTrigger != nil ||
 		ContextMetricSummaryTrigger != nil ||
