@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/conversationscope"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/memoryfile"
@@ -49,8 +50,8 @@ func newKillSessionTool(mgr *Manager) tool.CallableTool {
 }
 
 func TestExecTool_Foreground(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager()
@@ -70,8 +71,8 @@ func TestExecTool_Foreground(t *testing.T) {
 }
 
 func TestExecTool_RuntimeProfileWorkspacePolicy(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	root := t.TempDir()
@@ -107,8 +108,8 @@ func TestExecTool_RuntimeProfileWorkspacePolicy(t *testing.T) {
 }
 
 func TestExecTool_UsesManagerBaseEnv(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithBaseEnv(map[string]string{
@@ -129,8 +130,8 @@ func TestExecTool_UsesManagerBaseEnv(t *testing.T) {
 }
 
 func TestExecTool_UsesIdentityEnvFromContext(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager()
@@ -159,8 +160,8 @@ func TestExecTool_UsesIdentityEnvFromContext(t *testing.T) {
 }
 
 func TestExecTool_RedactsSensitiveEnvValueOutput(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(
@@ -184,8 +185,8 @@ func TestExecTool_RedactsSensitiveEnvValueOutput(t *testing.T) {
 }
 
 func TestExecTool_RedactsShortSensitiveEnvValueOutput(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(
@@ -297,8 +298,8 @@ func TestRedactColonLine_IgnoresSafeName(t *testing.T) {
 }
 
 func TestExecTool_BlocksShellProfileAccess(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(
@@ -319,8 +320,8 @@ func TestExecTool_BlocksShellProfileAccess(t *testing.T) {
 }
 
 func TestExecTool_RedactsSensitiveKeyValueOutput(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(
@@ -346,8 +347,8 @@ SAFE_NAME=ok
 }
 
 func TestExecTool_UsesMemoryFileEnvFromContext(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	stateDir := t.TempDir()
@@ -388,8 +389,8 @@ func TestExecTool_UsesMemoryFileEnvFromContext(t *testing.T) {
 }
 
 func TestExecTool_UsesStorageScopedMemoryFileEnvFromContext(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	stateDir := t.TempDir()
@@ -505,8 +506,8 @@ func TestMapPollResult_IncludesMediaMarkers(t *testing.T) {
 }
 
 func TestExecTool_YieldBackgroundAndPoll(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -546,8 +547,8 @@ func TestExecTool_YieldBackgroundAndPoll(t *testing.T) {
 }
 
 func TestProcessTool_Submit(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -605,8 +606,8 @@ func TestExecTool_PTYForeground(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("pty is not supported on windows")
 	}
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager()
@@ -627,8 +628,8 @@ func TestExecTool_PTYForeground(t *testing.T) {
 }
 
 func TestManager_MaxLinesTrimsOutput(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10*time.Second), WithMaxLines(1))
@@ -655,8 +656,8 @@ func TestManager_MaxLinesTrimsOutput(t *testing.T) {
 }
 
 func TestProcessTool_ListKillClearRemove(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -718,8 +719,8 @@ func TestProcessTool_ListKillClearRemove(t *testing.T) {
 }
 
 func TestManager_MergedEnvAndExitCode(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	env := mergedEnv(nil, map[string]string{
@@ -753,8 +754,8 @@ func TestResolveWorkdir(t *testing.T) {
 }
 
 func TestManager_CleanupExpiredRemovesFinished(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(1 * time.Nanosecond))
@@ -788,8 +789,8 @@ func TestExitCode_NonExitError(t *testing.T) {
 }
 
 func TestProcessTool_Write(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -821,8 +822,8 @@ func TestProcessTool_Write(t *testing.T) {
 }
 
 func TestProcessTool_WriteRedactsSensitiveValueOutput(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(
@@ -927,8 +928,8 @@ func TestExecToolDeclaration_ExposesMemoryFileGuidanceWithStore(
 }
 
 func TestManager_ListIncludesExitedSession(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -952,8 +953,8 @@ func TestManager_ListIncludesExitedSession(t *testing.T) {
 }
 
 func TestManager_RemoveRunningSession(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager(WithJobTTL(10 * time.Second))
@@ -977,8 +978,8 @@ func TestManager_RemoveRunningSession(t *testing.T) {
 }
 
 func TestStartPipes_ErrorWhenStdioSet(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	t.Run("stdin set", func(t *testing.T) {
@@ -1095,8 +1096,8 @@ func TestManager_ExecErrors(t *testing.T) {
 }
 
 func TestManager_ExecSkipsShellSnapshotWithoutHooks(t *testing.T) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("no shell available: %v", err)
 	}
 
 	mgr := NewManager()
