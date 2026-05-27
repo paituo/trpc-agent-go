@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 // CodeExecutor that executes code on the local host (unsafe).
@@ -273,7 +274,11 @@ func (e *CodeExecutor) buildCommandArgs(
 	case "python", "py", "python3":
 		return []string{"python3", filePath}
 	case "bash", "sh":
-		return []string{"bash", filePath}
+		shell, err := platform.Shell()
+		if err != nil {
+			return nil
+		}
+		return []string{shell.Command, filePath}
 	default:
 		return nil
 	}
