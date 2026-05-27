@@ -503,6 +503,21 @@ type TraceChatContextMetrics struct {
 	OversizedToolMaxTokens  int
 	MaxHistoryRuns          int
 	KeepRecentRequests      int
+	// Extended metrics (only populated when EnableDetailedMetrics is true).
+	CompletionTokens       int
+	TotalTokens            int
+	CachedTokens           int
+	CacheCreationTokens    int
+	CacheReadTokens        int
+	ReasoningTokens        int
+	ToolDefinitionTokens   int
+	ProtocolOverheadTokens int
+	UsageRatioByInitial    float64
+	EnableDetailedMetrics  bool
+	ReserveOutputTokens    int
+	InputTokensFloor       int
+	SafetyMarginRatio      float64
+	MaxInputTokensRatio    float64
 }
 
 // NewSummarizeTaskType creates a task type for summarize.
@@ -772,6 +787,24 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 		attribute.Int("context.config.oversized_tool_result_max_tokens", m.OversizedToolMaxTokens),
 		attribute.Int("context.config.max_history_runs", m.MaxHistoryRuns),
 		attribute.Int("context.config.keep_recent_requests", m.KeepRecentRequests),
+	}
+	// Extended metrics (only when detailed metrics are enabled).
+	if m.EnableDetailedMetrics {
+		attrs = append(attrs,
+			attribute.Int("context.state.completion_tokens", m.CompletionTokens),
+			attribute.Int("context.state.total_tokens", m.TotalTokens),
+			attribute.Int("context.state.cached_tokens", m.CachedTokens),
+			attribute.Int("context.state.cache_creation_tokens", m.CacheCreationTokens),
+			attribute.Int("context.state.cache_read_tokens", m.CacheReadTokens),
+			attribute.Int("context.state.reasoning_tokens", m.ReasoningTokens),
+			attribute.Int("context.state.tool_definition_tokens", m.ToolDefinitionTokens),
+			attribute.Int("context.state.protocol_overhead_tokens", m.ProtocolOverheadTokens),
+			attribute.Float64("context.state.usage_ratio_by_initial", m.UsageRatioByInitial),
+			attribute.Int("context.config.reserve_output_tokens", m.ReserveOutputTokens),
+			attribute.Int("context.config.input_tokens_floor", m.InputTokensFloor),
+			attribute.Float64("context.config.safety_margin_ratio", m.SafetyMarginRatio),
+			attribute.Float64("context.config.max_input_tokens_ratio", m.MaxInputTokensRatio),
+		)
 	}
 	// Trigger metrics (only when activated)
 	if m.CompactionTriggered {

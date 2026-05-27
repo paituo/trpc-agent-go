@@ -79,4 +79,14 @@ type Info struct {
 	TailoringStrategyName string
 	// EnableTokenTailoring indicates whether automatic token tailoring is enabled.
 	EnableTokenTailoring bool
+	// ProtocolOverheadTokens is the number of tokens reserved for protocol overhead.
+	ProtocolOverheadTokens int
+	// ReserveOutputTokens is the number of tokens reserved for output generation.
+	ReserveOutputTokens int
+	// InputTokensFloor is the minimum number of input tokens.
+	InputTokensFloor int
+	// SafetyMarginRatio is the safety margin ratio for token counting inaccuracies.
+	SafetyMarginRatio float64
+	// MaxInputTokensRatio is the maximum input tokens ratio of the context window.
+	MaxInputTokensRatio float64
 }
