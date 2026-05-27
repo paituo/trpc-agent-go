@@ -94,17 +94,26 @@ func (s *session) markDone(exitCode int) {
 	close(s.doneCh)
 }
 
-func (s *session) readFrom(r io.Reader) {
-	if r == nil {
+func (s *session) readFrom(reader io.Reader) {
+	if reader == nil {
 		return
 	}
-	rd := bufio.NewReaderSize(r, 32*1024)
+	bufReader := bufio.NewReaderSize(reader, 32*1024)
 	for {
-		b, err := rd.ReadBytes('\n')
-		if len(b) > 0 {
-			s.appendOutput(string(b))
+		chunk, err := bufReader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			if runtime.GOOS == "windows" {
+				chunk = []byte(decodeConsoleOutput(chunk))
+			}
+			s.appendOutput(string(chunk))
 		}
 		if err != nil {
+			if err != io.EOF && len(chunk) > 0 {
+				if runtime.GOOS == "windows" {
+					chunk = []byte(decodeConsoleOutput(chunk))
+				}
+				s.appendOutput(string(chunk))
+			}
 			return
 		}
 	}
