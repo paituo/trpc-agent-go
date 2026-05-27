@@ -3189,6 +3189,7 @@ func TestResolveWorkspaceSkillsRoot_IgnoresRepoBundled(t *testing.T) {
 func TestResolveSkillRoots_IncludesExpectedRoots(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	cwd := t.TempDir()
 	require.NoError(t, os.MkdirAll(
@@ -3203,6 +3204,9 @@ func TestResolveSkillRoots_IncludesExpectedRoots(t *testing.T) {
 			"extra1",
 			"extra2",
 		},
+		SkillsProjectAgentsRoot:  true,
+		SkillsPersonalAgentsRoot: true,
+		SkillsManagedRoot:        true,
 	}
 
 	roots := resolveSkillRoots(cwd, cfg)

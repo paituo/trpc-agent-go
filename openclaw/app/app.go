@@ -1047,6 +1047,8 @@ func NewRuntimeWithOptions(
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
+			ContextCompactionKeepToolNames:                opts.ContextCompactionKeepToolNames,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,
 			GenerationConfig:                              opts.GenerationConfig,
@@ -1061,20 +1063,23 @@ func NewRuntimeWithOptions(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:        opts.SkillConfigs,
-			SkillConfigKeys:     resolveSkillConfigKeys(opts),
-			SkillsWatch:         opts.SkillsWatch,
-			SkillsWatchBundled:  opts.SkillsWatchBundled,
-			SkillsWatchDebounce: opts.SkillsWatchDebounce,
-			SkillsToolProfile:   opts.SkillsToolProfile,
-			SkillsLoadMode:      opts.SkillsLoadMode,
-			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
-			SkillsToolResults:   opts.SkillsToolResults,
-			SkillsSkipFallback:  opts.SkillsSkipFallback,
-			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:    opts.KnowledgesConfig,
-			StateDir:            resolvedStateDir,
-			MemoryFileStore:     fileMemoryStore,
+			SkillConfigs:             opts.SkillConfigs,
+			SkillConfigKeys:          resolveSkillConfigKeys(opts),
+			SkillsWatch:              opts.SkillsWatch,
+			SkillsWatchBundled:       opts.SkillsWatchBundled,
+			SkillsWatchDebounce:      opts.SkillsWatchDebounce,
+			SkillsToolProfile:        opts.SkillsToolProfile,
+			SkillsLoadMode:           opts.SkillsLoadMode,
+			SkillsMaxLoaded:          opts.SkillsMaxLoaded,
+			SkillsToolResults:        opts.SkillsToolResults,
+			SkillsSkipFallback:       opts.SkillsSkipFallback,
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
+			SkillsToolingGuide:       opts.SkillsToolingGuide,
+			KnowledgesConfig:         opts.KnowledgesConfig,
+			StateDir:                 resolvedStateDir,
+			MemoryFileStore:          fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
@@ -1574,6 +1579,8 @@ func run(
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			ContextCompactionForceCleanToolNames:          opts.ContextCompactionForceCleanToolNames,
+			ContextCompactionKeepToolNames:                opts.ContextCompactionKeepToolNames,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,
 			GenerationConfig:                              opts.GenerationConfig,
@@ -1588,20 +1595,23 @@ func run(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:        opts.SkillConfigs,
-			SkillConfigKeys:     resolveSkillConfigKeys(opts),
-			SkillsWatch:         opts.SkillsWatch,
-			SkillsWatchBundled:  opts.SkillsWatchBundled,
-			SkillsWatchDebounce: opts.SkillsWatchDebounce,
-			SkillsToolProfile:   opts.SkillsToolProfile,
-			SkillsLoadMode:      opts.SkillsLoadMode,
-			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
-			SkillsToolResults:   opts.SkillsToolResults,
-			SkillsSkipFallback:  opts.SkillsSkipFallback,
-			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:    opts.KnowledgesConfig,
-			StateDir:            resolvedStateDir,
-			MemoryFileStore:     fileMemoryStore,
+			SkillConfigs:             opts.SkillConfigs,
+			SkillConfigKeys:          resolveSkillConfigKeys(opts),
+			SkillsWatch:              opts.SkillsWatch,
+			SkillsWatchBundled:       opts.SkillsWatchBundled,
+			SkillsWatchDebounce:      opts.SkillsWatchDebounce,
+			SkillsToolProfile:        opts.SkillsToolProfile,
+			SkillsLoadMode:           opts.SkillsLoadMode,
+			SkillsMaxLoaded:          opts.SkillsMaxLoaded,
+			SkillsToolResults:        opts.SkillsToolResults,
+			SkillsSkipFallback:       opts.SkillsSkipFallback,
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
+			SkillsToolingGuide:       opts.SkillsToolingGuide,
+			KnowledgesConfig:         opts.KnowledgesConfig,
+			StateDir:                 resolvedStateDir,
+			MemoryFileStore:          fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
@@ -2507,6 +2517,17 @@ func newAgent(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
 	}
+	if len(cfg.ContextCompactionForceCleanToolNames) > 0 ||
+		len(cfg.ContextCompactionKeepToolNames) > 0 {
+		opts = append(opts,
+			llmagent.WithToolResultCompactionConfig(
+				&llmagent.ToolResultCompactionConfig{
+					ForceCleanToolNames: cfg.ContextCompactionForceCleanToolNames,
+					KeepToolNames:       cfg.ContextCompactionKeepToolNames,
+				},
+			),
+		)
+	}
 	if cfg.SessionSummaryInjectionMode != "" {
 		opts = append(
 			opts,
@@ -2785,6 +2806,8 @@ type agentConfig struct {
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
+	ContextCompactionForceCleanToolNames          []string
+	ContextCompactionKeepToolNames                []string
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 	GenerationConfig                              *model.GenerationConfig
@@ -2793,22 +2816,25 @@ type agentConfig struct {
 	Instruction                                   string
 	SystemPrompt                                  string
 
-	SkillsRoot          string
-	SkillsExtraDirs     []string
-	SkillsDebug         bool
-	SkillsAllowBundled  []string
-	SkillConfigs        map[string]ocskills.SkillConfig
-	SkillConfigKeys     []string
-	SkillsWatch         bool
-	SkillsWatchBundled  bool
-	SkillsWatchDebounce time.Duration
-	SkillsToolProfile   string
-	SkillsLoadMode      string
-	SkillsMaxLoaded     int
-	SkillsToolResults   bool
-	SkillsSkipFallback  bool
-	SkillsToolingGuide  *string
-	KnowledgesConfig    []knowledgeEntry
+	SkillsRoot               string
+	SkillsExtraDirs          []string
+	SkillsDebug              bool
+	SkillsAllowBundled       []string
+	SkillConfigs             map[string]ocskills.SkillConfig
+	SkillConfigKeys          []string
+	SkillsWatch              bool
+	SkillsWatchBundled       bool
+	SkillsWatchDebounce      time.Duration
+	SkillsToolProfile        string
+	SkillsLoadMode           string
+	SkillsMaxLoaded          int
+	SkillsToolResults        bool
+	SkillsSkipFallback       bool
+	SkillsProjectAgentsRoot  bool
+	SkillsPersonalAgentsRoot bool
+	SkillsManagedRoot        bool
+	SkillsToolingGuide       *string
+	KnowledgesConfig         []knowledgeEntry
 
 	StateDir string
 
@@ -2960,9 +2986,15 @@ func resolveSkillRoots(cwd string, cfg agentConfig) []string {
 
 	roots := make([]string, 0, 6+len(cfg.SkillsExtraDirs))
 	roots = append(roots, workspaceSkills)
-	roots = append(roots, projectAgentsSkills)
-	roots = append(roots, personalAgentsSkills)
-	roots = append(roots, managedSkills)
+	if cfg.SkillsProjectAgentsRoot {
+		roots = append(roots, projectAgentsSkills)
+	}
+	if cfg.SkillsPersonalAgentsRoot {
+		roots = append(roots, personalAgentsSkills)
+	}
+	if cfg.SkillsManagedRoot {
+		roots = append(roots, managedSkills)
+	}
 	if bundledSkills != workspaceSkills &&
 		bundledSkills != managedSkills {
 		roots = append(roots, bundledSkills)
@@ -3149,7 +3181,26 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if spec.ContextWindow > 0 {
 		opts = append(opts, openai.WithContextWindow(spec.ContextWindow))
 	}
+	if spec.EnableTokenTailoring {
+		opts = append(opts, openai.WithEnableTokenTailoring(true))
+		if strategy := parseTokenTailoringStrategy(spec.TokenTailoringStrategy); strategy != nil {
+			opts = append(opts, openai.WithTailoringStrategy(strategy))
+		}
+	}
 	return openai.New(name, opts...), nil
+}
+
+func parseTokenTailoringStrategy(strategy string) model.TailoringStrategy {
+	switch strings.ToLower(strings.TrimSpace(strategy)) {
+	case "middle_out":
+		return model.NewMiddleOutStrategy(nil)
+	case "head_out":
+		return model.NewHeadOutStrategy(nil)
+	case "tail_out":
+		return model.NewTailOutStrategy(nil)
+	default:
+		return nil
+	}
 }
 
 func modelFromOptions(opts runOptions) (model.Model, error) {
@@ -3169,13 +3220,15 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 	}
 
 	spec := registry.ModelSpec{
-		Type:                 mode,
-		Name:                 opts.OpenAIModel,
-		BaseURL:              baseURL,
-		OpenAIVariant:        opts.OpenAIVariant,
-		DebugRecorderEnabled: opts.DebugRecorderEnabled,
-		ContextWindow:        opts.ModelContextWindow,
-		Config:               opts.ModelConfig,
+		Type:                   mode,
+		Name:                   opts.OpenAIModel,
+		BaseURL:                baseURL,
+		OpenAIVariant:          opts.OpenAIVariant,
+		DebugRecorderEnabled:   opts.DebugRecorderEnabled,
+		ContextWindow:          opts.ModelContextWindow,
+		EnableTokenTailoring:   opts.ModelEnableTokenTailoring,
+		TokenTailoringStrategy: opts.ModelTokenTailoringStrategy,
+		Config:                 opts.ModelConfig,
 	}
 	return f(spec)
 }

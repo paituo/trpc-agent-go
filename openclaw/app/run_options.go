@@ -106,6 +106,10 @@ const (
 	flagSkillsToolResults   = "skills-loaded-content-in-tool-results"
 	flagSkillsSkipFallback  = "skills-skip-fallback-on-session-summary"
 
+	flagSkillsProjectAgentsRoot  = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot = "skills-personal-agents-root"
+	flagSkillsManagedRoot        = "skills-managed-root"
+
 	flagDebugRecorder     = "debug-recorder"
 	flagDebugRecorderDir  = "debug-recorder-dir"
 	flagDebugRecorderMode = "debug-recorder-mode"
@@ -155,6 +159,8 @@ type runOptions struct {
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
+	ContextCompactionForceCleanToolNames          []string
+	ContextCompactionKeepToolNames                []string
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
@@ -185,29 +191,34 @@ type runOptions struct {
 	ClaudeEnv          string
 	ClaudeWorkDir      string
 
-	ModelMode           string
-	OpenAIModel         string
-	OpenAIVariant       string
-	OpenAIBaseURL       string
-	GenerationConfig    *model.GenerationConfig
-	ModelContextWindow  int
-	ModelConfig         *yaml.Node
-	KnowledgesConfig    []knowledgeEntry
-	SkillsRoot          string
-	SkillsExtraDir      string
-	SkillsDebug         bool
-	SkillsAllowBundled  string
-	SkillConfigs        map[string]ocskills.SkillConfig
-	SkillsWatch         bool
-	SkillsWatchBundled  bool
-	SkillsWatchDebounce time.Duration
-	SkillsToolProfile   string
-	SkillsLoadMode      string
-	SkillsMaxLoaded     int
-	SkillsToolResults   bool
-	SkillsSkipFallback  bool
-	SkillsToolingGuide  *string
-	StateDir            string
+	ModelMode                string
+	OpenAIModel              string
+	OpenAIVariant            string
+	OpenAIBaseURL            string
+	GenerationConfig         *model.GenerationConfig
+	ModelContextWindow       int
+	ModelEnableTokenTailoring bool
+	ModelTokenTailoringStrategy string
+	ModelConfig              *yaml.Node
+	KnowledgesConfig         []knowledgeEntry
+	SkillsRoot               string
+	SkillsExtraDir           string
+	SkillsDebug              bool
+	SkillsAllowBundled       string
+	SkillConfigs             map[string]ocskills.SkillConfig
+	SkillsWatch              bool
+	SkillsWatchBundled       bool
+	SkillsWatchDebounce      time.Duration
+	SkillsToolProfile        string
+	SkillsLoadMode           string
+	SkillsMaxLoaded          int
+	SkillsToolResults        bool
+	SkillsSkipFallback       bool
+	SkillsToolingGuide       *string
+	SkillsProjectAgentsRoot  bool
+	SkillsPersonalAgentsRoot bool
+	SkillsManagedRoot        bool
+	StateDir                 string
 
 	DebugRecorderEnabled bool
 	DebugRecorderDir     string
@@ -583,6 +594,18 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"",
 		"OpenAI base URL override (mode=openai, optional)",
 	)
+	fs.BoolVar(
+		&opts.ModelEnableTokenTailoring,
+		"enable-token-tailoring",
+		false,
+		"Enable automatic token tailoring based on model context window",
+	)
+	fs.StringVar(
+		&opts.ModelTokenTailoringStrategy,
+		"token-tailoring-strategy",
+		"",
+		"Token tailoring strategy: middle_out|head_out|tail_out (empty uses default middle_out)",
+	)
 	fs.StringVar(
 		&opts.AllowUsers,
 		"allow-users",
@@ -673,6 +696,24 @@ func parseRunOptions(args []string) (runOptions, error) {
 		true,
 		"Skip skill fallback system message when session "+
 			"summary exists",
+	)
+	fs.BoolVar(
+		&opts.SkillsProjectAgentsRoot,
+		flagSkillsProjectAgentsRoot,
+		false,
+		"Enable {cwd}/.agents/skills as a skill root",
+	)
+	fs.BoolVar(
+		&opts.SkillsPersonalAgentsRoot,
+		flagSkillsPersonalAgentsRoot,
+		false,
+		"Enable $HOME/.agents/skills as a skill root",
+	)
+	fs.BoolVar(
+		&opts.SkillsManagedRoot,
+		flagSkillsManagedRoot,
+		false,
+		"Enable <state-dir>/skills as a skill root",
 	)
 	fs.StringVar(
 		&opts.StateDir,
@@ -1033,6 +1074,8 @@ type agentRunConfig struct {
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
 	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
+	ContextCompactionForceCleanToolNames          []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames                []string `yaml:"context_compaction_keep_tool_names,omitempty"`
 	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
 
@@ -1080,7 +1123,13 @@ type modelConfig struct {
 	OpenAIVariant    *string               `yaml:"openai_variant,omitempty"`
 	GenerationConfig *generationConfigYAML `yaml:"generation_config,omitempty"`
 	ContextWindow    *int                  `yaml:"context_window,omitempty"`
+	TokenTailoring   *tokenTailoringConfig `yaml:"token_tailoring,omitempty"`
 	Config           *rawYAMLNode          `yaml:"config,omitempty"`
+}
+
+type tokenTailoringConfig struct {
+	Enabled  *bool   `yaml:"enabled,omitempty"`
+	Strategy *string `yaml:"strategy,omitempty"`
 }
 
 type generationConfigYAML struct {
@@ -1127,6 +1176,13 @@ type skillsConfig struct {
 	SkipFallbackCamel    *bool   `yaml:"skipFallbackOnSessionSummary,omitempty"`
 	ToolingGuidance      *string `yaml:"tooling_guidance,omitempty"`
 	ToolingGuidanceCamel *string `yaml:"toolingGuidance,omitempty"`
+
+	ProjectAgentsRoot       *bool `yaml:"project_agents_root,omitempty"`
+	ProjectAgentsRootCamel  *bool `yaml:"projectAgentsRoot,omitempty"`
+	PersonalAgentsRoot      *bool `yaml:"personal_agents_root,omitempty"`
+	PersonalAgentsRootCamel *bool `yaml:"personalAgentsRoot,omitempty"`
+	ManagedRoot             *bool `yaml:"managed_root,omitempty"`
+	ManagedRootCamel        *bool `yaml:"managedRoot,omitempty"`
 
 	Entries map[string]skillEntryConfig `yaml:"entries,omitempty"`
 }
@@ -1443,6 +1499,14 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagContextCompactionOversizedToolResultMaxTokens) {
 			opts.ContextCompactionOversizedToolResultMaxTokens = *cfg.Agent.ContextCompactionOversizedToolResultMaxTokens
 		}
+		if cfg.Agent.ContextCompactionForceCleanToolNames != nil &&
+			!flagWasSet(set, "context-compaction-force-clean-tool-names") {
+			opts.ContextCompactionForceCleanToolNames = cfg.Agent.ContextCompactionForceCleanToolNames
+		}
+		if cfg.Agent.ContextCompactionKeepToolNames != nil &&
+			!flagWasSet(set, "context-compaction-keep-tool-names") {
+			opts.ContextCompactionKeepToolNames = cfg.Agent.ContextCompactionKeepToolNames
+		}
 		if cfg.Agent.MaxHistoryRuns != nil &&
 			!flagWasSet(set, flagMaxHistoryRuns) {
 			opts.MaxHistoryRuns = *cfg.Agent.MaxHistoryRuns
@@ -1554,6 +1618,18 @@ func (cfg *fileConfig) apply(
 			opts.OpenAIVariant = strings.TrimSpace(
 				*cfg.Model.OpenAIVariant,
 			)
+		}
+		if cfg.Model.TokenTailoring != nil {
+			if cfg.Model.TokenTailoring.Enabled != nil &&
+				!flagWasSet(set, "enable-token-tailoring") {
+				opts.ModelEnableTokenTailoring = *cfg.Model.TokenTailoring.Enabled
+			}
+			if cfg.Model.TokenTailoring.Strategy != nil &&
+				!flagWasSet(set, "token-tailoring-strategy") {
+				opts.ModelTokenTailoringStrategy = strings.TrimSpace(
+					*cfg.Model.TokenTailoring.Strategy,
+				)
+			}
 		}
 		if cfg.Model.Config != nil {
 			opts.ModelConfig = cfg.Model.Config.Node
@@ -1704,6 +1780,30 @@ func (cfg *fileConfig) apply(
 		if skipFallback != nil &&
 			!flagWasSet(set, flagSkillsSkipFallback) {
 			opts.SkillsSkipFallback = *skipFallback
+		}
+		projectAgentsRoot := firstBoolPtr(
+			cfg.Skills.ProjectAgentsRoot,
+			cfg.Skills.ProjectAgentsRootCamel,
+		)
+		if projectAgentsRoot != nil &&
+			!flagWasSet(set, flagSkillsProjectAgentsRoot) {
+			opts.SkillsProjectAgentsRoot = *projectAgentsRoot
+		}
+		personalAgentsRoot := firstBoolPtr(
+			cfg.Skills.PersonalAgentsRoot,
+			cfg.Skills.PersonalAgentsRootCamel,
+		)
+		if personalAgentsRoot != nil &&
+			!flagWasSet(set, flagSkillsPersonalAgentsRoot) {
+			opts.SkillsPersonalAgentsRoot = *personalAgentsRoot
+		}
+		managedRoot := firstBoolPtr(
+			cfg.Skills.ManagedRoot,
+			cfg.Skills.ManagedRootCamel,
+		)
+		if managedRoot != nil &&
+			!flagWasSet(set, flagSkillsManagedRoot) {
+			opts.SkillsManagedRoot = *managedRoot
 		}
 		opts.SkillsToolingGuide = firstStringPtr(
 			cfg.Skills.ToolingGuidance,
