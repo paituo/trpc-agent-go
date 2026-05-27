@@ -365,12 +365,32 @@ func (m *Manager) startBackground(
 		}
 	}
 
+	// Windows: create a Job Object to manage the process tree.
+	// This ensures all child processes are terminated when the
+	// session ends. If Job Object creation fails, we continue
+	// without it — the parent process will still be terminated
+	// by cmd.Process.Kill(), but orphaned child processes may
+	// remain.
+	var j *jobObject
+	if runtime.GOOS == "windows" && cmd.Process != nil {
+		job, err := newJobObject()
+		if err == nil {
+			_ = job.enableKillOnClose()
+			if err := job.assignProcess(cmd.Process); err == nil {
+				j = job
+			} else {
+				_ = job.close()
+			}
+		}
+	}
+
 	go func() {
 		sess.ioWG.Wait()
 		close(sess.ioDone)
 	}()
 
 	sess.cmd = cmd
+	sess.job = j
 	m.mu.Lock()
 	m.sessions[sess.id] = sess
 	m.mu.Unlock()
@@ -389,6 +409,13 @@ func (m *Manager) startBackground(
 			code = ps.ExitCode()
 		}
 		sess.markDone(code)
+		// On Windows, close the Job Object when the session is done.
+		// This is a safety net for non-kill session endings (process
+		// exits naturally). If the session was killed via kill(), the
+		// job was already closed and this is a no-op.
+		if j != nil {
+			_ = j.close()
+		}
 		cancel()
 		_ = sess.closeIO()
 	}()
