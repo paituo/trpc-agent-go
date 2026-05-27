@@ -276,7 +276,10 @@ func (e *CodeExecutor) buildCommandArgs(
 	case "bash", "sh":
 		shell, err := platform.Shell()
 		if err != nil {
-			return nil
+			// Fallback to "bash" if platform shell detection fails.
+			// This preserves existing behavior and avoids nil return
+			// which would cause a panic in executeCommand.
+			return []string{"bash", filePath}
 		}
 		return []string{shell.Command, filePath}
 	default:
