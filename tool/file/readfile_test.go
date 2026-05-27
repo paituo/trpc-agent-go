@@ -382,10 +382,15 @@ func TestFileTool_ReadFile_ExceedMaxFileSize(t *testing.T) {
 	testFile := filepath.Join(tempDir, "test.txt")
 	err = os.WriteFile(testFile, []byte(testContent), 0644)
 	assert.NoError(t, err)
-	// Test reading the file.
+	// Test reading the file - should succeed with truncated content.
 	req := &readFileRequest{FileName: "test.txt"}
-	_, err = fileToolSet.readFile(context.Background(), req)
-	assert.Error(t, err)
+	rsp, err := fileToolSet.readFile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	assert.NotEmpty(t, rsp.Contents)
+	assert.Equal(t, int64(len(testContent)), rsp.FileSizeBytes)
+	assert.Contains(t, rsp.Message, "truncated")
+	assert.Contains(t, rsp.Message, "start_line/num_lines")
 }
 
 func TestFileTool_ReadFile_FromRef_TooLarge(t *testing.T) {
@@ -404,10 +409,13 @@ func TestFileTool_ReadFile_FromRef_TooLarge(t *testing.T) {
 		},
 	})
 
-	_, err = fileToolSet.readFile(ctx, &readFileRequest{
+	rsp, err := fileToolSet.readFile(ctx, &readFileRequest{
 		FileName: "workspace://out/a.txt",
 	})
-	assert.Error(t, err)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	assert.NotEmpty(t, rsp.Contents)
+	assert.Contains(t, rsp.Message, "truncated")
 }
 
 func TestFileTool_ReadFile_FromRef_EmptyFile(t *testing.T) {
