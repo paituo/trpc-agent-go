@@ -50,6 +50,7 @@ var (
 // ContextConfigSnapshot captures the context control configuration at the time of an LLM call.
 type ContextConfigSnapshot struct {
 	EnableCompaction             bool
+	EnableTokenTailoring         bool
 	SyncSummary                  bool
 	SummaryInjectionMode         string // "system", "user", "none"
 	AddSummary                   bool
@@ -245,6 +246,16 @@ func (t *ContextMetricsTracker) RecordFinalUsage(usage *model.Usage, contextWind
 		t.actualPromptTokens = usage.PromptTokens
 	}
 	t.contextWindow = contextWindow
+}
+
+// SetModelTailoringConfig updates the tracker with the model's token tailoring configuration.
+// This must be called before RecordMetrics() or ToTraceChatContextMetrics().
+func (t *ContextMetricsTracker) SetModelTailoringConfig(strategy string, enabled bool) {
+	if t == nil {
+		return
+	}
+	t.config.TailoringStrategy = strategy
+	t.config.EnableTokenTailoring = enabled
 }
 
 // contextAttributes holds the attributes for context metrics.
@@ -471,6 +482,7 @@ func (t *ContextMetricsTracker) ToTraceChatContextMetrics() *TraceChatContextMet
 		OversizedTruncTriggered:  t.oversizedTruncationTriggered,
 		HistoryTrimTriggered:     t.historyTrimTriggered,
 		EnableCompaction:         t.config.EnableCompaction,
+		EnableTokenTailoring:     t.config.EnableTokenTailoring,
 		SyncSummary:              t.config.SyncSummary,
 		SummaryInjectionMode:     t.config.SummaryInjectionMode,
 		AddSummary:               t.config.AddSummary,
