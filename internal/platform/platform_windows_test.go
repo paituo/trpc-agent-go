@@ -13,6 +13,7 @@ package platform
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +21,11 @@ func TestShell_PrefersPowerShell(t *testing.T) {
 	spec, err := Shell()
 	if err != nil {
 		t.Fatalf("Shell() returned error: %v", err)
+	}
+	// Verify the shell is PowerShell (not cmd.exe fallback)
+	cmd := strings.ToLower(spec.Command)
+	if !strings.Contains(cmd, "powershell") && !strings.Contains(cmd, "pwsh") {
+		t.Errorf("Shell() returned %q, expected PowerShell (powershell.exe or pwsh.exe)", spec.Command)
 	}
 	t.Logf("Shell: %s %v", spec.Command, spec.Args)
 }
