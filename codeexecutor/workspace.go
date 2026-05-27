@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 // Well-known environment and telemetry keys to avoid magic strings.
@@ -225,8 +227,12 @@ func BuildBlockSpec(
 		return fmt.Sprintf("code_%d.py", idx), DefaultScriptFileMode,
 			"python3", nil, nil
 	case "bash", "sh":
+		shell, err := platform.Shell()
+		if err != nil {
+			return "", 0, "", nil, err
+		}
 		return fmt.Sprintf("code_%d.sh", idx), DefaultExecFileMode,
-			"bash", nil, nil
+			shell.Command, shell.Args, nil
 	default:
 		return "", 0, "", nil,
 			fmt.Errorf("unsupported language: %s", b.Language)
