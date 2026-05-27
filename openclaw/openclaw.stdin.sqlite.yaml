@@ -12,6 +12,7 @@ agent:
   session_summary_injection_mode: "system"
   sync_summary_intra_run: true
   enable_context_compaction: true
+  enable_detailed_context_metrics: true
   context_compaction_threshold_ratio: 0.5
   context_compaction_tool_result_max_tokens: 1024
   context_compaction_keep_recent_requests: 2
