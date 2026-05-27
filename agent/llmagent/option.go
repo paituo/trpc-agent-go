@@ -365,6 +365,11 @@ type Options struct {
 	// summaryFormatter allows custom formatting of session summary content.
 	// When nil (default), uses the default formatSummaryContent function.
 	summaryFormatter func(summary string) string
+	// EnableDetailedMetrics enables recording of extended context metrics
+	// (completion tokens, total tokens, cached tokens, reasoning tokens,
+	// tool definition tokens, usage_ratio_by_initial, and budget config).
+	// Disabled by default to minimize runtime overhead.
+	EnableDetailedMetrics bool
 
 	// MaxLLMCalls is an optional upper bound on the number of LLM calls
 	// allowed per invocation for this agent. When the value is:
@@ -1387,6 +1392,16 @@ func WithMaxHistoryRuns(maxRuns int) Option {
 func WithEnableContextCompaction(enable bool) Option {
 	return func(opts *Options) {
 		opts.EnableContextCompaction = enable
+	}
+}
+
+// WithEnableDetailedMetrics enables recording of extended context metrics
+// (completion tokens, total tokens, cached tokens, reasoning tokens,
+// tool definition tokens, usage_ratio_by_initial, and budget config).
+// Disabled by default to minimize runtime overhead.
+func WithEnableDetailedMetrics(enable bool) Option {
+	return func(opts *Options) {
+		opts.EnableDetailedMetrics = enable
 	}
 }
 

@@ -37,6 +37,13 @@ var (
 	ContextMetricTailoredMessages    *histogram.DynamicInt64Histogram
 	ContextMetricCompactedTokens     *histogram.DynamicInt64Histogram
 	ContextMetricMessageCount        *histogram.DynamicInt64Histogram
+	// Extended metrics (only recorded when EnableDetailedMetrics is true).
+	ContextMetricCompletionTokens         *histogram.DynamicInt64Histogram
+	ContextMetricTotalTokens              *histogram.DynamicInt64Histogram
+	ContextMetricCachedTokens             *histogram.DynamicInt64Histogram
+	ContextMetricReasoningTokens          *histogram.DynamicInt64Histogram
+	ContextMetricToolDefinitionTokens     *histogram.DynamicInt64Histogram
+	ContextMetricUsageRatioByInitial      *histogram.DynamicFloat64Histogram
 
 	// Context counter metrics.
 	ContextMetricCompactionTrigger          metric.Int64Counter
@@ -62,6 +69,16 @@ type ContextConfigSnapshot struct {
 	OversizedToolResultMaxTokens int
 	MaxHistoryRuns               int
 	KeepRecentRequests           int
+	// EnableDetailedMetrics enables recording of extended metrics
+	// (completion tokens, total tokens, cached tokens, reasoning tokens,
+	// tool definition tokens, usage_ratio_by_initial, and budget config).
+	// Disabled by default to minimize runtime overhead.
+	EnableDetailedMetrics  bool
+	ProtocolOverheadTokens int
+	ReserveOutputTokens    int
+	InputTokensFloor       int
+	SafetyMarginRatio      float64
+	MaxInputTokensRatio    float64
 }
 
 // ContextMetricsTracker tracks context control metrics for a single LLM call lifecycle.
@@ -105,6 +122,16 @@ type ContextMetricsTracker struct {
 	// Final state.
 	contextWindow      int
 	actualPromptTokens int
+
+	// Detailed metrics (only populated when EnableDetailedMetrics is true).
+	actualCompletionTokens  int
+	actualTotalTokens       int
+	cachedTokens            int
+	cacheCreationTokens     int
+	cacheReadTokens         int
+	reasoningTokens         int
+	toolDefinitionTokens    int
+	protocolOverheadTokens  int
 
 	// Configuration snapshot.
 	config ContextConfigSnapshot
@@ -244,6 +271,14 @@ func (t *ContextMetricsTracker) RecordFinalUsage(usage *model.Usage, contextWind
 	}
 	if usage != nil {
 		t.actualPromptTokens = usage.PromptTokens
+		if t.config.EnableDetailedMetrics {
+			t.actualCompletionTokens = usage.CompletionTokens
+			t.actualTotalTokens = usage.TotalTokens
+			t.cachedTokens = usage.PromptTokensDetails.CachedTokens
+			t.cacheCreationTokens = usage.PromptTokensDetails.CacheCreationTokens
+			t.cacheReadTokens = usage.PromptTokensDetails.CacheReadTokens
+			t.reasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+		}
 	}
 	t.contextWindow = contextWindow
 }
@@ -256,6 +291,31 @@ func (t *ContextMetricsTracker) SetModelTailoringConfig(strategy string, enabled
 	}
 	t.config.TailoringStrategy = strategy
 	t.config.EnableTokenTailoring = enabled
+}
+
+// RecordToolDefinitionTokens records the estimated token count of tool/function definitions.
+// Only recorded when EnableDetailedMetrics is true.
+func (t *ContextMetricsTracker) RecordToolDefinitionTokens(tokens int) {
+	if t == nil {
+		return
+	}
+	if !t.config.EnableDetailedMetrics {
+		return
+	}
+	t.toolDefinitionTokens = tokens
+}
+
+// SetTokenTailoringBudget updates the tracker with the model's token tailoring budget parameters.
+// Only populated when EnableDetailedMetrics is true.
+func (t *ContextMetricsTracker) SetTokenTailoringBudget(protocolOverhead, reserveOutput int) {
+	if t == nil {
+		return
+	}
+	t.protocolOverheadTokens = protocolOverhead
+	if t.config.EnableDetailedMetrics {
+		t.config.ProtocolOverheadTokens = protocolOverhead
+		t.config.ReserveOutputTokens = reserveOutput
+	}
 }
 
 // contextAttributes holds the attributes for context metrics.
@@ -407,6 +467,35 @@ func (t *ContextMetricsTracker) RecordMetrics() {
 			metric.WithAttributes(otelAttrs...))
 	}
 
+	// Record extended metrics only when detailed metrics are enabled.
+	if t.config.EnableDetailedMetrics {
+		if ContextMetricCompletionTokens != nil {
+			ContextMetricCompletionTokens.Record(t.ctx, int64(t.actualCompletionTokens),
+				metric.WithAttributes(otelAttrs...))
+		}
+		if ContextMetricTotalTokens != nil {
+			ContextMetricTotalTokens.Record(t.ctx, int64(t.actualTotalTokens),
+				metric.WithAttributes(otelAttrs...))
+		}
+		if ContextMetricCachedTokens != nil {
+			ContextMetricCachedTokens.Record(t.ctx, int64(t.cachedTokens),
+				metric.WithAttributes(otelAttrs...))
+		}
+		if ContextMetricReasoningTokens != nil {
+			ContextMetricReasoningTokens.Record(t.ctx, int64(t.reasoningTokens),
+				metric.WithAttributes(otelAttrs...))
+		}
+		if ContextMetricToolDefinitionTokens != nil {
+			ContextMetricToolDefinitionTokens.Record(t.ctx, int64(t.toolDefinitionTokens),
+				metric.WithAttributes(otelAttrs...))
+		}
+		if ContextMetricUsageRatioByInitial != nil && t.contextWindow > 0 && t.initialTokens > 0 {
+			ContextMetricUsageRatioByInitial.Record(t.ctx,
+				float64(t.initialTokens)/float64(t.contextWindow),
+				metric.WithAttributes(otelAttrs...))
+		}
+	}
+
 	// Record counter metrics (only when triggered).
 	if t.compactionTriggered && ContextMetricCompactionTrigger != nil {
 		compactionAttrs := append(otelAttrs,
@@ -465,6 +554,10 @@ func (t *ContextMetricsTracker) ToTraceChatContextMetrics() *TraceChatContextMet
 	if t.contextWindow > 0 {
 		usageRatio = float64(t.actualPromptTokens) / float64(t.contextWindow)
 	}
+	var usageRatioByInitial float64
+	if t.config.EnableDetailedMetrics && t.contextWindow > 0 && t.initialTokens > 0 {
+		usageRatioByInitial = float64(t.initialTokens) / float64(t.contextWindow)
+	}
 	return &TraceChatContextMetrics{
 		InputTokens:              t.actualPromptTokens,
 		WindowSize:               t.contextWindow,
@@ -494,5 +587,20 @@ func (t *ContextMetricsTracker) ToTraceChatContextMetrics() *TraceChatContextMet
 		OversizedToolMaxTokens:   t.config.OversizedToolResultMaxTokens,
 		MaxHistoryRuns:           t.config.MaxHistoryRuns,
 		KeepRecentRequests:       t.config.KeepRecentRequests,
+		// Extended metrics.
+		CompletionTokens:       t.actualCompletionTokens,
+		TotalTokens:            t.actualTotalTokens,
+		CachedTokens:           t.cachedTokens,
+		CacheCreationTokens:    t.cacheCreationTokens,
+		CacheReadTokens:        t.cacheReadTokens,
+		ReasoningTokens:        t.reasoningTokens,
+		ToolDefinitionTokens:   t.toolDefinitionTokens,
+		ProtocolOverheadTokens: t.protocolOverheadTokens,
+		UsageRatioByInitial:    usageRatioByInitial,
+		EnableDetailedMetrics:  t.config.EnableDetailedMetrics,
+		ReserveOutputTokens:    t.config.ReserveOutputTokens,
+		InputTokensFloor:       t.config.InputTokensFloor,
+		SafetyMarginRatio:      t.config.SafetyMarginRatio,
+		MaxInputTokensRatio:    t.config.MaxInputTokensRatio,
 	}
 }
