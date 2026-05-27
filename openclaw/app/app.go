@@ -1043,6 +1043,7 @@ func NewRuntimeWithOptions(
 			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
 			EnableContextCompaction:                       opts.EnableContextCompaction,
+			EnableDetailedMetrics:                         opts.EnableDetailedMetrics,
 			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
@@ -1575,6 +1576,7 @@ func run(
 			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
 			EnableContextCompaction:                       opts.EnableContextCompaction,
+			EnableDetailedMetrics:                         opts.EnableDetailedMetrics,
 			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
@@ -2502,6 +2504,7 @@ func newAgent(
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
 		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
+		llmagent.WithEnableDetailedMetrics(cfg.EnableDetailedMetrics),
 		llmagent.WithContextCompactionThresholdRatio(cfg.ContextCompactionThresholdRatio),
 		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
 		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
@@ -2802,6 +2805,7 @@ type agentConfig struct {
 	SessionSummaryInjectionMode                   string
 	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
+	EnableDetailedMetrics                         bool
 	ContextCompactionThresholdRatio               float64
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int

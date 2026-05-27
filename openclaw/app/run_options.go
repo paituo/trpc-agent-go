@@ -70,6 +70,7 @@ const (
 	flagSessionSummaryInjectionMode                   = "session-summary-injection-mode"
 	flagSyncSummaryIntraRun                           = "sync-summary-intra-run"
 	flagEnableContextCompaction                       = "enable-context-compaction"
+	flagEnableDetailedMetrics                         = "enable-detailed-context-metrics"
 	flagContextCompactionThresholdRatio               = "context-compaction-threshold-ratio"
 	flagContextCompactionToolResultMaxTokens          = "context-compaction-tool-result-max-tokens"
 	flagContextCompactionKeepRecentRequests           = "context-compaction-keep-recent-requests"
@@ -155,6 +156,7 @@ type runOptions struct {
 	SessionSummaryInjectionMode                   string
 	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
+	EnableDetailedMetrics                         bool
 	ContextCompactionThresholdRatio               float64
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
@@ -191,34 +193,34 @@ type runOptions struct {
 	ClaudeEnv          string
 	ClaudeWorkDir      string
 
-	ModelMode                string
-	OpenAIModel              string
-	OpenAIVariant            string
-	OpenAIBaseURL            string
-	GenerationConfig         *model.GenerationConfig
-	ModelContextWindow       int
-	ModelEnableTokenTailoring bool
+	ModelMode                   string
+	OpenAIModel                 string
+	OpenAIVariant               string
+	OpenAIBaseURL               string
+	GenerationConfig            *model.GenerationConfig
+	ModelContextWindow          int
+	ModelEnableTokenTailoring   bool
 	ModelTokenTailoringStrategy string
-	ModelConfig              *yaml.Node
-	KnowledgesConfig         []knowledgeEntry
-	SkillsRoot               string
-	SkillsExtraDir           string
-	SkillsDebug              bool
-	SkillsAllowBundled       string
-	SkillConfigs             map[string]ocskills.SkillConfig
-	SkillsWatch              bool
-	SkillsWatchBundled       bool
-	SkillsWatchDebounce      time.Duration
-	SkillsToolProfile        string
-	SkillsLoadMode           string
-	SkillsMaxLoaded          int
-	SkillsToolResults        bool
-	SkillsSkipFallback       bool
-	SkillsToolingGuide       *string
-	SkillsProjectAgentsRoot  bool
-	SkillsPersonalAgentsRoot bool
-	SkillsManagedRoot        bool
-	StateDir                 string
+	ModelConfig                 *yaml.Node
+	KnowledgesConfig            []knowledgeEntry
+	SkillsRoot                  string
+	SkillsExtraDir              string
+	SkillsDebug                 bool
+	SkillsAllowBundled          string
+	SkillConfigs                map[string]ocskills.SkillConfig
+	SkillsWatch                 bool
+	SkillsWatchBundled          bool
+	SkillsWatchDebounce         time.Duration
+	SkillsToolProfile           string
+	SkillsLoadMode              string
+	SkillsMaxLoaded             int
+	SkillsToolResults           bool
+	SkillsSkipFallback          bool
+	SkillsToolingGuide          *string
+	SkillsProjectAgentsRoot     bool
+	SkillsPersonalAgentsRoot    bool
+	SkillsManagedRoot           bool
+	StateDir                    string
 
 	DebugRecorderEnabled bool
 	DebugRecorderDir     string
@@ -1070,6 +1072,7 @@ type agentRunConfig struct {
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
 	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
+	EnableDetailedMetrics                         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
@@ -1482,6 +1485,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.EnableContextCompaction != nil &&
 			!flagWasSet(set, flagEnableContextCompaction) {
 			opts.EnableContextCompaction = *cfg.Agent.EnableContextCompaction
+		}
+		if cfg.Agent.EnableDetailedMetrics != nil &&
+			!flagWasSet(set, flagEnableDetailedMetrics) {
+			opts.EnableDetailedMetrics = *cfg.Agent.EnableDetailedMetrics
 		}
 		if cfg.Agent.ContextCompactionThresholdRatio != nil &&
 			!flagWasSet(set, flagContextCompactionThresholdRatio) {
