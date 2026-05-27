@@ -210,12 +210,14 @@ type PlannerFactory func(deps PlannerDeps, spec PlannerSpec) (planner.Planner, e
 
 // ModelSpec describes which model to create.
 type ModelSpec struct {
-	Type                 string
-	Name                 string
-	BaseURL              string
-	OpenAIVariant        string
-	DebugRecorderEnabled bool
-	ContextWindow        int
+	Type                   string
+	Name                   string
+	BaseURL                string
+	OpenAIVariant          string
+	DebugRecorderEnabled   bool
+	ContextWindow          int
+	EnableTokenTailoring   bool
+	TokenTailoringStrategy string
 
 	Config *yaml.Node
 }
