@@ -570,6 +570,62 @@ func initContextMetrics(mp metric.MeterProvider) error {
 		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextMessageCount, err)
 	}
 
+	// Extended context histogram metrics (only recorded when EnableDetailedMetrics is true).
+	if itelemetry.ContextMetricCompletionTokens, err = histogram.NewDynamicInt64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextCompletionTokens,
+		metric.WithDescription("Number of completion tokens returned by the LLM"),
+		metric.WithUnit("{token}"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextCompletionTokens, err)
+	}
+	if itelemetry.ContextMetricTotalTokens, err = histogram.NewDynamicInt64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextTotalTokens,
+		metric.WithDescription("Total number of tokens (prompt + completion)"),
+		metric.WithUnit("{token}"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextTotalTokens, err)
+	}
+	if itelemetry.ContextMetricCachedTokens, err = histogram.NewDynamicInt64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextCachedTokens,
+		metric.WithDescription("Number of cached prompt tokens"),
+		metric.WithUnit("{token}"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextCachedTokens, err)
+	}
+	if itelemetry.ContextMetricReasoningTokens, err = histogram.NewDynamicInt64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextReasoningTokens,
+		metric.WithDescription("Number of reasoning tokens returned by the LLM"),
+		metric.WithUnit("{token}"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextReasoningTokens, err)
+	}
+	if itelemetry.ContextMetricToolDefinitionTokens, err = histogram.NewDynamicInt64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextToolDefinitionTokens,
+		metric.WithDescription("Estimated token count of tool/function definitions"),
+		metric.WithUnit("{token}"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextToolDefinitionTokens, err)
+	}
+	if itelemetry.ContextMetricUsageRatioByInitial, err = histogram.NewDynamicFloat64Histogram(
+		mp,
+		meterName,
+		metrics.MetricContextUsageRatioByInitial,
+		metric.WithDescription("Context window usage ratio based on initial tokens (initial_tokens / window_size)"),
+		metric.WithUnit("1"),
+	); err != nil {
+		return fmt.Errorf("failed to create %s metric %s: %w", meterName, metrics.MetricContextUsageRatioByInitial, err)
+	}
+
 	// Counter metrics.
 	if itelemetry.ContextMetricCompactionTrigger, err = itelemetry.ContextMeter.Int64Counter(
 		metrics.MetricContextCompactionTrigger,
@@ -664,6 +720,36 @@ func setContextHistogramBuckets(metricName string, boundaries []float64) error {
 			return fmt.Errorf("context metric %s not initialized", metricName)
 		}
 		return itelemetry.ContextMetricMessageCount.SetBuckets(boundaries)
+	case metrics.MetricContextCompletionTokens:
+		if itelemetry.ContextMetricCompletionTokens == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricCompletionTokens.SetBuckets(boundaries)
+	case metrics.MetricContextTotalTokens:
+		if itelemetry.ContextMetricTotalTokens == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricTotalTokens.SetBuckets(boundaries)
+	case metrics.MetricContextCachedTokens:
+		if itelemetry.ContextMetricCachedTokens == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricCachedTokens.SetBuckets(boundaries)
+	case metrics.MetricContextReasoningTokens:
+		if itelemetry.ContextMetricReasoningTokens == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricReasoningTokens.SetBuckets(boundaries)
+	case metrics.MetricContextToolDefinitionTokens:
+		if itelemetry.ContextMetricToolDefinitionTokens == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricToolDefinitionTokens.SetBuckets(boundaries)
+	case metrics.MetricContextUsageRatioByInitial:
+		if itelemetry.ContextMetricUsageRatioByInitial == nil {
+			return fmt.Errorf("context metric %s not initialized", metricName)
+		}
+		return itelemetry.ContextMetricUsageRatioByInitial.SetBuckets(boundaries)
 	default:
 		return fmt.Errorf("unknown or unsupported context histogram metric: %s", metricName)
 	}
