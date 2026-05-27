@@ -20,74 +20,46 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// kernel32 DLL for Job Object API.
-var kernel32 = windows.NewLazySystemDLL("kernel32.dll")
-
-var (
-	procCreateJobObjectW          = kernel32.NewProc("CreateJobObjectW")
-	procAssignProcessToJobObject  = kernel32.NewProc("AssignProcessToJobObject")
-	procSetInformationJobObject   = kernel32.NewProc("SetInformationJobObject")
-)
-
-const (
-	// jobObjectLimitKillOnJobClose causes all processes associated with the
-	// Job Object to be terminated when the last handle is closed.
-	jobObjectLimitKillOnJobClose = 0x2000
-
-	// jobObjectExtendedLimitInformation is the information class for
-	// JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
-	jobObjectExtendedLimitInformation = 9
-)
-
-// jobObject wraps a Windows Job Object handle.
-// Must be released via close() which also triggers KILL_ON_JOB_CLOSE if enabled.
+// jobObject wraps a Windows Job Object handle for process tree management.
+// When KILL_ON_JOB_CLOSE is enabled and the handle is closed, the operating
+// system automatically terminates all processes associated with the job.
+//
+// Close must be called to release the handle. It is safe to call Close
+// multiple times (idempotent). However, Close is not safe for concurrent
+// use — callers are responsible for serialization.
 type jobObject struct {
 	handle windows.Handle
 }
 
-// newJobObject creates a new unnamed Job Object.
+// newJobObject creates a new unnamed Windows Job Object.
 func newJobObject() (*jobObject, error) {
-	name, _ := windows.UTF16PtrFromString("")
-	h, _, err := procCreateJobObjectW.Call(
-		0, // lpJobAttributes = NULL (default security)
-		uintptr(unsafe.Pointer(name)),
-	)
-	if h == 0 {
-		return nil, fmt.Errorf("CreateJobObjectW failed: %w", err)
+	h, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("CreateJobObject failed: %w", err)
 	}
-	return &jobObject{handle: windows.Handle(h)}, nil
+	return &jobObject{handle: h}, nil
 }
 
-// enableKillOnClose sets JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE.
-// When the last handle to this Job Object is closed, all associated processes
-// will be terminated.
+// enableKillOnClose sets the JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE flag.
+// When the last handle to this job object is closed, the operating system
+// terminates all processes associated with the job.
 func (j *jobObject) enableKillOnClose() error {
-	type jobObjectExtendedLimitInfo struct {
-		basicLimit  windows.JOBOBJECT_BASIC_LIMIT_INFORMATION
-		ioInfo      windows.IO_COUNTERS
-		processMem  uintptr
-		jobMem      uintptr
-		peakProcess uintptr
-		peakJob     uintptr
-	}
-
-	var info jobObjectExtendedLimitInfo
-	info.basicLimit.LimitFlags = jobObjectLimitKillOnJobClose
-
-	ret, _, err := procSetInformationJobObject.Call(
-		uintptr(j.handle),
-		jobObjectExtendedLimitInformation,
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	_, err := windows.SetInformationJobObject(
+		j.handle,
+		windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)),
-		unsafe.Sizeof(info),
+		uint32(unsafe.Sizeof(info)),
 	)
-	if ret == 0 {
+	if err != nil {
 		return fmt.Errorf("SetInformationJobObject(KILL_ON_CLOSE) failed: %w", err)
 	}
 	return nil
 }
 
-// assignProcess assigns the given OS process to this Job Object.
-// The process must already be running (Start already called).
+// assignProcess attaches the given OS process to this Job Object.
+// The process must already be running (cmd.Start must have been called).
 func (j *jobObject) assignProcess(p *os.Process) error {
 	h, err := windows.OpenProcess(
 		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
@@ -99,18 +71,16 @@ func (j *jobObject) assignProcess(p *os.Process) error {
 	}
 	defer windows.CloseHandle(h)
 
-	ret, _, err := procAssignProcessToJobObject.Call(
-		uintptr(j.handle),
-		uintptr(h),
-	)
-	if ret == 0 {
+	if err := windows.AssignProcessToJobObject(j.handle, h); err != nil {
 		return fmt.Errorf("AssignProcessToJobObject(pid=%d) failed: %w", p.Pid, err)
 	}
 	return nil
 }
 
-// close releases the Job Object handle. If KILL_ON_JOB_CLOSE was set,
-// this triggers termination of all associated processes.
+// close releases the Job Object handle. If KILL_ON_JOB_CLOSE was enabled,
+// this causes all associated processes to be terminated by the OS.
+// Close is idempotent — multiple calls are safe — but not safe for
+// concurrent use. Callers must ensure serialized access.
 func (j *jobObject) close() error {
 	if j.handle == 0 {
 		return nil
