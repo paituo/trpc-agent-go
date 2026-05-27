@@ -13,6 +13,7 @@ package file
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -135,20 +136,27 @@ func (f *fileToolSet) searchContentByFilePatternRef(
 	if err != nil {
 		return nil, true, err
 	}
-	if int64(len(content)) > f.maxFileSize {
-		return nil, true, fmt.Errorf(
-			"file size is beyond of max file size, "+
-				"file size: %d, max file size: %d",
-			len(content),
-			f.maxFileSize,
-		)
-	}
 
 	path := req.FilePattern
 	if ref, err := fileref.Parse(req.FilePattern); err == nil &&
 		ref.Scheme == fileref.SchemeWorkspace {
 		path = fileref.WorkspaceRef(ref.Path)
 	}
+
+	if int64(len(content)) > f.maxFileSize {
+		match := searchTextContent(path, content[:f.maxFileSize], re)
+		if len(match.Matches) == 0 {
+			return []*fileMatch{}, true, nil
+		}
+		match.Message = fmt.Sprintf(
+			"Found %d matches in large file '%s' (partial search, first %d bytes)",
+			len(match.Matches),
+			path,
+			f.maxFileSize,
+		)
+		return []*fileMatch{match}, true, nil
+	}
+
 	match := searchTextContent(path, content, re)
 	if len(match.Matches) == 0 {
 		return []*fileMatch{}, true, nil
@@ -250,23 +258,43 @@ func (f *fileToolSet) searchContentLocal(
 		if err != nil {
 			continue
 		}
-		if stat.IsDir() || stat.Size() > f.maxFileSize {
+		if stat.IsDir() {
 			continue
 		}
+		fileIsLarge := stat.Size() > f.maxFileSize
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			match, err := searchFileContent(fullPath, re)
-			if err != nil || len(match.Matches) == 0 {
-				return
+			var match *fileMatch
+			if fileIsLarge {
+				content, readErr := readFilePartialContent(fullPath, f.maxFileSize)
+				if readErr != nil {
+					return
+				}
+				match = searchTextContent(relPath, content, re)
+				if len(match.Matches) == 0 {
+					return
+				}
+				match.Message = fmt.Sprintf(
+					"Found %d matches in large file '%s' (partial search, first %d bytes)",
+					len(match.Matches),
+					relPath,
+					f.maxFileSize,
+				)
+			} else {
+				var err error
+				match, err = searchFileContent(fullPath, re)
+				if err != nil || len(match.Matches) == 0 {
+					return
+				}
+				match.FilePath = relPath
+				match.Message = fmt.Sprintf(
+					"Found %d matches in file '%s'",
+					len(match.Matches),
+					relPath,
+				)
 			}
-			match.FilePath = relPath
-			match.Message = fmt.Sprintf(
-				"Found %d matches in file '%s'",
-				len(match.Matches),
-				relPath,
-			)
 			mu.Lock()
 			fileMatches = append(fileMatches, match)
 			mu.Unlock()
@@ -317,7 +345,21 @@ func (f *fileToolSet) searchSingleLocalFile(
 		return nil, false
 	}
 	if st.Size() > f.maxFileSize {
-		return []*fileMatch{}, true
+		content, err := readFilePartialContent(fullPath, f.maxFileSize)
+		if err != nil {
+			return nil, false
+		}
+		match := searchTextContent(reqPath, content, re)
+		if len(match.Matches) == 0 {
+			return []*fileMatch{}, true
+		}
+		match.Message = fmt.Sprintf(
+			"Found %d matches in large file '%s' (partial search, first %d bytes)",
+			len(match.Matches),
+			reqPath,
+			f.maxFileSize,
+		)
+		return []*fileMatch{match}, true
 	}
 	match, err := searchFileContent(fullPath, re)
 	if err != nil || len(match.Matches) == 0 {
@@ -430,6 +472,18 @@ func (f *fileToolSet) searchWorkspaceContent(
 			continue
 		}
 		if int64(len(entry.Content)) > f.maxFileSize {
+			path := fileref.WorkspaceRef(full)
+			match := searchTextContent(path, entry.Content[:f.maxFileSize], re)
+			if len(match.Matches) == 0 {
+				continue
+			}
+			match.Message = fmt.Sprintf(
+				"Found %d matches in large file '%s' (partial search, first %d bytes)",
+				len(match.Matches),
+				path,
+				f.maxFileSize,
+			)
+			out = append(out, match)
 			continue
 		}
 		path := fileref.WorkspaceRef(full)
@@ -540,4 +594,19 @@ func searchFileContent(
 		}
 	}
 	return fileMatches, nil
+}
+
+// readFilePartialContent reads up to maxBytes bytes from a file.
+func readFilePartialContent(filePath string, maxBytes int64) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	content, err := io.ReadAll(io.LimitReader(f, maxBytes))
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }
