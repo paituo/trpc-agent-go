@@ -8,12 +8,13 @@ agent:
   type: "llm"
   planner_type: "react"
   #instruction: "You are a helpful assistant for terminal chat."
+  preload_memory: 10
   add_session_summary: true
   session_summary_injection_mode: "system"
   sync_summary_intra_run: true
   enable_context_compaction: true
   enable_detailed_context_metrics: true
-  context_compaction_threshold_ratio: 0.5
+  context_compaction_threshold_ratio: 0.4
   context_compaction_tool_result_max_tokens: 1024
   context_compaction_keep_recent_requests: 2
   context_compaction_oversized_tool_result_max_tokens: 4096
@@ -129,6 +130,12 @@ tools:
   enable_local_exec: true
   enable_openclaw_tools: true
   enable_parallel_tools: true
+  # tool_call_retry_policy:
+  #   max_attempts: 3
+  #   initial_interval_ms: 200
+  #   backoff_factor: 2.0
+  #   max_interval_ms: 2000
+  #   jitter: true
   openclaw_tooling_guidance: >
     Tool selection: prefer read_document/read_spreadsheet for uploaded
     documents and spreadsheets; use write_stdin and kill_session for
