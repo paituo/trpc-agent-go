@@ -13,7 +13,7 @@ package platform
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,7 +54,7 @@ func Shell() (ShellSpec, error) {
 			}, nil
 		}
 	}
-	return ShellSpec{}, fmt.Errorf("no usable shell found on Windows")
+	return ShellSpec{}, errors.New("no usable shell found on Windows")
 }
 
 // isNonNativeShell detects whether the given executable path belongs to
