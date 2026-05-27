@@ -386,8 +386,10 @@ func isDeepSeekBaseURL(raw string) bool {
 // Info implements the model.Model interface.
 func (m *Model) Info() model.Info {
 	return model.Info{
-		Name:          m.name,
-		ContextWindow: m.contextWindow,
+		Name:                  m.name,
+		ContextWindow:         m.contextWindow,
+		TailoringStrategyName: m.tailoringStrategyName,
+		EnableTokenTailoring:  m.enableTokenTailoring,
 	}
 }
 

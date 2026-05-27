@@ -475,33 +475,34 @@ type TraceChatAttributes struct {
 // TraceChatContextMetrics carries context control metrics data from the
 // ContextMetricsTracker to the TraceChat span attributes.
 type TraceChatContextMetrics struct {
-	InputTokens            int
-	WindowSize             int
-	UsageRatio             float64
-	InitialTokens          int
-	InitialMessageCount    int
-	TailoredTokens         int
-	TailoredMessages       int
-	CompactedTokens        int
-	MessageCount           int
-	CompactionTriggered    bool
-	TailoringTriggered     bool
-	SummaryTriggered       bool
-	ToolCompactionTriggered bool
-	OversizedTruncTriggered bool
-	HistoryTrimTriggered   bool
-	EnableCompaction       bool
-	SyncSummary            bool
-	SummaryInjectionMode   string
-	AddSummary             bool
-	TailoringStrategy      string
-	MessageFilterMode      string
-	ReasoningContentMode   string
+	InputTokens             int
+	WindowSize              int
+	UsageRatio              float64
+	InitialTokens           int
+	InitialMessageCount     int
+	TailoredTokens          int
+	TailoredMessages        int
+	CompactedTokens         int
+	MessageCount            int
+	CompactionTriggered     bool
+	TailoringTriggered      bool
+	SummaryTriggered        bool
+	ToolCompactionTriggered  bool
+	OversizedTruncTriggered  bool
+	HistoryTrimTriggered    bool
+	EnableCompaction        bool
+	EnableTokenTailoring    bool
+	SyncSummary             bool
+	SummaryInjectionMode    string
+	AddSummary              bool
+	TailoringStrategy       string
+	MessageFilterMode       string
+	ReasoningContentMode    string
 	CompactionThresholdRatio float64
-	ToolResultMaxTokens    int
-	OversizedToolMaxTokens int
-	MaxHistoryRuns         int
-	KeepRecentRequests     int
+	ToolResultMaxTokens     int
+	OversizedToolMaxTokens  int
+	MaxHistoryRuns          int
+	KeepRecentRequests      int
 }
 
 // NewSummarizeTaskType creates a task type for summarize.
@@ -759,6 +760,7 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 		attribute.Int("context.state.message_count", m.MessageCount),
 		// Config metrics
 		attribute.Bool("context.config.enable_compaction", m.EnableCompaction),
+		attribute.Bool("context.config.enable_token_tailoring", m.EnableTokenTailoring),
 		attribute.Bool("context.config.sync_summary", m.SyncSummary),
 		attribute.String("context.config.summary_injection_mode", m.SummaryInjectionMode),
 		attribute.Bool("context.config.add_summary", m.AddSummary),
