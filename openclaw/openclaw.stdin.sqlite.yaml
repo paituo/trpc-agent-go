@@ -16,6 +16,11 @@ agent:
   context_compaction_tool_result_max_tokens: 1024
   context_compaction_keep_recent_requests: 2
   context_compaction_oversized_tool_result_max_tokens: 4096
+  context_compaction_force_clean_tool_names:
+    - "large_log"
+  context_compaction_keep_tool_names:
+    - "session_load"
+    - "session_search"
 #   source ~/.zshrc
 
 #   gpt52
@@ -24,6 +29,9 @@ model:
   name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
   context_window: 128000
+  token_tailoring:
+    enabled: true
+    strategy: "middle_out"
   generation_config:
     max_tokens: 12000
     temperature: 0.1
