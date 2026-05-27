@@ -567,6 +567,11 @@ func (f *Flow) runOneStep(
 	ctx = itelemetry.WithContextMetricsTracker(ctx, ctxTracker)
 	defer ctxTracker.RecordMetrics()
 
+	if callModel != nil {
+		info := callModel.Info()
+		ctxTracker.SetModelTailoringConfig(info.TailoringStrategyName, info.EnableTokenTailoring)
+	}
+
 	// 1. Preprocess (prepare request).
 	rebuildPlan := f.preprocess(ctx, invocation, llmRequest, eventChan)
 

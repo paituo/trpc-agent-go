@@ -75,4 +75,8 @@ type Info struct {
 	// ContextWindow is the model context window in tokens.
 	// A non-positive value means the window is unknown for this model instance.
 	ContextWindow int
+	// TailoringStrategyName is the name of the token tailoring strategy, e.g. "middle_out".
+	TailoringStrategyName string
+	// EnableTokenTailoring indicates whether automatic token tailoring is enabled.
+	EnableTokenTailoring bool
 }
