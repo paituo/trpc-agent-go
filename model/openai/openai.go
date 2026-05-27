@@ -33,8 +33,8 @@ import (
 	"github.com/openai/openai-go/shared"
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	"trpc.group/trpc-go/trpc-agent-go/internal/modeltelemetry"
-	"trpc.group/trpc-go/trpc-agent-go/internal/toolorder"
 	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	"trpc.group/trpc-go/trpc-agent-go/internal/toolorder"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	imodel "trpc.group/trpc-go/trpc-agent-go/model/internal/model"
@@ -386,10 +386,15 @@ func isDeepSeekBaseURL(raw string) bool {
 // Info implements the model.Model interface.
 func (m *Model) Info() model.Info {
 	return model.Info{
-		Name:                  m.name,
-		ContextWindow:         m.contextWindow,
-		TailoringStrategyName: m.tailoringStrategyName,
-		EnableTokenTailoring:  m.enableTokenTailoring,
+		Name:                   m.name,
+		ContextWindow:          m.contextWindow,
+		TailoringStrategyName:  m.tailoringStrategyName,
+		EnableTokenTailoring:   m.enableTokenTailoring,
+		ProtocolOverheadTokens: m.protocolOverheadTokens,
+		ReserveOutputTokens:    m.reserveOutputTokens,
+		InputTokensFloor:       m.inputTokensFloor,
+		SafetyMarginRatio:      m.safetyMarginRatio,
+		MaxInputTokensRatio:    m.maxInputTokensRatio,
 	}
 }
 

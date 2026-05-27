@@ -87,6 +87,7 @@ type Options struct {
 	SyncSummaryIntraRun             bool
 	EnableContextCompaction         bool
 	ContextCompactionThresholdRatio float64
+	EnableDetailedMetrics           bool
 }
 
 // ModelBaseResolution describes the base model for one LLM call.
@@ -109,6 +110,7 @@ type Flow struct {
 	syncSummaryIntraRun             bool
 	enableContextCompaction         bool
 	contextCompactionThresholdRatio float64
+	enableDetailedMetrics           bool
 }
 
 type contextCompactionTailProcessor interface {
@@ -155,6 +157,7 @@ func New(
 		contextCompactionThresholdRatio: normalizeContextCompactionThresholdRatio(
 			opts.ContextCompactionThresholdRatio,
 		),
+		enableDetailedMetrics: opts.EnableDetailedMetrics,
 	}
 }
 
@@ -570,6 +573,7 @@ func (f *Flow) runOneStep(
 	if callModel != nil {
 		info := callModel.Info()
 		ctxTracker.SetModelTailoringConfig(info.TailoringStrategyName, info.EnableTokenTailoring)
+		ctxTracker.SetTokenTailoringBudget(info.ProtocolOverheadTokens, info.ReserveOutputTokens)
 	}
 
 	// 1. Preprocess (prepare request).
@@ -577,6 +581,14 @@ func (f *Flow) runOneStep(
 
 	// Record initial state after preprocess.
 	ctxTracker.RecordInitialState(llmRequest.Messages, f.tokenCounter())
+
+	// Record tool definition tokens estimate (when detailed metrics is enabled).
+	if len(llmRequest.Tools) > 0 && f.enableDetailedMetrics {
+		toolDefTokens, tokenErr := estimateToolDefinitionTokens(llmRequest.Tools, f.tokenCounter())
+		if tokenErr == nil {
+			ctxTracker.RecordToolDefinitionTokens(toolDefTokens)
+		}
+	}
 
 	if invocation.EndInvocation {
 		return lastEvent, nil
@@ -1129,7 +1141,7 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		rebuildPlan.contentProcessor.ContextCompactionConfig.TokenCounter,
 	) {
 		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
-			tracker.RecordPostCompaction(0, false)
+			tracker.RecordPostCompaction(totalTokens, false)
 		}
 		return req
 	}
@@ -1153,7 +1165,7 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 			)
 		}
 		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
-			tracker.RecordPostCompaction(0, false)
+			tracker.RecordPostCompaction(totalTokens, false)
 		}
 		return req
 	}
@@ -1170,7 +1182,7 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 			invocation.AgentName,
 		)
 		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
-			tracker.RecordPostCompaction(0, false)
+			tracker.RecordPostCompaction(totalTokens, false)
 		}
 		return req
 	}
@@ -2033,6 +2045,29 @@ func (f *Flow) tokenCounter() model.TokenCounter {
 	return nil
 }
 
+// estimateToolDefinitionTokens estimates the token count of tool/function definitions.
+func estimateToolDefinitionTokens(tools map[string]tool.Tool, counter model.TokenCounter) (int, error) {
+	if counter == nil {
+		return 0, errors.New("token counter is nil")
+	}
+	decls := make([]*tool.Declaration, 0, len(tools))
+	for _, t := range tools {
+		decls = append(decls, t.Declaration())
+	}
+	raw, err := json.Marshal(decls)
+	if err != nil {
+		return 0, err
+	}
+	tokens, err := counter.CountTokens(context.Background(), model.Message{
+		Role:    model.RoleSystem,
+		Content: string(raw),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return tokens, nil
+}
+
 // captureContextConfig captures a snapshot of the context control configuration
 // from the Flow and ContentRequestProcessor.
 func (f *Flow) captureContextConfig() itelemetry.ContextConfigSnapshot {
@@ -2040,6 +2075,7 @@ func (f *Flow) captureContextConfig() itelemetry.ContextConfigSnapshot {
 		EnableCompaction:         f.enableContextCompaction,
 		SyncSummary:              f.syncSummaryIntraRun,
 		CompactionThresholdRatio: f.contextCompactionThresholdRatio,
+		EnableDetailedMetrics:    f.enableDetailedMetrics,
 	}
 	// Aggregate config from ContentRequestProcessor.
 	for _, p := range f.requestProcessors {
