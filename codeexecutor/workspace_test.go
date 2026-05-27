@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 func TestBuildBlockSpec_PythonAndBash(t *testing.T) {
@@ -25,14 +27,17 @@ func TestBuildBlockSpec_PythonAndBash(t *testing.T) {
 	require.Equal(t, "python3", c)
 	require.Nil(t, a)
 
+	shell, err := platform.Shell()
+	require.NoError(t, err)
+
 	f2, m2, c2, a2, err2 := BuildBlockSpec(
 		2, CodeBlock{Language: "bash"},
 	)
 	require.NoError(t, err2)
 	require.Equal(t, "code_2.sh", f2)
 	require.Equal(t, uint32(DefaultExecFileMode), m2)
-	require.Equal(t, "bash", c2)
-	require.Nil(t, a2)
+	require.Equal(t, shell.Command, c2)
+	require.Equal(t, shell.Args, a2)
 }
 
 func TestBuildBlockSpec_Unsupported(t *testing.T) {
