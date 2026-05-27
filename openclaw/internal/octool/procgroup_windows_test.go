@@ -52,6 +52,7 @@ func TestJobObject_KillOnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newJobObject() failed: %v", err)
 	}
+	defer func() { _ = j.close() }()
 	if err := j.enableKillOnClose(); err != nil {
 		t.Fatalf("enableKillOnClose() failed: %v", err)
 	}
@@ -112,11 +113,13 @@ func TestJobObject_DoubleClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newJobObject() failed: %v", err)
 	}
+	defer func() { _ = j.close() }()
 	_ = j.enableKillOnClose()
 
 	cmd := exec.Command("cmd.exe", "/d", "/c", "exit 0")
-	_ = cmd.Start()
-	_ = j.assignProcess(cmd.Process)
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot start cmd.exe: %v", err)
+	}
 	_ = cmd.Wait()
 
 	// First close should succeed.
