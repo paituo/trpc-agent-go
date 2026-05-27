@@ -26,4 +26,9 @@ func Shell() (ShellSpec, error)
 
 // BuildCommand builds the OS command that runs userCommand through the
 // shell. It is a convenience wrapper around Shell().
+//
+// The ctx parameter may be used for cancellation during shell detection.
+//
+// It returns the executable path (cmd), the combined shell arguments
+// followed by the user command (args), and any error encountered (err).
 func BuildCommand(ctx context.Context, userCommand string) (cmd string, args []string, err error)
