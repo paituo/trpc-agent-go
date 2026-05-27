@@ -27,6 +27,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 const (
@@ -165,7 +166,11 @@ func TestLocalCodeExecutor_ExecuteCode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Skip test if required executable is missing
 			if tt.skipIfMissing != "" {
-				if !isExecutableAvailable(tt.skipIfMissing) {
+				if tt.skipIfMissing == "bash" {
+					if _, err := platform.Shell(); err != nil {
+						t.Skipf("Skipping test because no shell is available: %v", err)
+					}
+				} else if !isExecutableAvailable(tt.skipIfMissing) {
 					t.Skipf("Skipping test because %s is not available", tt.skipIfMissing)
 				}
 			}
@@ -669,7 +674,11 @@ Some more text here.`,
 		t.Run(tt.name, func(t *testing.T) {
 			// Skip test if required executables are missing
 			for _, executable := range tt.skipIfMissing {
-				if !isExecutableAvailable(executable) {
+				if executable == "bash" {
+					if _, err := platform.Shell(); err != nil {
+						t.Skipf("Skipping test because no shell is available: %v", err)
+					}
+				} else if !isExecutableAvailable(executable) {
 					t.Skipf("Skipping test because %s is not available", executable)
 				}
 			}
@@ -847,7 +856,7 @@ nonexistent-command-that-will-fail
 	// Should contain error messages
 	assert.Contains(t, result.Output, "unsupported language: javascript")
 
-	if isExecutableAvailable("bash") {
+	if _, err := platform.Shell(); err == nil {
 		assert.Contains(t, result.Output, "Error executing code block")
 	}
 
@@ -931,8 +940,8 @@ cat temp_file.txt
 }
 
 func TestLocalCodeExecutor_CleanTempFiles_KeepProjectCWD(t *testing.T) {
-	if !isExecutableAvailable("bash") {
-		t.Skip("Skipping test because bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("Skipping test because no shell is available: %v", err)
 	}
 
 	const (
@@ -982,8 +991,8 @@ func TestLocalCodeExecutor_CleanTempFiles_KeepProjectCWD(t *testing.T) {
 }
 
 func TestLocalCodeExecutor_CleanTempFiles_PreservesExistingFile(t *testing.T) {
-	if !isExecutableAvailable("bash") {
-		t.Skip("Skipping test because bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("Skipping test because no shell is available: %v", err)
 	}
 
 	const (
@@ -1031,8 +1040,8 @@ func TestLocalCodeExecutor_CleanTempFiles_PreservesExistingFile(t *testing.T) {
 // ExecuteCode calls sharing the same WorkDir produce correct, non-interleaved
 // output. This is the primary test for the script isolation fix.
 func TestLocalCodeExecutor_ConcurrentExecution_WorkDir(t *testing.T) {
-	if !isExecutableAvailable("bash") {
-		t.Skip("Skipping test because bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("Skipping test because no shell is available: %v", err)
 	}
 
 	const goroutines = 10 // number of concurrent calls
@@ -1090,8 +1099,8 @@ func TestLocalCodeExecutor_ConcurrentExecution_WorkDir(t *testing.T) {
 // TestLocalCodeExecutor_ConcurrentExecution_NoWorkDir verifies that concurrent
 // ExecuteCode calls without WorkDir (temp directory mode) also work correctly.
 func TestLocalCodeExecutor_ConcurrentExecution_NoWorkDir(t *testing.T) {
-	if !isExecutableAvailable("bash") {
-		t.Skip("Skipping test because bash is not available")
+	if _, err := platform.Shell(); err != nil {
+		t.Skipf("Skipping test because no shell is available: %v", err)
 	}
 
 	const goroutines = 10
@@ -1304,7 +1313,9 @@ func TestLocal_CommandErrorFormat(t *testing.T) {
 	// The output should include our standard error prefix and hint at
 	// the command failure details produced by executeCommand.
 	require.Contains(t, res.Output, "Error executing code block")
-	require.Contains(t, res.Output, "cmd=bash")
+	shell, err := platform.Shell()
+	require.NoError(t, err)
+	require.Contains(t, res.Output, "cmd="+shell.Command)
 }
 
 func TestLocal_DelegatesWorkspaceMethods(t *testing.T) {
