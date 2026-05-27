@@ -1086,6 +1086,7 @@ func NewRuntimeWithOptions(
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
+			ToolCallRetryPolicy:  opts.ToolCallRetryPolicy,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -1619,6 +1620,7 @@ func run(
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
+			ToolCallRetryPolicy:  opts.ToolCallRetryPolicy,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -2581,6 +2583,12 @@ func newAgent(
 		exec := localexec.New()
 		opts = append(opts, llmagent.WithCodeExecutor(exec))
 	}
+	if cfg.ToolCallRetryPolicy != nil {
+		opts = append(
+			opts,
+			llmagent.WithToolCallRetryPolicy(cfg.ToolCallRetryPolicy),
+		)
+	}
 
 	callbacks := tool.NewCallbacks()
 	registerMemoryFileToolCallback(
@@ -2849,6 +2857,8 @@ type agentConfig struct {
 	EnableOpenClawTools  bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
+
+	ToolCallRetryPolicy *tool.RetryPolicy
 
 	ToolProviders []pluginSpec
 
