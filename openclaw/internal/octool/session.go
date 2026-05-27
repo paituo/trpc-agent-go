@@ -35,6 +35,10 @@ type session struct {
 	stdin   io.WriteCloser
 	closeIO func() error
 	cancel  context.CancelFunc
+	// job is the Windows Job Object for process tree management.
+	// When the session finishes, closing this handle terminates
+	// all processes in the job automatically. nil on non-Windows.
+	job *jobObject `json:"-" msgpack:"-"`
 
 	doneCh chan struct{}
 	ioDone chan struct{}
@@ -342,10 +346,16 @@ func (s *session) kill(grace time.Duration) error {
 	s.mu.Lock()
 	cmd := s.cmd
 	cancel := s.cancel
+	j := s.job
 	s.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
+	}
+	// On Windows, close the Job Object handle to terminate the process tree.
+	// This must happen after cancel() to ensure the context is done first.
+	if j != nil {
+		_ = j.close()
 	}
 	if cmd == nil || cmd.Process == nil {
 		return nil
