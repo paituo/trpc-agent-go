@@ -89,9 +89,19 @@ func (j *jobObject) enableKillOnClose() error {
 // assignProcess assigns the given OS process to this Job Object.
 // The process must already be running (Start already called).
 func (j *jobObject) assignProcess(p *os.Process) error {
+	h, err := windows.OpenProcess(
+		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
+		false,
+		uint32(p.Pid),
+	)
+	if err != nil {
+		return fmt.Errorf("OpenProcess(pid=%d) failed: %w", p.Pid, err)
+	}
+	defer windows.CloseHandle(h)
+
 	ret, _, err := procAssignProcessToJobObject.Call(
 		uintptr(j.handle),
-		uintptr(uint32(p.Pid)),
+		uintptr(h),
 	)
 	if ret == 0 {
 		return fmt.Errorf("AssignProcessToJobObject(pid=%d) failed: %w", p.Pid, err)
