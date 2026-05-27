@@ -15,6 +15,7 @@ package octool
 import (
 	"fmt"
 	"os"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -25,9 +26,9 @@ import (
 // system automatically terminates all processes associated with the job.
 //
 // Close must be called to release the handle. It is safe to call Close
-// multiple times (idempotent). However, Close is not safe for concurrent
-// use — callers are responsible for serialization.
+// multiple times (idempotent) and safe for concurrent use.
 type jobObject struct {
+	mu     sync.Mutex
 	handle windows.Handle
 }
 
@@ -79,9 +80,10 @@ func (j *jobObject) assignProcess(p *os.Process) error {
 
 // close releases the Job Object handle. If KILL_ON_JOB_CLOSE was enabled,
 // this causes all associated processes to be terminated by the OS.
-// Close is idempotent — multiple calls are safe — but not safe for
-// concurrent use. Callers must ensure serialized access.
+// Close is idempotent and safe for concurrent use.
 func (j *jobObject) close() error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
 	if j.handle == 0 {
 		return nil
 	}
