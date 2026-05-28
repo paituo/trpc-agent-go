@@ -668,8 +668,8 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 		}
 	} else {
 		var compactionStats ContextCompactionStats
-		messages, compactionStats = p.getIncrementMessages(invocation, summaryUpdatedAt)
-		if p.hasCompactedCurrentInvocationToolResults(invocation, summaryUpdatedAt) {
+		messages, compactionStats = p.getIncrementMessages(invocation, summaryCutoff.at)
+		if p.hasCompactedCurrentInvocationToolResults(invocation, summaryCutoff.at) {
 			invocation.SetState(contentHasCompactedToolResultsStateKey, true)
 		}
 		tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
@@ -967,9 +967,19 @@ func (p *ContentRequestProcessor) formatSummary(summary string) string {
 		"You should ALWAYS prefer information from this conversation over the past summary.\n", summary)
 }
 
+// getIncrementMessagesAfterCutoff gets increment messages using a summaryHistoryCutoff.
+func (p *ContentRequestProcessor) getIncrementMessagesAfterCutoff(inv *agent.Invocation, cutoff summaryHistoryCutoff) []model.Message {
+	messages, _ := p.getIncrementMessagesWithCutoff(inv, cutoff)
+	return messages
+}
+
 // getHistoryMessages gets history messages for the current filter, potentially truncated by MaxHistoryRuns.
 // This method is used when AddSessionSummary is false to get recent history messages.
 func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) ([]model.Message, ContextCompactionStats) {
+	return p.getIncrementMessagesWithCutoff(inv, summaryHistoryCutoffFromTime(since))
+}
+
+func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(inv *agent.Invocation, cutoff summaryHistoryCutoff) ([]model.Message, ContextCompactionStats) {
 	if inv.Session == nil {
 		return nil, ContextCompactionStats{}
 	}

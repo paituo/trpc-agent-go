@@ -574,6 +574,7 @@ func (f *Flow) runOneStep(
 		info := callModel.Info()
 		ctxTracker.SetModelTailoringConfig(info.TailoringStrategyName, info.EnableTokenTailoring)
 		ctxTracker.SetTokenTailoringBudget(info.ProtocolOverheadTokens, info.ReserveOutputTokens)
+		ctxTracker.SetTokenTailoringRatios(info.InputTokensFloor, info.SafetyMarginRatio, info.MaxInputTokensRatio)
 	}
 
 	// 1. Preprocess (prepare request).
@@ -1120,6 +1121,31 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		invocation.Session == nil || invocation.SessionService == nil ||
 		!f.supportsSyncSummaryRetry() || rebuildPlan == nil ||
 		rebuildPlan.beforeContent == nil || rebuildPlan.contentProcessor == nil {
+		// Per-condition diagnostic logging to pinpoint the failing guard.
+		agentName := "unknown"
+		if invocation != nil {
+			agentName = invocation.AgentName
+		}
+		switch {
+		case req == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: req is nil", agentName)
+		case !f.enableContextCompaction:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: enableContextCompaction is false", agentName)
+		case invocation == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped: invocation is nil")
+		case invocation.Session == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: Session is nil", agentName)
+		case invocation.SessionService == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: SessionService is nil", agentName)
+		case !f.supportsSyncSummaryRetry():
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: supportsSyncSummaryRetry returned false", agentName)
+		case rebuildPlan == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan is nil", agentName)
+		case rebuildPlan.beforeContent == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan.beforeContent is nil", agentName)
+		case rebuildPlan.contentProcessor == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan.contentProcessor is nil", agentName)
+		}
 		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
 			tracker.RecordPostCompaction(0, false)
 		}
@@ -1474,6 +1500,20 @@ func shouldSyncCompactContext(
 	counter model.TokenCounter,
 ) bool {
 	if inv == nil || inv.Model == nil || req == nil || len(req.Messages) == 0 {
+		agentName := "unknown"
+		if inv != nil {
+			agentName = inv.AgentName
+		}
+		switch {
+		case inv == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: inv is nil")
+		case inv.Model == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: Model is nil for agent %s", agentName)
+		case req == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: req is nil for agent %s", agentName)
+		case len(req.Messages) == 0:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: no messages for agent %s", agentName)
+		}
 		return false
 	}
 

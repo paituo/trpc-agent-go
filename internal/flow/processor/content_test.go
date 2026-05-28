@@ -4140,7 +4140,7 @@ func TestContentRequestProcessor_getIncrementMessages_RestoresNeededPreCutoffToo
 	inv.AgentName = "test-agent"
 
 	p := NewContentRequestProcessor(WithAddSessionSummary(true))
-	messages := p.getIncrementMessages(inv, cutoff)
+	messages, _ := p.getIncrementMessages(inv, cutoff)
 
 	require.Len(t, messages, 2)
 	assert.Equal(t, model.RoleAssistant, messages[0].Role)
@@ -4216,7 +4216,7 @@ func TestContentRequestProcessor_getIncrementMessages_DoesNotRestoreReusedToolCa
 	inv.AgentName = "test-agent"
 
 	p := NewContentRequestProcessor(WithAddSessionSummary(true))
-	messages := p.getIncrementMessages(inv, cutoff)
+	messages, _ := p.getIncrementMessages(inv, cutoff)
 
 	require.Len(t, messages, 2)
 	assert.Equal(t, "new call", messages[0].Content)
