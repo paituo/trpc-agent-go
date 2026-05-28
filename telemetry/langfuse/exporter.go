@@ -112,6 +112,8 @@ func transformSpan(span *tracepb.Span) {
 		transformCallLLM(span)
 	case itelemetry.OperationExecuteTool:
 		transformExecuteTool(span)
+	case itelemetry.OperationEmbeddings:
+		transformEmbedding(span)
 	case itelemetry.OperationWorkflow:
 		transformWorkflow(span)
 	default:
@@ -766,6 +768,62 @@ func transformWorkflow(span *tracepb.Span) {
 	}
 	if llmSessionID != nil { // use post set session id
 		newAttributes = append(newAttributes, &commonpb.KeyValue{Key: traceSessionID, Value: llmSessionID})
+	}
+
+	// Replace span attributes
+	span.Attributes = newAttributes
+}
+
+// transformEmbedding transforms embedding spans for Langfuse.
+func transformEmbedding(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	// Add observation type
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeEmbedding},
+		},
+	})
+
+	// Process existing attributes
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyGenAIEmbeddingsRequest:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: truncateObservationJSONLeafValues(attr.Value.GetStringValue())},
+					},
+				})
+			} else {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: "N/A"},
+					},
+				})
+			}
+		case semconvtrace.KeyGenAIEmbeddingsResponse:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: truncateObservationJSONLeafValues(attr.Value.GetStringValue())},
+					},
+				})
+			} else {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: "N/A"},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
 	}
 
 	// Replace span attributes
