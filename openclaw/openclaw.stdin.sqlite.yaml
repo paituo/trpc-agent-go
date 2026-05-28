@@ -6,7 +6,6 @@ admin:
   enabled: true
   addr: "127.0.0.1:11999"
 
-
 agent:
   type: "llm"
   planner_type: "builtin"
@@ -33,7 +32,7 @@ model:
   mode: "openai"
   name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
-  context_window: 128000  
+  context_window: 128000
   token_tailoring:
     enabled: true
     strategy: "middle_out"
@@ -56,6 +55,14 @@ knowledges:
           dimensions: 1024
         vector_store:
           type: "inmemory"
+
+channels:
+  - type: "stdin"
+    name: "terminal"
+    config:
+      from: "alice"
+      show_prompt: true
+      show_role_labels: true
 
 session:
   backend: "sqlite"
@@ -90,7 +97,7 @@ memory:
   auto:
     enabled: true
     policy: "any"
-    message_threshold: 10  
+    message_threshold: 10
 skills:
   root: "./skills"
   project_agents_root: false
@@ -132,6 +139,19 @@ skills:
     8. **Minimal & honest.** Use the smallest skill set covering the task.
     Don't invent from partial memory. Explore locally before asking. Missing
     skill? State the issue briefly and fallback gracefully.
+  entries:
+    apple-notes:
+      enabled: false
+    apple-reminders:
+      enabled: false
+    bear-notes:
+      enabled: false
+    blogwatcher:
+      enabled: false
+    blucli:
+      enabled: false
+    bluebubbles:
+      enabled: false
 
 tools:
   enable_local_exec: true
@@ -187,44 +207,6 @@ tools:
         enable_search_file: true
         enable_search_content: true
         max_file_size: 61440
-
-
-channels:
-  - type: "bwstdin"
-    name: "terminal"
-    config:
-      from: "user"
-      show_prompt: true
-      show_role_labels: true
-      user_label: "用户"
-      assistant_label: "助手"
-      enable_markdown: true
-
-  - type: "bw-agui"
-    name: "bowei"
-    config:
-      addr: ":7878"
-      chat_path: "/chat"
-      cancel_path: "/cancel"
-      upload_path: "/upload"
-      capabilities_path: "/capabilities"
-      register_path: "/register"
-      messages_snapshot_path: "/history"
-      default_from: "user"
-      show_reasoning: true
-      enable_cancel: true
-      enable_messages_snapshot: true
-      heartbeat_interval: 30
-      max_upload_size: 52428800
-      events:
-        enable_text_messages: true
-        enable_reasoning: true
-        enable_tool_calls: true
-        enable_steps: true
-      auth_enabled: false
-      max_registrations: 10
-      registration_ttl_seconds: 180000
-      cors_allowed_origins: "*"
 
 debug_recorder:
   enabled: true
