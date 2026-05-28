@@ -318,6 +318,20 @@ func (t *ContextMetricsTracker) SetTokenTailoringBudget(protocolOverhead, reserv
 	}
 }
 
+// SetTokenTailoringRatios updates the tracker with the model's token tailoring ratio parameters.
+// These values come from model.Info and reflect normalized budget configuration.
+// Only populated when EnableDetailedMetrics is true.
+func (t *ContextMetricsTracker) SetTokenTailoringRatios(inputTokensFloor int, safetyMarginRatio, maxInputTokensRatio float64) {
+	if t == nil {
+		return
+	}
+	if t.config.EnableDetailedMetrics {
+		t.config.InputTokensFloor = inputTokensFloor
+		t.config.SafetyMarginRatio = safetyMarginRatio
+		t.config.MaxInputTokensRatio = maxInputTokensRatio
+	}
+}
+
 // contextAttributes holds the attributes for context metrics.
 type contextAttributes struct {
 	RequestModelName string
