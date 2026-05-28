@@ -1,36 +1,39 @@
 app_name: "openclaw-stdin-sqlite"
 state_dir: "./.openclaw-state/stdin-sqlite"
 http:
-  addr: "127.0.0.1:18080"
+  addr: "127.0.0.1:11998"
 admin:
   enabled: true
+  addr: "127.0.0.1:11999"
+
+
 agent:
   type: "llm"
-  planner_type: "react"
+  planner_type: "builtin"
   #instruction: "You are a helpful assistant for terminal chat."
+  # system_prompt_dir: "./prompts/system"
+  max_history_runs: 50
   preload_memory: 10
+  enable_detailed_context_metrics: true
   add_session_summary: true
   session_summary_injection_mode: "system"
   sync_summary_intra_run: true
   enable_context_compaction: true
-  enable_detailed_context_metrics: true
   context_compaction_threshold_ratio: 0.4
   context_compaction_tool_result_max_tokens: 1024
   context_compaction_keep_recent_requests: 2
   context_compaction_oversized_tool_result_max_tokens: 4096
   context_compaction_force_clean_tool_names:
-    - "large_log"
+    - "subagents_get"
   context_compaction_keep_tool_names:
     - "session_load"
     - "session_search"
-#   source ~/.zshrc
 
-#   gpt52
 model:
   mode: "openai"
   name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
-  context_window: 128000
+  context_window: 128000  
   token_tailoring:
     enabled: true
     strategy: "middle_out"
@@ -38,18 +41,22 @@ model:
     max_tokens: 12000
     temperature: 0.1
     stream: true
-# Mock mode example for local smoke tests:
+    thinking_enabled: false
+    reasoning_effort: "high"
 
-# model:
+knowledges:
+  providers:
+    - name: "qianqiziliao"
+      config:
+        embedder:
+          type: "openai"
+          model: "bge-m3"
+          base_url: "http://172.20.0.162:9997/v1"
+          api_key: "${EMBEDDER_API_KEY}"
+          dimensions: 1024
+        vector_store:
+          type: "inmemory"
 
-#   mode: "mock"
-channels:
-  - type: "stdin"
-    name: "terminal"
-    config:
-      from: "alice"
-      show_prompt: true
-      show_role_labels: true
 session:
   backend: "sqlite"
   summary:
@@ -61,24 +68,36 @@ session:
     event_threshold: 20           # 自上次摘要后新增 20 个事件后触发
     token_threshold: 8192         # 自上次摘要后新增 4000 个 token 后触发
     idle_threshold: "10m"
-    approx_runes_per_token: 60000
+    approx_runes_per_token: 2
 
   config:
-    path: "./sessions.sqlite"
+    path: "./data/sessions.sqlite"
     skip_db_init: false
 
 memory:
-  backend: "sqlite"
+  backend: "sqlitevec"
+  config:
+    path: "./data/memory.sqlite"
+    skip_db_init: false
+    index_dimension: 1024
+    embedder:
+      type: "openai"
+      model: "bge-m3"
+      base_url: "http://172.20.0.162:9997/v1"
+      api_key: "${EMBEDDER_API_KEY}"
+      dimensions: 1024
   limit: 200
   auto:
     enabled: true
     policy: "any"
     message_threshold: 10  
-  config:
-    path: "./memories.sqlite"
-    skip_db_init: false
 skills:
   root: "./skills"
+  project_agents_root: false
+  personal_agents_root: false
+  managed_root: false
+  debug: true
+  watch: false
   tool_profile: "full"
   load_mode: "turn"
   tooling_guidance: >
@@ -113,19 +132,7 @@ skills:
     8. **Minimal & honest.** Use the smallest skill set covering the task.
     Don't invent from partial memory. Explore locally before asking. Missing
     skill? State the issue briefly and fallback gracefully.
-  entries:
-    apple-notes:
-      enabled: false
-    apple-reminders:
-      enabled: false
-    bear-notes:
-      enabled: false
-    blogwatcher:
-      enabled: false
-    blucli:
-      enabled: false
-    bluebubbles:
-      enabled: false
+
 tools:
   enable_local_exec: true
   enable_openclaw_tools: true
@@ -174,6 +181,51 @@ tools:
         read_only: false
         enable_save: true
         enable_replace: true
+        enable_read: true
+        enable_read_multiple: true
+        enable_list: true
+        enable_search_file: true
+        enable_search_content: true
+        max_file_size: 61440
+
+
+channels:
+  - type: "bwstdin"
+    name: "terminal"
+    config:
+      from: "user"
+      show_prompt: true
+      show_role_labels: true
+      user_label: "用户"
+      assistant_label: "助手"
+      enable_markdown: true
+
+  - type: "bw-agui"
+    name: "bowei"
+    config:
+      addr: ":7878"
+      chat_path: "/chat"
+      cancel_path: "/cancel"
+      upload_path: "/upload"
+      capabilities_path: "/capabilities"
+      register_path: "/register"
+      messages_snapshot_path: "/history"
+      default_from: "user"
+      show_reasoning: true
+      enable_cancel: true
+      enable_messages_snapshot: true
+      heartbeat_interval: 30
+      max_upload_size: 52428800
+      events:
+        enable_text_messages: true
+        enable_reasoning: true
+        enable_tool_calls: true
+        enable_steps: true
+      auth_enabled: false
+      max_registrations: 10
+      registration_ttl_seconds: 180000
+      cors_allowed_origins: "*"
+
 debug_recorder:
   enabled: true
   mode: "full"
