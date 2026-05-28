@@ -3992,7 +3992,7 @@ func TestContentRequestProcessor_getIncrementMessages_SummaryPreservesToolState(
 	inv.AgentName = "test-agent"
 
 	p := NewContentRequestProcessor(WithAddSessionSummary(true))
-messages, _ := p.getIncrementMessages(inv, baseTime.Add(2*time.Second))
+	messages, _ := p.getIncrementMessages(inv, baseTime.Add(2*time.Second))
 
 	if assert.Len(t, messages, 5) {
 		assert.True(t, model.MessagesEqual(userMsg, messages[0]))

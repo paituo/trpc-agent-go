@@ -331,7 +331,6 @@ func (t *ContextMetricsTracker) SetTokenTailoringRatios(inputTokensFloor int, sa
 		t.config.MaxInputTokensRatio = maxInputTokensRatio
 	}
 }
-
 // contextAttributes holds the attributes for context metrics.
 type contextAttributes struct {
 	RequestModelName string

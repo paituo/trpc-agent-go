@@ -357,7 +357,7 @@ func TestInitMeterProvider(t *testing.T) {
 	if itelemetry.WorkflowMetricGenAIClientOperationDuration == nil {
 		t.Error("WorkflowMetricGenAIClientOperationDuration was not created")
 	}
-if itelemetry.WorkflowMetricGenAIWorkflowElapsedTime == nil {
+	if itelemetry.WorkflowMetricGenAIWorkflowElapsedTime == nil {
 		t.Error("WorkflowMetricGenAIWorkflowElapsedTime was not created")
 	}
 
@@ -493,7 +493,7 @@ func TestSetHistogramBuckets_RoutingAndErrors(t *testing.T) {
 	origInvokeTokenUsage := itelemetry.InvokeAgentMetricGenAIClientTokenUsage
 	origInvokeOpDur := itelemetry.InvokeAgentMetricGenAIClientOperationDuration
 	origWorkflowOpDur := itelemetry.WorkflowMetricGenAIClientOperationDuration
-origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
+	origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
 	origContextInputTokens := itelemetry.ContextMetricInputTokens
 	origContextWindowSize := itelemetry.ContextMetricWindowSize
 	origContextUsageRatio := itelemetry.ContextMetricUsageRatio
@@ -516,7 +516,7 @@ origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
 		itelemetry.InvokeAgentMetricGenAIClientTokenUsage = origInvokeTokenUsage
 		itelemetry.InvokeAgentMetricGenAIClientOperationDuration = origInvokeOpDur
 		itelemetry.WorkflowMetricGenAIClientOperationDuration = origWorkflowOpDur
-itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
+		itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 		itelemetry.ContextMetricInputTokens = origContextInputTokens
 		itelemetry.ContextMetricWindowSize = origContextWindowSize
 		itelemetry.ContextMetricUsageRatio = origContextUsageRatio
@@ -696,7 +696,7 @@ itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 			metricName: metrics.MetricGenAIClientOperationDuration,
 			boundaries: []float64{0.1, 1, 10},
 		},
-{
+		{
 			name:       "workflow: elapsed time",
 			meterName:  metrics.MeterNameWorkflow,
 			metricName: metrics.MetricGenAIWorkflowElapsedTime,
