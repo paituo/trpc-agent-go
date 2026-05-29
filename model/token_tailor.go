@@ -13,6 +13,8 @@ import (
 	"context"
 	"fmt"
 	"unicode/utf8"
+
+	"trpc.group/trpc-go/trpc-agent-go/log"
 )
 
 // defaultApproxRunesPerToken is the default approximate runes per token heuristic.
@@ -734,6 +736,9 @@ func calculatePreservedHeadCount(messages []Message) int {
 // This function is shared by all tailoring strategies for consistent token calculation.
 func buildPrefixSum(ctx context.Context, tokenCounter TokenCounter, messages []Message) []int {
 	if tokenCounter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: buildPrefixSum using SimpleTokenCounter(4.0)",
+		)
 		tokenCounter = NewSimpleTokenCounter()
 	}
 

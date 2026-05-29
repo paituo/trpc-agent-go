@@ -8,7 +8,10 @@
 
 package approval
 
-import "trpc.group/trpc-go/trpc-agent-go/plugin/guardrail/approval/review"
+import (
+	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/plugin/guardrail/approval/review"
+)
 
 const defaultPluginName = "approval"
 
@@ -20,6 +23,7 @@ type options struct {
 	reviewer          review.Reviewer
 	defaultToolPolicy ToolPolicy
 	toolPolicies      map[string]ToolPolicy
+	tokenCounter      model.TokenCounter
 }
 
 func newOptions(opts ...Option) *options {
@@ -64,5 +68,15 @@ func WithToolPolicy(name string, policy ToolPolicy) Option {
 			opts.toolPolicies = make(map[string]ToolPolicy)
 		}
 		opts.toolPolicies[name] = policy
+	}
+}
+
+// WithTokenCounter sets the token counter used for security threshold judgment.
+// Defaults to SimpleTokenCounter(4.0) if not configured.
+func WithTokenCounter(counter model.TokenCounter) Option {
+	return func(opts *options) {
+		if counter != nil {
+			opts.tokenCounter = counter
+		}
 	}
 }

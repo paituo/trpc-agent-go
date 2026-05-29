@@ -2522,6 +2522,11 @@ func newAgent(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
 	}
+	if backends.SharedTokenCounter != nil {
+		opts = append(opts,
+			llmagent.WithContextCompactionTokenCounter(backends.SharedTokenCounter),
+		)
+	}
 	if len(cfg.ContextCompactionForceCleanToolNames) > 0 ||
 		len(cfg.ContextCompactionKeepToolNames) > 0 {
 		opts = append(opts,
@@ -3201,6 +3206,9 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 			opts = append(opts, openai.WithTailoringStrategy(strategy))
 		}
 	}
+	if spec.TokenCounter != nil {
+		opts = append(opts, openai.WithTokenCounter(spec.TokenCounter))
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3242,6 +3250,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		ContextWindow:          opts.ModelContextWindow,
 		EnableTokenTailoring:   opts.ModelEnableTokenTailoring,
 		TokenTailoringStrategy: opts.ModelTokenTailoringStrategy,
+		TokenCounter:           backends.SharedTokenCounter,
 		Config:                 opts.ModelConfig,
 	}
 	return f(spec)
