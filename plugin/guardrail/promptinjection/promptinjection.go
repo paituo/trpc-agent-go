@@ -32,10 +32,13 @@ func New(options ...Option) (*Plugin, error) {
 	if opts.reviewer == nil {
 		return nil, fmt.Errorf("newing prompt injection plugin: reviewer is nil")
 	}
+	if opts.tokenCounter == nil {
+		opts.tokenCounter = model.NewSimpleTokenCounter()
+	}
 	return &Plugin{
 		name:         opts.name,
 		reviewer:     opts.reviewer,
-		tokenCounter: model.NewSimpleTokenCounter(),
+		tokenCounter: opts.tokenCounter,
 	}, nil
 }
 

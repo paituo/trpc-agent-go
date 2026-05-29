@@ -253,6 +253,12 @@ func newRedisMemoryBackend(
 	return memredis.NewService(serviceOpts...)
 }
 
+// SharedTokenCounter is the token counter instance shared across
+// context compaction, token tailoring, and session summary.
+// Created once during application initialization when
+// SessionSummaryApproxRunesPerToken is configured.
+var SharedTokenCounter model.TokenCounter
+
 func newSessionSummarizer(
 	mdl model.Model,
 	opts runOptions,
@@ -269,13 +275,12 @@ func newSessionSummarizer(
 	// underestimates Chinese text (~1–2 runes/token). Setting a lower
 	// value ensures summary triggers fire at the right time.
 	if opts.SessionSummaryApproxRunesPerToken > 0 {
-		summary.SetTokenCounter(
-			model.NewSimpleTokenCounter(
-				model.WithApproxRunesPerToken(
-					opts.SessionSummaryApproxRunesPerToken,
-				),
+		SharedTokenCounter = model.NewSimpleTokenCounter(
+			model.WithApproxRunesPerToken(
+				opts.SessionSummaryApproxRunesPerToken,
 			),
 		)
+		summary.SetTokenCounter(SharedTokenCounter)
 	}
 
 	options := make([]summary.Option, 0, 6)

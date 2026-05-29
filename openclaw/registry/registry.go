@@ -218,6 +218,7 @@ type ModelSpec struct {
 	ContextWindow          int
 	EnableTokenTailoring   bool
 	TokenTailoringStrategy string
+	TokenCounter           model.TokenCounter
 
 	Config *yaml.Node
 }

@@ -47,12 +47,15 @@ func New(options ...Option) (*Plugin, error) {
 	if requiresReviewer(opts) && opts.reviewer == nil {
 		return nil, fmt.Errorf("newing approval plugin: reviewer is nil")
 	}
+	if opts.tokenCounter == nil {
+		opts.tokenCounter = model.NewSimpleTokenCounter()
+	}
 	return &Plugin{
 		name:              opts.name,
 		reviewer:          opts.reviewer,
 		defaultToolPolicy: opts.defaultToolPolicy,
 		toolPolicies:      opts.toolPolicies,
-		tokenCounter:      model.NewSimpleTokenCounter(),
+		tokenCounter:      opts.tokenCounter,
 	}, nil
 }
 

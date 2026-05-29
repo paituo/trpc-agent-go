@@ -1518,6 +1518,9 @@ func shouldSyncCompactContext(
 	}
 
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: shouldSyncCompactContext using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 	tokens, err := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
