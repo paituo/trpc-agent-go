@@ -2464,6 +2464,11 @@ func newAgent(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
 	}
+	if backends.SharedTokenCounter != nil {
+		opts = append(opts,
+			llmagent.WithContextCompactionTokenCounter(backends.SharedTokenCounter),
+		)
+	}
 	if cfg.SessionSummaryInjectionMode != "" {
 		opts = append(
 			opts,
@@ -3106,6 +3111,9 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if spec.ContextWindow > 0 {
 		opts = append(opts, openai.WithContextWindow(spec.ContextWindow))
 	}
+	if spec.TokenCounter != nil {
+		opts = append(opts, openai.WithTokenCounter(spec.TokenCounter))
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3132,6 +3140,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		OpenAIVariant:        opts.OpenAIVariant,
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
 		ContextWindow:        opts.ModelContextWindow,
+		TokenCounter:         backends.SharedTokenCounter,
 		Config:               opts.ModelConfig,
 	}
 	return f(spec)

@@ -216,6 +216,7 @@ type ModelSpec struct {
 	OpenAIVariant        string
 	DebugRecorderEnabled bool
 	ContextWindow        int
+	TokenCounter         model.TokenCounter
 
 	Config *yaml.Node
 }
