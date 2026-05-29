@@ -565,11 +565,6 @@ func TraceChat(span trace.Span, attributes *TraceChatAttributes) {
 	// Set all attributes at once
 	span.SetAttributes(attrs...)
 
-	// Add context metrics attributes if available.
-	if attributes.ContextMetrics != nil {
-		span.SetAttributes(buildContextMetricsAttributes(attributes.ContextMetrics)...)
-	}
-
 	// Handle response error status
 	if attributes.Response != nil && attributes.Response.Error != nil {
 		span.SetStatus(codes.Error, attributes.Response.Error.Message)
@@ -763,7 +758,7 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 		return nil
 	}
 	attrs := []attribute.KeyValue{
-		// State metrics (basic)
+		// State metrics
 		attribute.Int("context.state.input_tokens", m.InputTokens),
 		attribute.Int("context.state.window_size", m.WindowSize),
 		attribute.Float64("context.state.usage_ratio", m.UsageRatio),
@@ -773,23 +768,7 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 		attribute.Int("context.state.tailored_messages", m.TailoredMessages),
 		attribute.Int("context.state.compacted_tokens", m.CompactedTokens),
 		attribute.Int("context.state.message_count", m.MessageCount),
-	}
-	// Extended state metrics (only when detailed metrics are enabled).
-	if m.EnableDetailedMetrics {
-		attrs = append(attrs,
-			attribute.Int("context.state.completion_tokens", m.CompletionTokens),
-			attribute.Int("context.state.total_tokens", m.TotalTokens),
-			attribute.Int("context.state.cached_tokens", m.CachedTokens),
-			attribute.Int("context.state.cache_creation_tokens", m.CacheCreationTokens),
-			attribute.Int("context.state.cache_read_tokens", m.CacheReadTokens),
-			attribute.Int("context.state.reasoning_tokens", m.ReasoningTokens),
-			attribute.Int("context.state.tool_definition_tokens", m.ToolDefinitionTokens),
-			attribute.Int("context.state.protocol_overhead_tokens", m.ProtocolOverheadTokens),
-			attribute.Float64("context.state.usage_ratio_by_initial", m.UsageRatioByInitial),
-		)
-	}
-	// Config metrics (basic)
-	attrs = append(attrs,
+		// Config metrics
 		attribute.Bool("context.config.enable_compaction", m.EnableCompaction),
 		attribute.Bool("context.config.enable_token_tailoring", m.EnableTokenTailoring),
 		attribute.Bool("context.config.sync_summary", m.SyncSummary),
@@ -803,10 +782,19 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 		attribute.Int("context.config.oversized_tool_result_max_tokens", m.OversizedToolMaxTokens),
 		attribute.Int("context.config.max_history_runs", m.MaxHistoryRuns),
 		attribute.Int("context.config.keep_recent_requests", m.KeepRecentRequests),
-	)
-	// Extended config metrics (only when detailed metrics are enabled).
+	}
+	// Extended metrics (only when detailed metrics are enabled).
 	if m.EnableDetailedMetrics {
 		attrs = append(attrs,
+			attribute.Int("context.state.completion_tokens", m.CompletionTokens),
+			attribute.Int("context.state.total_tokens", m.TotalTokens),
+			attribute.Int("context.state.cached_tokens", m.CachedTokens),
+			attribute.Int("context.state.cache_creation_tokens", m.CacheCreationTokens),
+			attribute.Int("context.state.cache_read_tokens", m.CacheReadTokens),
+			attribute.Int("context.state.reasoning_tokens", m.ReasoningTokens),
+			attribute.Int("context.state.tool_definition_tokens", m.ToolDefinitionTokens),
+			attribute.Int("context.state.protocol_overhead_tokens", m.ProtocolOverheadTokens),
+			attribute.Float64("context.state.usage_ratio_by_initial", m.UsageRatioByInitial),
 			attribute.Int("context.config.reserve_output_tokens", m.ReserveOutputTokens),
 			attribute.Int("context.config.input_tokens_floor", m.InputTokensFloor),
 			attribute.Float64("context.config.safety_margin_ratio", m.SafetyMarginRatio),

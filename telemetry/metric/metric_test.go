@@ -357,58 +357,8 @@ func TestInitMeterProvider(t *testing.T) {
 	if itelemetry.WorkflowMetricGenAIClientOperationDuration == nil {
 		t.Error("WorkflowMetricGenAIClientOperationDuration was not created")
 	}
-if itelemetry.WorkflowMetricGenAIWorkflowElapsedTime == nil {
+	if itelemetry.WorkflowMetricGenAIWorkflowElapsedTime == nil {
 		t.Error("WorkflowMetricGenAIWorkflowElapsedTime was not created")
-	}
-
-	// Verify that context metrics were created
-	if itelemetry.ContextMeter == nil {
-		t.Error("ContextMeter was not created")
-	}
-	if itelemetry.ContextMetricInputTokens == nil {
-		t.Error("ContextMetricInputTokens was not created")
-	}
-	if itelemetry.ContextMetricWindowSize == nil {
-		t.Error("ContextMetricWindowSize was not created")
-	}
-	if itelemetry.ContextMetricUsageRatio == nil {
-		t.Error("ContextMetricUsageRatio was not created")
-	}
-	if itelemetry.ContextMetricInitialTokens == nil {
-		t.Error("ContextMetricInitialTokens was not created")
-	}
-	if itelemetry.ContextMetricInitialMessageCount == nil {
-		t.Error("ContextMetricInitialMessageCount was not created")
-	}
-	if itelemetry.ContextMetricTailoredTokens == nil {
-		t.Error("ContextMetricTailoredTokens was not created")
-	}
-	if itelemetry.ContextMetricTailoredMessages == nil {
-		t.Error("ContextMetricTailoredMessages was not created")
-	}
-	if itelemetry.ContextMetricCompactedTokens == nil {
-		t.Error("ContextMetricCompactedTokens was not created")
-	}
-	if itelemetry.ContextMetricMessageCount == nil {
-		t.Error("ContextMetricMessageCount was not created")
-	}
-	if itelemetry.ContextMetricCompactionTrigger == nil {
-		t.Error("ContextMetricCompactionTrigger was not created")
-	}
-	if itelemetry.ContextMetricTailoringTrigger == nil {
-		t.Error("ContextMetricTailoringTrigger was not created")
-	}
-	if itelemetry.ContextMetricSummaryTrigger == nil {
-		t.Error("ContextMetricSummaryTrigger was not created")
-	}
-	if itelemetry.ContextMetricToolCompactionTrigger == nil {
-		t.Error("ContextMetricToolCompactionTrigger was not created")
-	}
-	if itelemetry.ContextMetricOversizedTruncationTrigger == nil {
-		t.Error("ContextMetricOversizedTruncationTrigger was not created")
-	}
-	if itelemetry.ContextMetricHistoryTrimTrigger == nil {
-		t.Error("ContextMetricHistoryTrimTrigger was not created")
 	}
 }
 
@@ -493,7 +443,7 @@ func TestSetHistogramBuckets_RoutingAndErrors(t *testing.T) {
 	origInvokeTokenUsage := itelemetry.InvokeAgentMetricGenAIClientTokenUsage
 	origInvokeOpDur := itelemetry.InvokeAgentMetricGenAIClientOperationDuration
 	origWorkflowOpDur := itelemetry.WorkflowMetricGenAIClientOperationDuration
-origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
+	origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
 	origContextInputTokens := itelemetry.ContextMetricInputTokens
 	origContextWindowSize := itelemetry.ContextMetricWindowSize
 	origContextUsageRatio := itelemetry.ContextMetricUsageRatio
@@ -516,7 +466,7 @@ origWorkflowElapsed := itelemetry.WorkflowMetricGenAIWorkflowElapsedTime
 		itelemetry.InvokeAgentMetricGenAIClientTokenUsage = origInvokeTokenUsage
 		itelemetry.InvokeAgentMetricGenAIClientOperationDuration = origInvokeOpDur
 		itelemetry.WorkflowMetricGenAIClientOperationDuration = origWorkflowOpDur
-itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
+		itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 		itelemetry.ContextMetricInputTokens = origContextInputTokens
 		itelemetry.ContextMetricWindowSize = origContextWindowSize
 		itelemetry.ContextMetricUsageRatio = origContextUsageRatio
@@ -587,32 +537,6 @@ itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 				itelemetry.WorkflowMetricGenAIClientOperationDuration = nil
 			case metrics.MetricGenAIWorkflowElapsedTime:
 				itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = nil
-			}
-		}
-	}
-
-	nilContextMetric := func(metricName string) func(t *testing.T) {
-		return func(t *testing.T) {
-			t.Helper()
-			switch metricName {
-			case metrics.MetricContextInputTokens:
-				itelemetry.ContextMetricInputTokens = nil
-			case metrics.MetricContextWindowSize:
-				itelemetry.ContextMetricWindowSize = nil
-			case metrics.MetricContextUsageRatio:
-				itelemetry.ContextMetricUsageRatio = nil
-			case metrics.MetricContextInitialTokens:
-				itelemetry.ContextMetricInitialTokens = nil
-			case metrics.MetricContextInitialMessageCount:
-				itelemetry.ContextMetricInitialMessageCount = nil
-			case metrics.MetricContextTailoredTokens:
-				itelemetry.ContextMetricTailoredTokens = nil
-			case metrics.MetricContextTailoredMessages:
-				itelemetry.ContextMetricTailoredMessages = nil
-			case metrics.MetricContextCompactedTokens:
-				itelemetry.ContextMetricCompactedTokens = nil
-			case metrics.MetricContextMessageCount:
-				itelemetry.ContextMetricMessageCount = nil
 			}
 		}
 	}
@@ -696,66 +620,11 @@ itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 			metricName: metrics.MetricGenAIClientOperationDuration,
 			boundaries: []float64{0.1, 1, 10},
 		},
-{
+		{
 			name:       "workflow: elapsed time",
 			meterName:  metrics.MeterNameWorkflow,
 			metricName: metrics.MetricGenAIWorkflowElapsedTime,
 			boundaries: []float64{0.1, 1, 10},
-		},
-		// --- Context success cases (cover every switch branch) ---
-		{
-			name:       "context: input tokens",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextInputTokens,
-			boundaries: []float64{100, 500, 1000, 5000},
-		},
-		{
-			name:       "context: window size",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextWindowSize,
-			boundaries: []float64{1000, 5000, 10000},
-		},
-		{
-			name:       "context: usage ratio",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextUsageRatio,
-			boundaries: []float64{0.1, 0.5, 0.9},
-		},
-		{
-			name:       "context: initial tokens",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextInitialTokens,
-			boundaries: []float64{100, 500, 1000},
-		},
-		{
-			name:       "context: initial message count",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextInitialMessageCount,
-			boundaries: []float64{1, 5, 10},
-		},
-		{
-			name:       "context: tailored tokens",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextTailoredTokens,
-			boundaries: []float64{10, 50, 100},
-		},
-		{
-			name:       "context: tailored messages",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextTailoredMessages,
-			boundaries: []float64{1, 5, 10},
-		},
-		{
-			name:       "context: compacted tokens",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextCompactedTokens,
-			boundaries: []float64{10, 50, 100},
-		},
-		{
-			name:       "context: message count",
-			meterName:  metrics.MeterNameContext,
-			metricName: metrics.MetricContextMessageCount,
-			boundaries: []float64{1, 5, 10},
 		},
 
 		// --- Default/unsupported branches ---
@@ -798,14 +667,6 @@ itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 			boundaries:  []float64{1},
 			wantErr:     true,
 			errContains: "unknown or unsupported workflow histogram metric",
-		},
-		{
-			name:        "unsupported context metric",
-			meterName:   metrics.MeterNameContext,
-			metricName:  "unknown_metric",
-			boundaries:  nil,
-			wantErr:     true,
-			errContains: "unknown or unsupported context histogram metric",
 		},
 
 		// --- Not initialized guards for every branch ---
@@ -914,87 +775,6 @@ itelemetry.WorkflowMetricGenAIWorkflowElapsedTime = origWorkflowElapsed
 			metricName:  metrics.MetricGenAIWorkflowElapsedTime,
 			boundaries:  []float64{1},
 			before:      nilWorkflowMetric(metrics.MetricGenAIWorkflowElapsedTime),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context input tokens not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextInputTokens,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextInputTokens),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context window size not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextWindowSize,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextWindowSize),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context usage ratio not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextUsageRatio,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextUsageRatio),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context initial tokens not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextInitialTokens,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextInitialTokens),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context initial message count not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextInitialMessageCount,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextInitialMessageCount),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context tailored tokens not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextTailoredTokens,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextTailoredTokens),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context tailored messages not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextTailoredMessages,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextTailoredMessages),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context compacted tokens not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextCompactedTokens,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextCompactedTokens),
-			wantErr:     true,
-			errContains: "not initialized",
-		},
-		{
-			name:        "context message count not initialized",
-			meterName:   metrics.MeterNameContext,
-			metricName:  metrics.MetricContextMessageCount,
-			boundaries:  []float64{1},
-			before:      nilContextMetric(metrics.MetricContextMessageCount),
 			wantErr:     true,
 			errContains: "not initialized",
 		},

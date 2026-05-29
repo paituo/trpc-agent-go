@@ -44,7 +44,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
-	publicsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -69,6 +68,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
+	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 )
 
 const (
@@ -623,6 +623,28 @@ func adminStartupLines(
 	return lines
 }
 
+// SubagentService is the OpenClaw subagent control-plane service exposed by
+// Runtime.
+type SubagentService interface {
+	ListForUser(
+		userID string,
+		filter openclawsubagent.ListFilter,
+	) []openclawsubagent.Run
+	GetForUser(
+		userID string,
+		runID string,
+	) (*openclawsubagent.Run, error)
+	CancelForUser(
+		userID string,
+		runID string,
+	) (*openclawsubagent.Run, bool, error)
+	WaitForUser(
+		ctx context.Context,
+		userID string,
+		runID string,
+	) (*openclawsubagent.Run, error)
+}
+
 // Runtime wires OpenClaw components without owning the HTTP listener.
 //
 // Downstream distributions can mount Gateway.Handler into any HTTP server
@@ -637,7 +659,7 @@ type Runtime struct {
 	adminCfg *admin.Config
 	appName  string
 	session  session.Service
-	subagent publicsubagent.Service
+	subagent SubagentService
 
 	runner            runner.Runner
 	cronRunner        closeFunc
@@ -720,7 +742,7 @@ func (r *Runtime) SessionService() session.Service {
 	return r.session
 }
 
-func (r *Runtime) SubagentService() publicsubagent.Service {
+func (r *Runtime) SubagentService() SubagentService {
 	if r == nil {
 		return nil
 	}

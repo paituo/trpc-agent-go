@@ -1047,8 +1047,8 @@ func TestContentRequestProcessor_ConcurrentFilterIncrementalMessages(t *testing.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			msgs, _ := p.getIncrementMessages(inv, time.Time{})
-			results <- len(msgs)
+			messages, _ := p.getIncrementMessages(inv, time.Time{})
+			results <- len(messages)
 		}()
 	}
 
@@ -1231,9 +1231,6 @@ func TestContentRequestProcessor_getFilterHistoryMessages(t *testing.T) {
 			)
 
 			messages, _ := tt.processor.getIncrementMessages(inv, time.Time{})
-			if !tt.processor.AddSessionSummary && tt.processor.MaxHistoryRuns > 0 {
-				messages = applyMaxHistoryRuns(messages, tt.processor.MaxHistoryRuns)
-			}
 
 			assert.Equal(t, tt.expectedCount, len(messages))
 			for i, expectedContent := range tt.expectedContent {
@@ -1407,7 +1404,6 @@ func TestContentRequestProcessor_MaxHistoryRuns_SkipsOrphanedToolResults(t *test
 			)
 
 			messages, _ := processor.getIncrementMessages(inv, time.Time{})
-			messages = applyMaxHistoryRuns(messages, tt.maxHistoryRuns)
 
 			assert.Equal(t, tt.expectedCount, len(messages), tt.description)
 			for i, expectedContent := range tt.expectedContent {
@@ -3991,7 +3987,7 @@ func TestContentRequestProcessor_getIncrementMessages_SummaryPreservesToolState(
 	)
 	inv.AgentName = "test-agent"
 
-p := NewContentRequestProcessor(
+	p := NewContentRequestProcessor(
 		WithAddSessionSummary(true),
 		WithContextCompactionToolResultMaxTokens(1),
 	)

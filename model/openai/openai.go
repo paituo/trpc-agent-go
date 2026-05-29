@@ -314,16 +314,14 @@ func New(name string, opts ...Option) *Model {
 		o.TailoringStrategy = model.NewMiddleOutStrategy(o.TokenCounter)
 	}
 
-	// Determine tailoring strategy name for metrics.
+	tailoringStrategyName := ""
 	switch o.TailoringStrategy.(type) {
 	case *model.MiddleOutStrategy:
-		o.tailoringStrategyName = "middle_out"
+		tailoringStrategyName = "middle_out"
 	case *model.HeadOutStrategy:
-		o.tailoringStrategyName = "head_out"
+		tailoringStrategyName = "head_out"
 	case *model.TailOutStrategy:
-		o.tailoringStrategyName = "tail_out"
-	default:
-		o.tailoringStrategyName = ""
+		tailoringStrategyName = "tail_out"
 	}
 
 	return &Model{
@@ -350,7 +348,7 @@ func New(name string, opts ...Option) *Model {
 		contextWindow:              o.ContextWindow,
 		tokenCounter:               o.TokenCounter,
 		tailoringStrategy:          o.TailoringStrategy,
-		tailoringStrategyName:      o.tailoringStrategyName,
+		tailoringStrategyName:      tailoringStrategyName,
 		maxInputTokens:             o.MaxInputTokens,
 		protocolOverheadTokens:     o.TokenTailoringConfig.ProtocolOverheadTokens,
 		reserveOutputTokens:        o.TokenTailoringConfig.ReserveOutputTokens,
