@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
+	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
@@ -71,8 +72,10 @@ type ContextCompactionSkipRecentFunc func(events []event.Event) int
 // ContextCompactionStats reports how much prompt history was compacted during
 // request projection.
 type ContextCompactionStats struct {
-	ToolResultsCompacted int
-	EstimatedTokensSaved int
+	ToolResultsCompacted    int
+	EstimatedTokensSaved    int
+	OversizedResultsTruncated int
+	OversizedTokensSaved    int
 }
 
 type toolResultCompactionRules struct {
@@ -93,6 +96,10 @@ func normalizeContextCompactionConfig(
 		cfg.OversizedToolResultMaxTokens = 0
 	}
 	if cfg.TokenCounter == nil {
+		log.WarnfContext(context.Background(),
+			"token-counter-fallback: normalizeContextCompactionConfig using default SimpleTokenCounter(4.0), "+
+				"configure WithContextCompactionTokenCounter for Chinese text accuracy",
+		)
 		cfg.TokenCounter = model.NewSimpleTokenCounter()
 	}
 	cfg.toolResultCompactionRules.forceCleanToolNames = normalizeToolNameSet(
@@ -190,6 +197,8 @@ func compactIncrementEvents(
 			cfg,
 		)
 		compacted = passEvents
+		stats.OversizedResultsTruncated = passStats.ToolResultsCompacted
+		stats.OversizedTokensSaved = passStats.EstimatedTokensSaved
 		stats = mergeContextCompactionStats(stats, passStats)
 	}
 
@@ -392,6 +401,8 @@ func mergeContextCompactionStats(
 ) ContextCompactionStats {
 	base.ToolResultsCompacted += delta.ToolResultsCompacted
 	base.EstimatedTokensSaved += delta.EstimatedTokensSaved
+	base.OversizedResultsTruncated += delta.OversizedResultsTruncated
+	base.OversizedTokensSaved += delta.OversizedTokensSaved
 	return base
 }
 
@@ -475,27 +486,6 @@ func compactionUnitKey(requestID, invocationID string) string {
 	}
 }
 
-// truncateOversizedToolResultMessage applies head+tail truncation to any tool
-// result whose estimated token count exceeds maxTokens. Unlike the historical
-// placeholder compaction, this preserves the beginning and end of the content
-// so the model can still see key information. Inspired by Codex's
-// truncate_middle_chars and Claude Code's per-tool maxResultSizeChars.
-//
-// TODO: text ContentParts are preserved as-is; truncating individual text parts
-// inside ContentParts is deferred until multimodal tool results are common.
-func truncateOversizedToolResultMessage(
-	ctx context.Context,
-	msg model.Message,
-	maxTokens int,
-) (model.Message, bool, int) {
-	return truncateOversizedToolResultMessageWithCounter(
-		ctx,
-		msg,
-		maxTokens,
-		model.NewSimpleTokenCounter(),
-	)
-}
-
 func truncateOversizedToolResultMessageWithCounter(
 	ctx context.Context,
 	msg model.Message,
@@ -513,6 +503,9 @@ func truncateOversizedToolResultMessageWithCounter(
 		return msg, false, 0
 	}
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: truncateOversizedToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 
@@ -621,6 +614,9 @@ func cleanToolResultMessageWithCounter(
 		return msg, false, 0
 	}
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: compactHistoricalToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 
@@ -646,19 +642,6 @@ func cleanToolResultMessageWithCounter(
 		savedTokens = 0
 	}
 	return compacted, true, savedTokens
-}
-
-func compactHistoricalToolResultMessage(
-	ctx context.Context,
-	msg model.Message,
-	maxTokens int,
-) (model.Message, bool, int) {
-	return compactHistoricalToolResultMessageWithCounter(
-		ctx,
-		msg,
-		maxTokens,
-		model.NewSimpleTokenCounter(),
-	)
 }
 
 func compactHistoricalToolResultMessageWithCounter(

@@ -8,7 +8,10 @@
 
 package promptinjection
 
-import "trpc.group/trpc-go/trpc-agent-go/plugin/guardrail/promptinjection/review"
+import (
+	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/plugin/guardrail/promptinjection/review"
+)
 
 const defaultPluginName = "promptinjection"
 
@@ -16,8 +19,9 @@ const defaultPluginName = "promptinjection"
 type Option func(*options)
 
 type options struct {
-	name     string
-	reviewer review.Reviewer
+	name         string
+	reviewer     review.Reviewer
+	tokenCounter model.TokenCounter
 }
 
 func newOptions(opts ...Option) *options {
@@ -43,5 +47,15 @@ func WithName(name string) Option {
 func WithReviewer(reviewer review.Reviewer) Option {
 	return func(opts *options) {
 		opts.reviewer = reviewer
+	}
+}
+
+// WithTokenCounter sets the token counter used for security threshold judgment.
+// Defaults to SimpleTokenCounter(4.0) if not configured.
+func WithTokenCounter(counter model.TokenCounter) Option {
+	return func(opts *options) {
+		if counter != nil {
+			opts.tokenCounter = counter
+		}
 	}
 }

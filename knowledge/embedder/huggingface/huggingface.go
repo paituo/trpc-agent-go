@@ -221,6 +221,13 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 	}
 	defer func() {
 		embeddingAttributes.Error = err
+		embeddingAttributes.Request = &text
+		if rsp != nil {
+			if bts, marshalErr := json.Marshal(rsp); marshalErr == nil {
+				rspStr := string(bts)
+				embeddingAttributes.Response = &rspStr
+			}
+		}
 		itelemetry.TraceEmbedding(span, embeddingAttributes)
 		span.End()
 	}()

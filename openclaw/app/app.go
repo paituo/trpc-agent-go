@@ -38,11 +38,14 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent/claudecode"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	localexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/flow/processor"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	publicsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
+	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -66,7 +69,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
-	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 )
 
 const (
@@ -275,13 +277,9 @@ const (
 		"OPENCLAW_RECENT_UPLOADS_JSON instead of guessing " +
 		"attachment paths. For long-running work, independent " +
 		"verification, or background work that can continue after " +
-		"this turn, use subagents_spawn with mode=async. When a " +
-		"subagent result is required before continuing, use " +
-		"mode=sync. When the user must review the subagent result " +
-		"before you continue, use mode=review, show the result, " +
-		"and wait for the next user reply. Do not use subagents " +
-		"for small, tightly-coupled steps, and do not spawn " +
-		"nested subagents. " +
+		"this turn, use subagents_spawn. Do not use background " +
+		"subagents for small, tightly-coupled steps, and do not " +
+		"spawn nested subagents. " +
 		"When a user follows up about a " +
 		"recent upload in the current chat, assume they mean " +
 		"that existing upload unless the reference is " +
@@ -401,14 +399,6 @@ const (
 //
 // args should not include the program name.
 func Main(args []string) int {
-	return MainWithOptions(args)
-}
-
-// MainWithOptions runs the OpenClaw-like CLI with runtime options and returns
-// an exit code.
-//
-// args should not include the program name.
-func MainWithOptions(args []string, options ...RuntimeOption) int {
 	if len(args) > 0 {
 		switch args[0] {
 		case subcmdPairing:
@@ -429,7 +419,7 @@ func MainWithOptions(args []string, options ...RuntimeOption) int {
 	)
 	defer stop()
 
-	if err := RunWithOptions(ctx, args, options...); err != nil {
+	if err := run(ctx, args); err != nil {
 		var exitErr *exitError
 		if errors.As(err, &exitErr) {
 			if errors.Is(exitErr.Err, flag.ErrHelp) {
@@ -444,15 +434,6 @@ func MainWithOptions(args []string, options ...RuntimeOption) int {
 		return 1
 	}
 	return 0
-}
-
-// RunWithOptions runs OpenClaw until ctx is canceled or the runtime exits.
-func RunWithOptions(
-	ctx context.Context,
-	args []string,
-	options ...RuntimeOption,
-) error {
-	return run(ctx, args, options...)
 }
 
 type exitError struct {
@@ -656,7 +637,7 @@ type Runtime struct {
 	adminCfg *admin.Config
 	appName  string
 	session  session.Service
-	subagent SubagentService
+	subagent publicsubagent.Service
 
 	runner            runner.Runner
 	cronRunner        closeFunc
@@ -739,21 +720,7 @@ func (r *Runtime) SessionService() session.Service {
 	return r.session
 }
 
-// SubagentService is the OpenClaw subagent control-plane service exposed by
-// Runtime.
-type SubagentService interface {
-	ListForUser(
-		userID string,
-		filter openclawsubagent.ListFilter,
-	) []openclawsubagent.Run
-	GetForUser(userID string, runID string) (*openclawsubagent.Run, error)
-	CancelForUser(
-		userID string,
-		runID string,
-	) (*openclawsubagent.Run, bool, error)
-}
-
-func (r *Runtime) SubagentService() SubagentService {
+func (r *Runtime) SubagentService() publicsubagent.Service {
 	if r == nil {
 		return nil
 	}
@@ -1036,16 +1003,22 @@ func NewRuntimeWithOptions(
 			}
 		}
 		agentCfg := agentConfig{
-			AppName:                 opts.AppName,
-			AddSessionSummary:       opts.AddSessionSummary,
-			EnableContextCompaction: opts.EnableContextCompaction,
-			ContextCompactionOversizedToolResultMaxTokens: opts.
-				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
-			GenerationConfig: opts.GenerationConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			AppName:                                       opts.AppName,
+			AddSessionSummary:                             opts.AddSessionSummary,
+			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
+			EnableContextCompaction:                       opts.EnableContextCompaction,
+			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			MaxHistoryRuns:                                opts.MaxHistoryRuns,
+			PreloadMemory:                                 opts.PreloadMemory,
+			GenerationConfig:                              opts.GenerationConfig,
+			PlannerType:                                   opts.PlannerType,
+			PlannerConfig:                                 opts.PlannerConfig,
+			Instruction:                                   prompts.Instruction,
+			SystemPrompt:                                  prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1113,7 +1086,6 @@ func NewRuntimeWithOptions(
 	runnerOpts := []runner.Option{
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
-		runner.WithAwaitUserReplyRouting(true),
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
@@ -1374,13 +1346,8 @@ func (r *Runtime) Close() error {
 	return errors.Join(errs...)
 }
 
-func run(
-	ctx context.Context,
-	args []string,
-	options ...RuntimeOption,
-) error {
+func run(ctx context.Context, args []string) error {
 	startedAt := time.Now()
-	runtimeOpts := buildRuntimeOptions(options)
 	opts, err := parseRunOptions(args)
 	if err != nil {
 		return err
@@ -1557,16 +1524,22 @@ func run(
 			}
 		}
 		agentCfg := agentConfig{
-			AppName:                 opts.AppName,
-			AddSessionSummary:       opts.AddSessionSummary,
-			EnableContextCompaction: opts.EnableContextCompaction,
-			ContextCompactionOversizedToolResultMaxTokens: opts.
-				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
-			GenerationConfig: opts.GenerationConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			AppName:                                       opts.AppName,
+			AddSessionSummary:                             opts.AddSessionSummary,
+			SessionSummaryInjectionMode:                   opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                           opts.SyncSummaryIntraRun,
+			EnableContextCompaction:                       opts.EnableContextCompaction,
+			ContextCompactionThresholdRatio:               opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:          opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:           opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
+			MaxHistoryRuns:                                opts.MaxHistoryRuns,
+			PreloadMemory:                                 opts.PreloadMemory,
+			GenerationConfig:                              opts.GenerationConfig,
+			PlannerType:                                   opts.PlannerType,
+			PlannerConfig:                                 opts.PlannerConfig,
+			Instruction:                                   prompts.Instruction,
+			SystemPrompt:                                  prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1589,9 +1562,10 @@ func run(
 			StateDir:            resolvedStateDir,
 			MemoryFileStore:     fileMemoryStore,
 
-			EnableLocalExec:     opts.EnableLocalExec,
-			EnableOpenClawTools: opts.EnableOpenClawTools,
-			EnableParallelTools: opts.EnableParallelTools,
+			EnableLocalExec:      opts.EnableLocalExec,
+			EnableOpenClawTools:  opts.EnableOpenClawTools,
+			OpenClawToolingGuide: opts.OpenClawToolingGuide,
+			EnableParallelTools:  opts.EnableParallelTools,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -1629,7 +1603,6 @@ func run(
 	runnerOpts := []runner.Option{
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
-		runner.WithAwaitUserReplyRouting(true),
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
@@ -1650,7 +1623,7 @@ func run(
 	runtimeProfileResolver, runtimeProfileCatalog, runtimeProfileRequired :=
 		runtimeProfileResolverFromOptions(
 			opts.RuntimeProfiles,
-			runtimeOpts,
+			runtimeOptions{},
 		)
 
 	gwOpts := makeGatewayOptions(
@@ -2413,8 +2386,7 @@ func newAgent(
 		instruction = defaultAgentInstruction
 	}
 	if cfg.EnableOpenClawTools {
-		guidance := buildOpenClawToolingGuidance(cfg)
-		if strings.TrimSpace(guidance) != "" {
+		if guidance := buildOpenClawToolingGuidance(cfg); strings.TrimSpace(guidance) != "" {
 			instruction = strings.TrimSpace(
 				instruction + "\n\n" + guidance,
 			)
@@ -2475,10 +2447,12 @@ func newAgent(
 		llmagent.WithGlobalInstruction(strings.TrimSpace(cfg.SystemPrompt)),
 		llmagent.WithGenerationConfig(genConfig),
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
+		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
-		llmagent.WithContextCompactionOversizedToolResultMaxTokens(
-			cfg.ContextCompactionOversizedToolResultMaxTokens,
-		),
+		llmagent.WithContextCompactionThresholdRatio(cfg.ContextCompactionThresholdRatio),
+		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
+		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
+		llmagent.WithContextCompactionOversizedToolResultMaxTokens(cfg.ContextCompactionOversizedToolResultMaxTokens),
 		llmagent.WithMaxHistoryRuns(cfg.MaxHistoryRuns),
 		llmagent.WithPreloadMemory(cfg.PreloadMemory),
 		llmagent.WithEventMessageProjector(
@@ -2489,6 +2463,14 @@ func newAgent(
 		llmagent.WithSkillFilter(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
+	}
+	if cfg.SessionSummaryInjectionMode != "" {
+		opts = append(
+			opts,
+			llmagent.WithSessionSummaryInjectionMode(
+				processor.SessionSummaryInjectionMode(cfg.SessionSummaryInjectionMode),
+			),
+		)
 	}
 	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
@@ -2542,7 +2524,32 @@ func newAgent(
 	callbacks.RegisterToolResultMessages(openClawToolResultMessages)
 	opts = append(opts, llmagent.WithToolCallbacks(callbacks))
 
+	if cfg.PlannerType != "" {
+		if pl := buildPlannerFromConfig(cfg); pl != nil {
+			opts = append(opts, llmagent.WithPlanner(pl))
+		}
+	}
 	return llmagent.New(defaultAgentName, opts...), repo, nil
+}
+
+func buildPlannerFromConfig(cfg agentConfig) planner.Planner {
+	typeName := strings.ToLower(strings.TrimSpace(cfg.PlannerType))
+	if typeName == "" {
+		return nil
+	}
+	factory, ok := registry.LookupPlanner(typeName)
+	if !ok {
+		log.Warnf("planner type not registered: %s", typeName)
+		return nil
+	}
+	deps := registry.PlannerDeps{AppName: cfg.AppName, StateDir: cfg.StateDir}
+	spec := registry.PlannerSpec{Type: typeName, Name: typeName, Config: cfg.PlannerConfig}
+	pl, err := factory(deps, spec)
+	if err != nil {
+		log.Warnf("create planner failed: %v", err)
+		return nil
+	}
+	return pl
 }
 
 func buildOpenClawToolingGuidance(cfg agentConfig) string {
@@ -2728,11 +2735,18 @@ type agentConfig struct {
 	AppName string
 
 	AddSessionSummary                             bool
+	SessionSummaryInjectionMode                   string
+	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
+	ContextCompactionThresholdRatio               float64
+	ContextCompactionToolResultMaxTokens          int
+	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 	GenerationConfig                              *model.GenerationConfig
+	PlannerType                                   string
+	PlannerConfig                                 map[string]any
 	Instruction                                   string
 	SystemPrompt                                  string
 
@@ -3089,6 +3103,9 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if baseURL != "" {
 		opts = append(opts, openai.WithBaseURL(baseURL))
 	}
+	if spec.ContextWindow > 0 {
+		opts = append(opts, openai.WithContextWindow(spec.ContextWindow))
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3114,6 +3131,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		BaseURL:              baseURL,
 		OpenAIVariant:        opts.OpenAIVariant,
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
+		ContextWindow:        opts.ModelContextWindow,
 		Config:               opts.ModelConfig,
 	}
 	return f(spec)

@@ -34,8 +34,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-const testTrueCommand = "true"
-
 func TestNewToolSet_DefaultTools(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -2027,9 +2025,8 @@ func TestRunLocalRipgrepReturnsFalseWhenRipgrepIsUnavailable(t *testing.T) {
 
 func TestRunLocalRipgrepRejectsPathsOutsideBaseDir(t *testing.T) {
 	t.Parallel()
-	truePath := requireExecutablePath(t, testTrueCommand)
 	restore := withRipgrepForTest(func(string) (string, error) {
-		return truePath, nil
+		return "/bin/true", nil
 	})
 	defer restore()
 	_, ok, err := runLocalRipgrep(context.Background(), t.TempDir(), grepInput{
@@ -2080,8 +2077,7 @@ func TestBashAndProcessHelpersCoverTimeoutAndExitState(t *testing.T) {
 	require.Equal(t, 50, bashTimeout(nil))
 	require.Equal(t, defaultBashTimeoutMs, bashTimeout(intPtr(0)))
 	require.Equal(t, maxBashTimeoutMs, bashTimeout(intPtr(maxBashTimeoutMs+1)))
-	truePath := requireExecutablePath(t, testTrueCommand)
-	proc, err := os.StartProcess(truePath, []string{testTrueCommand}, &os.ProcAttr{
+	proc, err := os.StartProcess("/bin/true", []string{"true"}, &os.ProcAttr{
 		Env:   processEnv(nil),
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 	})
@@ -2181,8 +2177,7 @@ func TestTaskStopAcceptsShellIDAndPropagatesKillErrors(t *testing.T) {
 	require.True(t, ok)
 	_, err = callToolRaw(callable, taskStopInput{ShellID: "missing"})
 	require.EqualError(t, err, "No task found with ID: missing")
-	truePath := requireExecutablePath(t, testTrueCommand)
-	proc, err := os.StartProcess(truePath, []string{testTrueCommand}, &os.ProcAttr{
+	proc, err := os.StartProcess("/bin/true", []string{"true"}, &os.ProcAttr{
 		Env:   processEnv(nil),
 		Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
 	})
@@ -2428,19 +2423,12 @@ func newTestPDF(t *testing.T, pages []string) []byte {
 func writeExecutableFile(t *testing.T, dir string, name string, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	file, err := os.Create(path)
 	require.NoError(t, err)
-	_, err = f.WriteString(content)
+	_, err = file.WriteString(content)
 	require.NoError(t, err)
-	require.NoError(t, f.Close())
+	require.NoError(t, file.Close())
 	require.NoError(t, os.Chmod(path, 0o555))
-	return path
-}
-
-func requireExecutablePath(t *testing.T, name string) string {
-	t.Helper()
-	path, err := exec.LookPath(name)
-	require.NoError(t, err)
 	return path
 }
 

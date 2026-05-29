@@ -319,10 +319,11 @@ func TestCompactIncrementEvents_SkipRecentFuncDoesNotDisableOversizedPass(t *tes
 func TestCompactHistoricalToolResultMessage_SkipsWhenPlaceholderIsNotSmaller(t *testing.T) {
 	msg := model.NewToolMessage("tool-call-short", "worker", "shorter")
 
-	compacted, changed, savedTokens := compactHistoricalToolResultMessage(
+	compacted, changed, savedTokens := compactHistoricalToolResultMessageWithCounter(
 		context.Background(),
 		msg,
 		1,
+		model.NewSimpleTokenCounter(),
 	)
 
 	require.False(t, changed)
@@ -845,10 +846,11 @@ func TestTruncateOversizedToolResultMessage_PreservesContentParts(t *testing.T) 
 		ToolName: "worker",
 	}
 
-	compacted, changed, savedTokens := truncateOversizedToolResultMessage(
+	compacted, changed, savedTokens := truncateOversizedToolResultMessageWithCounter(
 		context.Background(),
 		msg,
 		32,
+		model.NewSimpleTokenCounter(),
 	)
 
 	require.True(t, changed)
@@ -893,10 +895,11 @@ func TestTruncateOversizedToolResultMessage_ContentPartsOnlyKeepsPayload(t *test
 		ToolName: "worker",
 	}
 
-	compacted, changed, savedTokens := truncateOversizedToolResultMessage(
+	compacted, changed, savedTokens := truncateOversizedToolResultMessageWithCounter(
 		context.Background(),
 		msg,
 		32,
+		model.NewSimpleTokenCounter(),
 	)
 
 	require.False(t, changed)

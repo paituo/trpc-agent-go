@@ -33,6 +33,7 @@ import (
 	"github.com/openai/openai-go/shared"
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	"trpc.group/trpc-go/trpc-agent-go/internal/modeltelemetry"
+	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
 	"trpc.group/trpc-go/trpc-agent-go/internal/toolorder"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -252,6 +253,7 @@ type Model struct {
 	contextWindow              int                     // Context window for this model instance.
 	tokenCounter               model.TokenCounter      // Token counter for token tailoring.
 	tailoringStrategy          model.TailoringStrategy // Tailoring strategy for token tailoring.
+	tailoringStrategyName      string                  // Name of the tailoring strategy for metrics.
 	// Token tailoring budget parameters (instance-level overrides).
 	protocolOverheadTokens int
 	reserveOutputTokens    int
@@ -312,6 +314,18 @@ func New(name string, opts ...Option) *Model {
 		o.TailoringStrategy = model.NewMiddleOutStrategy(o.TokenCounter)
 	}
 
+	// Determine tailoring strategy name for metrics.
+	switch o.TailoringStrategy.(type) {
+	case *model.MiddleOutStrategy:
+		o.tailoringStrategyName = "middle_out"
+	case *model.HeadOutStrategy:
+		o.tailoringStrategyName = "head_out"
+	case *model.TailOutStrategy:
+		o.tailoringStrategyName = "tail_out"
+	default:
+		o.tailoringStrategyName = ""
+	}
+
 	return &Model{
 		client:                     client,
 		name:                       name,
@@ -336,6 +350,7 @@ func New(name string, opts ...Option) *Model {
 		contextWindow:              o.ContextWindow,
 		tokenCounter:               o.TokenCounter,
 		tailoringStrategy:          o.TailoringStrategy,
+		tailoringStrategyName:      o.tailoringStrategyName,
 		maxInputTokens:             o.MaxInputTokens,
 		protocolOverheadTokens:     o.TokenTailoringConfig.ProtocolOverheadTokens,
 		reserveOutputTokens:        o.TokenTailoringConfig.ReserveOutputTokens,
@@ -371,8 +386,15 @@ func isDeepSeekBaseURL(raw string) bool {
 // Info implements the model.Model interface.
 func (m *Model) Info() model.Info {
 	return model.Info{
-		Name:          m.name,
-		ContextWindow: m.contextWindow,
+		Name:                   m.name,
+		ContextWindow:          m.contextWindow,
+		TailoringStrategyName:  m.tailoringStrategyName,
+		EnableTokenTailoring:   m.enableTokenTailoring,
+		ProtocolOverheadTokens: m.protocolOverheadTokens,
+		ReserveOutputTokens:    m.reserveOutputTokens,
+		InputTokensFloor:       m.inputTokensFloor,
+		SafetyMarginRatio:      m.safetyMarginRatio,
+		MaxInputTokensRatio:    m.maxInputTokensRatio,
 	}
 }
 
@@ -611,6 +633,9 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 	}
 
 	// Apply token tailoring.
+	if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+		tracker.RecordPreTailoring(request.Messages, maxInputTokens, m.tailoringStrategyName, m.tokenCounter)
+	}
 	tailored, err := m.tailoringStrategy.TailorMessages(ctx, request.Messages, maxInputTokens)
 	if err != nil {
 		if len(tailored) > 0 {
@@ -628,6 +653,9 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			err,
 		)
 		return
+	}
+	if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+		tracker.RecordPostTailoring(tailored, m.tokenCounter)
 	}
 
 	request.Messages = tailored

@@ -1,27 +1,39 @@
 app_name: "openclaw-stdin-sqlite"
 state_dir: "./.openclaw-state/stdin-sqlite"
-
 http:
   addr: "127.0.0.1:18080"
-
 admin:
-  enabled: false
-
+  enabled: true
 agent:
+  type: "llm"
+  planner_type: "react"
   instruction: "You are a helpful assistant for terminal chat."
+  add_session_summary: true
+  session_summary_injection_mode: "system"
+  sync_summary_intra_run: true
+  enable_context_compaction: true
+  context_compaction_threshold_ratio: 0.5
+  context_compaction_tool_result_max_tokens: 1024
+  context_compaction_keep_recent_requests: 2
+  context_compaction_oversized_tool_result_max_tokens: 11000
 
-# Real model mode. Load credentials in shell before starting:
 #   source ~/.zshrc
+
 #   gpt52
 model:
   mode: "openai"
-  name: "gpt-5.2"
+  name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
-
+  context_window: 128000
+  generation_config:
+    max_tokens: 12000
+    temperature: 0.7
+    stream: true
 # Mock mode example for local smoke tests:
-# model:
-#   mode: "mock"
 
+# model:
+
+#   mode: "mock"
 channels:
   - type: "stdin"
     name: "terminal"
@@ -29,15 +41,50 @@ channels:
       from: "alice"
       show_prompt: true
       show_role_labels: true
-
 session:
   backend: "sqlite"
   config:
     path: "./sessions.sqlite"
     skip_db_init: false
-
 memory:
   backend: "sqlite"
   config:
     path: "./memories.sqlite"
     skip_db_init: false
+skills:
+  root: "./skills"
+  tool_profile: "full"
+  load_mode: "turn"
+  entries:
+    apple-notes:
+      enabled: false
+    apple-reminders:
+      enabled: false
+    bear-notes:
+      enabled: false
+    blogwatcher:
+      enabled: false
+    blucli:
+      enabled: false
+    bluebubbles:
+      enabled: false
+tools:
+  enable_local_exec: true
+  enable_openclaw_tools: true
+  enable_parallel_tools: true
+  providers:
+  toolsets:
+    - type: "file"
+      name: "fs"
+      config:
+        base_dir: "."
+        read_only: false
+        enable_save: true
+        enable_replace: true
+debug_recorder:
+  enabled: true
+  mode: "full"
+observability:
+  langfuse:
+    enabled: false
+    required: false

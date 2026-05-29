@@ -67,7 +67,12 @@ const (
 	defaultSkillsWatchDebounce          = 250 * time.Millisecond
 
 	flagAddSessionSummary                             = "add-session-summary"
+	flagSessionSummaryInjectionMode                   = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                           = "sync-summary-intra-run"
 	flagEnableContextCompaction                       = "enable-context-compaction"
+	flagContextCompactionThresholdRatio               = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens          = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests           = "context-compaction-keep-recent-requests"
 	flagContextCompactionOversizedToolResultMaxTokens = "context-compaction-oversized-tool-result-max-tokens"
 	flagMaxHistoryRuns                                = "max-history-runs"
 	flagPreloadMemory                                 = "preload-memory"
@@ -143,11 +148,18 @@ type runOptions struct {
 	A2ADescription    string
 
 	AddSessionSummary                             bool
+	SessionSummaryInjectionMode                   string
+	SyncSummaryIntraRun                           bool
 	EnableContextCompaction                       bool
+	ContextCompactionThresholdRatio               float64
+	ContextCompactionToolResultMaxTokens          int
+	ContextCompactionKeepRecentRequests           int
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
+	PlannerType            string
+	PlannerConfig          map[string]any
 	AgentInstruction       string
 	AgentInstructionFiles  string
 	AgentInstructionDir    string
@@ -178,6 +190,7 @@ type runOptions struct {
 	OpenAIVariant       string
 	OpenAIBaseURL       string
 	GenerationConfig    *model.GenerationConfig
+	ModelContextWindow  int
 	ModelConfig         *yaml.Node
 	KnowledgesConfig    []knowledgeEntry
 	SkillsRoot          string
@@ -370,11 +383,41 @@ func parseRunOptions(args []string) (runOptions, error) {
 		false,
 		"Prepend session summary to the model context (optional)",
 	)
+	fs.StringVar(
+		&opts.SessionSummaryInjectionMode,
+		flagSessionSummaryInjectionMode,
+		"",
+		"Session summary injection mode: system|user (default=system)",
+	)
+	fs.BoolVar(
+		&opts.SyncSummaryIntraRun,
+		flagSyncSummaryIntraRun,
+		false,
+		"Enable synchronous summary refresh between LLM loop iterations in the same run",
+	)
 	fs.BoolVar(
 		&opts.EnableContextCompaction,
 		flagEnableContextCompaction,
 		false,
 		"Enable prompt-side context compaction to control context window growth",
+	)
+	fs.Float64Var(
+		&opts.ContextCompactionThresholdRatio,
+		flagContextCompactionThresholdRatio,
+		0,
+		"Model context window fraction that triggers pre-LLM synchronous summary retry (0=default, range 0-1)",
+	)
+	fs.IntVar(
+		&opts.ContextCompactionToolResultMaxTokens,
+		flagContextCompactionToolResultMaxTokens,
+		0,
+		"Token threshold above which historical tool results are replaced with a placeholder (0=default)",
+	)
+	fs.IntVar(
+		&opts.ContextCompactionKeepRecentRequests,
+		flagContextCompactionKeepRecentRequests,
+		0,
+		"Number of recent completed requests to preserve in full when context compaction is enabled (0=default)",
 	)
 	fs.IntVar(
 		&opts.ContextCompactionOversizedToolResultMaxTokens,
@@ -982,11 +1025,19 @@ type debugRecorderConfig struct {
 type agentRunConfig struct {
 	Type *string `yaml:"type,omitempty"`
 
-	AddSessionSummary                             *bool `yaml:"add_session_summary,omitempty"`
-	EnableContextCompaction                       *bool `yaml:"enable_context_compaction,omitempty"`
-	ContextCompactionOversizedToolResultMaxTokens *int  `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
-	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
-	PreloadMemory                                 *int  `yaml:"preload_memory,omitempty"`
+	AddSessionSummary                             *bool    `yaml:"add_session_summary,omitempty"`
+	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
+	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
+	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
+	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
+	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
+	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
+	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
+	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
+	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
+
+	PlannerType   string         `yaml:"planner_type"`
+	PlannerConfig map[string]any `yaml:"planner_config"`
 
 	Instruction      *string  `yaml:"instruction,omitempty"`
 	InstructionFiles []string `yaml:"instruction_files,omitempty"`
@@ -1028,6 +1079,7 @@ type modelConfig struct {
 	BaseURL          *string               `yaml:"base_url,omitempty"`
 	OpenAIVariant    *string               `yaml:"openai_variant,omitempty"`
 	GenerationConfig *generationConfigYAML `yaml:"generation_config,omitempty"`
+	ContextWindow    *int                  `yaml:"context_window,omitempty"`
 	Config           *rawYAMLNode          `yaml:"config,omitempty"`
 }
 
@@ -1361,9 +1413,31 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagAddSessionSummary) {
 			opts.AddSessionSummary = *cfg.Agent.AddSessionSummary
 		}
+		if cfg.Agent.SessionSummaryInjectionMode != nil &&
+			!flagWasSet(set, flagSessionSummaryInjectionMode) {
+			opts.SessionSummaryInjectionMode = strings.TrimSpace(
+				*cfg.Agent.SessionSummaryInjectionMode,
+			)
+		}
+		if cfg.Agent.SyncSummaryIntraRun != nil &&
+			!flagWasSet(set, flagSyncSummaryIntraRun) {
+			opts.SyncSummaryIntraRun = *cfg.Agent.SyncSummaryIntraRun
+		}
 		if cfg.Agent.EnableContextCompaction != nil &&
 			!flagWasSet(set, flagEnableContextCompaction) {
 			opts.EnableContextCompaction = *cfg.Agent.EnableContextCompaction
+		}
+		if cfg.Agent.ContextCompactionThresholdRatio != nil &&
+			!flagWasSet(set, flagContextCompactionThresholdRatio) {
+			opts.ContextCompactionThresholdRatio = *cfg.Agent.ContextCompactionThresholdRatio
+		}
+		if cfg.Agent.ContextCompactionToolResultMaxTokens != nil &&
+			!flagWasSet(set, flagContextCompactionToolResultMaxTokens) {
+			opts.ContextCompactionToolResultMaxTokens = *cfg.Agent.ContextCompactionToolResultMaxTokens
+		}
+		if cfg.Agent.ContextCompactionKeepRecentRequests != nil &&
+			!flagWasSet(set, flagContextCompactionKeepRecentRequests) {
+			opts.ContextCompactionKeepRecentRequests = *cfg.Agent.ContextCompactionKeepRecentRequests
 		}
 		if cfg.Agent.ContextCompactionOversizedToolResultMaxTokens != nil &&
 			!flagWasSet(set, flagContextCompactionOversizedToolResultMaxTokens) {
@@ -1376,6 +1450,14 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.PreloadMemory != nil &&
 			!flagWasSet(set, flagPreloadMemory) {
 			opts.PreloadMemory = *cfg.Agent.PreloadMemory
+		}
+		if cfg.Agent.PlannerType != "" &&
+			!flagWasSet(set, "agent-planner-type") {
+			opts.PlannerType = cfg.Agent.PlannerType
+		}
+		if cfg.Agent.PlannerConfig != nil &&
+			!flagWasSet(set, "agent-planner-config") {
+			opts.PlannerConfig = cfg.Agent.PlannerConfig
 		}
 		if cfg.Agent.Instruction != nil &&
 			!flagWasSet(set, flagAgentInstruction) {
@@ -1480,6 +1562,11 @@ func (cfg *fileConfig) apply(
 			opts.GenerationConfig = resolveGenerationConfigYAML(
 				cfg.Model.GenerationConfig,
 			)
+		}
+		if cfg.Model.ContextWindow != nil &&
+			*cfg.Model.ContextWindow > 0 &&
+			!flagWasSet(set, "context-window") {
+			opts.ModelContextWindow = *cfg.Model.ContextWindow
 		}
 	}
 	if cfg.Knowledges != nil {

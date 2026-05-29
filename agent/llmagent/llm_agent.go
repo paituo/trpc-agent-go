@@ -249,6 +249,7 @@ func New(name string, opts ...Option) *LLMAgent {
 		SyncSummaryIntraRun:             options.SyncSummaryIntraRun,
 		EnableContextCompaction:         options.EnableContextCompaction,
 		ContextCompactionThresholdRatio: options.ContextCompactionThresholdRatio,
+		EnableDetailedMetrics:           options.EnableDetailedMetrics,
 	}
 
 	a.flow = llmflow.New(

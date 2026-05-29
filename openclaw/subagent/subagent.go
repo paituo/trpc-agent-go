@@ -41,17 +41,11 @@ const (
 	StatusQueued Status = "queued"
 	// StatusRunning means the child agent is executing.
 	StatusRunning Status = "running"
-	// StatusFinalizing means the child agent exited and final metadata is
-	// being attached.
-	StatusFinalizing Status = "finalizing"
-	// StatusCanceling means cancellation was requested and the child agent
-	// has not exited yet.
-	StatusCanceling Status = "canceling"
 	// StatusCompleted means the child agent completed successfully.
 	StatusCompleted Status = "completed"
 	// StatusFailed means the child agent failed.
 	StatusFailed Status = "failed"
-	// StatusCanceled means the child agent exited after cancellation.
+	// StatusCanceled means cancellation was requested or observed.
 	StatusCanceled Status = "canceled"
 )
 
@@ -64,14 +58,6 @@ func (s Status) IsTerminal() bool {
 	default:
 		return false
 	}
-}
-
-// Workspace describes the workspace lease attached to a subagent run.
-type Workspace struct {
-	Isolation string `json:"isolation,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Branch    string `json:"branch,omitempty"`
-	Cleanup   string `json:"cleanup,omitempty"`
 }
 
 // Run is the OpenClaw product-facing view of one subagent run.
@@ -88,7 +74,6 @@ type Run struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 	StartedAt       *time.Time `json:"started_at,omitempty"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	Workspace       *Workspace `json:"workspace,omitempty"`
 }
 
 // ListFilter limits the subagent runs returned by ListForUser.

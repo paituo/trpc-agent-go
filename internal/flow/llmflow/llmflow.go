@@ -87,6 +87,7 @@ type Options struct {
 	SyncSummaryIntraRun             bool
 	EnableContextCompaction         bool
 	ContextCompactionThresholdRatio float64
+	EnableDetailedMetrics           bool
 }
 
 // ModelBaseResolution describes the base model for one LLM call.
@@ -109,6 +110,7 @@ type Flow struct {
 	syncSummaryIntraRun             bool
 	enableContextCompaction         bool
 	contextCompactionThresholdRatio float64
+	enableDetailedMetrics           bool
 }
 
 type contextCompactionTailProcessor interface {
@@ -155,6 +157,7 @@ func New(
 		contextCompactionThresholdRatio: normalizeContextCompactionThresholdRatio(
 			opts.ContextCompactionThresholdRatio,
 		),
+		enableDetailedMetrics: opts.EnableDetailedMetrics,
 	}
 }
 
@@ -562,8 +565,32 @@ func (f *Flow) runOneStep(
 			invocation.Model = originalModel
 		}()
 	}
+	// Create context metrics tracker and store in ctx.
+	ctxTracker := itelemetry.NewContextMetricsTracker(ctx, invocation, f.captureContextConfig())
+	ctx = itelemetry.WithContextMetricsTracker(ctx, ctxTracker)
+	defer ctxTracker.RecordMetrics()
+
+	if callModel != nil {
+		info := callModel.Info()
+		ctxTracker.SetModelTailoringConfig(info.TailoringStrategyName, info.EnableTokenTailoring)
+		ctxTracker.SetTokenTailoringBudget(info.ProtocolOverheadTokens, info.ReserveOutputTokens)
+		ctxTracker.SetTokenTailoringRatios(info.InputTokensFloor, info.SafetyMarginRatio, info.MaxInputTokensRatio)
+	}
+
 	// 1. Preprocess (prepare request).
 	rebuildPlan := f.preprocess(ctx, invocation, llmRequest, eventChan)
+
+	// Record initial state after preprocess.
+	ctxTracker.RecordInitialState(llmRequest.Messages, f.tokenCounter())
+
+	// Record tool definition tokens estimate (when detailed metrics is enabled).
+	if len(llmRequest.Tools) > 0 && f.enableDetailedMetrics {
+		toolDefTokens, tokenErr := estimateToolDefinitionTokens(llmRequest.Tools, f.tokenCounter())
+		if tokenErr == nil {
+			ctxTracker.RecordToolDefinitionTokens(toolDefTokens)
+		}
+	}
+
 	if invocation.EndInvocation {
 		return lastEvent, nil
 	}
@@ -575,6 +602,14 @@ func (f *Flow) runOneStep(
 	)
 	if invocation.EndInvocation {
 		return lastEvent, nil
+	}
+	if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
+		contextWindow := 0
+		if callModel != nil {
+			contextWindow = callModel.Info().ContextWindow
+		}
+		ctxTracker.RecordPreTailoring(llmRequest.Messages, contextWindow, "", f.tokenCounter())
+		ctxTracker.RecordPostTailoring(llmRequest.Messages, f.tokenCounter())
 	}
 	observabilityInvocation := invocationViewForModel(invocation, callModel)
 	stepID := agent.StartExecutionTraceStep(
@@ -609,6 +644,7 @@ func (f *Flow) runOneStep(
 		eventChan,
 		span,
 		startedSpan,
+		callModel,
 	)
 	agent.FinishExecutionTraceStep(invocation, stepID, traceSnapshotFromEvent(lastEvent), err)
 	return lastEvent, err
@@ -624,6 +660,7 @@ func (f *Flow) processStreamingResponses(
 	eventChan chan<- *event.Event,
 	span oteltrace.Span,
 	startedSpan bool,
+	callModel model.Model,
 ) (lastEvent *event.Event, err error) {
 	currentInvocation := invocationFromContextOrDefault(ctx, invocation)
 	metricsInvocation := observabilityInvocation
@@ -668,6 +705,23 @@ func (f *Flow) processStreamingResponses(
 			response,
 			tracker,
 		)
+		// Record final usage for context metrics tracker when the response
+		// contains meaningful data. This covers two cases:
+		//   a) Final text response (Done=true, Usage populated)
+		//   b) Tool call response (Done=false, Usage populated) — streaming
+		//      creates a final aggregated response with Done=false when tool
+		//      calls are present, but the API still returns usage data.
+		if response != nil && !response.IsPartial && (response.Done || response.Usage != nil) {
+			if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
+				contextWindow := 0
+				if callModel != nil {
+					if window, ok := modelcontext.ResolveContextWindow(callModel); ok {
+						contextWindow = window
+					}
+				}
+				ctxTracker.RecordFinalUsage(response.Usage, contextWindow)
+			}
+		}
 		callbackTimingAttachment := responseusage.AttachTimingForCallback(
 			response,
 			timingInfo,
@@ -752,12 +806,17 @@ func (f *Flow) processStreamingResponses(
 			ttfb = tracker.FirstTokenTimeDuration()
 		}
 		if startedSpan {
+			var contextMetrics *itelemetry.TraceChatContextMetrics
+			if ct := itelemetry.ContextMetricsTrackerFromContext(ctx); ct != nil {
+				contextMetrics = ct.ToTraceChatContextMetrics()
+			}
 			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
 				Invocation:       observabilityInvocationForCurrent(eventInvocation, observabilityInvocation),
 				Request:          llmRequest,
 				Response:         response,
 				EventID:          llmResponseEvent.ID,
 				TimeToFirstToken: ttfb,
+				ContextMetrics:   contextMetrics,
 			})
 		}
 		return true
@@ -1062,8 +1121,49 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		invocation.Session == nil || invocation.SessionService == nil ||
 		!f.supportsSyncSummaryRetry() || rebuildPlan == nil ||
 		rebuildPlan.beforeContent == nil || rebuildPlan.contentProcessor == nil {
+		// Per-condition diagnostic logging to pinpoint the failing guard.
+		agentName := "unknown"
+		if invocation != nil {
+			agentName = invocation.AgentName
+		}
+		switch {
+		case req == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: req is nil", agentName)
+		case !f.enableContextCompaction:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: enableContextCompaction is false", agentName)
+		case invocation == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped: invocation is nil")
+		case invocation.Session == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: Session is nil", agentName)
+		case invocation.SessionService == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: SessionService is nil", agentName)
+		case !f.supportsSyncSummaryRetry():
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: supportsSyncSummaryRetry returned false", agentName)
+		case rebuildPlan == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan is nil", agentName)
+		case rebuildPlan.beforeContent == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan.beforeContent is nil", agentName)
+		case rebuildPlan.contentProcessor == nil:
+			log.DebugfContext(ctx, "Pre-LLM context compaction skipped for agent %s: rebuildPlan.contentProcessor is nil", agentName)
+		}
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPostCompaction(0, false)
+		}
 		return req
 	}
+
+	// Record pre-compaction token count.
+	counter := rebuildPlan.contentProcessor.ContextCompactionConfig.TokenCounter
+	if counter == nil {
+		counter = model.NewSimpleTokenCounter()
+	}
+	totalTokens, tokenErr := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
+	if tokenErr == nil {
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPreCompaction(totalTokens)
+		}
+	}
+
 	if !shouldSyncCompactContext(
 		ctx,
 		invocation,
@@ -1071,6 +1171,9 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		f.contextCompactionThresholdRatio,
 		rebuildPlan.contentProcessor.ContextCompactionConfig.TokenCounter,
 	) {
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPostCompaction(totalTokens, false)
+		}
 		return req
 	}
 
@@ -1092,6 +1195,9 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 				err,
 			)
 		}
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPostCompaction(totalTokens, false)
+		}
 		return req
 	}
 
@@ -1106,7 +1212,18 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 			"Pre-LLM context compaction skipped for agent %s: safe rebuild unavailable",
 			invocation.AgentName,
 		)
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPostCompaction(totalTokens, false)
+		}
 		return req
+	}
+
+	// Record post-compaction token count.
+	newTotalTokens, newTokenErr := counter.CountTokensRange(ctx, rebuilt.Messages, 0, len(rebuilt.Messages))
+	if newTokenErr == nil {
+		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
+			tracker.RecordPostCompaction(newTotalTokens, true)
+		}
 	}
 
 	if err != nil {
@@ -1383,10 +1500,27 @@ func shouldSyncCompactContext(
 	counter model.TokenCounter,
 ) bool {
 	if inv == nil || inv.Model == nil || req == nil || len(req.Messages) == 0 {
+		agentName := "unknown"
+		if inv != nil {
+			agentName = inv.AgentName
+		}
+		switch {
+		case inv == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: inv is nil")
+		case inv.Model == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: Model is nil for agent %s", agentName)
+		case req == nil:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: req is nil for agent %s", agentName)
+		case len(req.Messages) == 0:
+			log.DebugfContext(ctx, "shouldSyncCompactContext: no messages for agent %s", agentName)
+		}
 		return false
 	}
 
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: shouldSyncCompactContext using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 	tokens, err := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
@@ -1944,4 +2078,74 @@ func WaitEventTimeout(ctx context.Context) time.Duration {
 		return time.Until(deadline)
 	}
 	return eventCompletionTimeout
+}
+
+// tokenCounter returns the token counter from the first ContentRequestProcessor
+// that has one configured, or nil if none is available.
+func (f *Flow) tokenCounter() model.TokenCounter {
+	for _, p := range f.requestProcessors {
+		if crp, ok := p.(*processor.ContentRequestProcessor); ok {
+			if crp.ContextCompactionConfig.TokenCounter != nil {
+				return crp.ContextCompactionConfig.TokenCounter
+			}
+		}
+	}
+	return nil
+}
+
+// estimateToolDefinitionTokens estimates the token count of tool/function definitions.
+func estimateToolDefinitionTokens(tools map[string]tool.Tool, counter model.TokenCounter) (int, error) {
+	if counter == nil {
+		return 0, errors.New("token counter is nil")
+	}
+	decls := make([]*tool.Declaration, 0, len(tools))
+	for _, t := range tools {
+		decls = append(decls, t.Declaration())
+	}
+	raw, err := json.Marshal(decls)
+	if err != nil {
+		return 0, err
+	}
+	tokens, err := counter.CountTokens(context.Background(), model.Message{
+		Role:    model.RoleSystem,
+		Content: string(raw),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return tokens, nil
+}
+
+// captureContextConfig captures a snapshot of the context control configuration
+// from the Flow and ContentRequestProcessor.
+func (f *Flow) captureContextConfig() itelemetry.ContextConfigSnapshot {
+	config := itelemetry.ContextConfigSnapshot{
+		EnableCompaction:         f.enableContextCompaction,
+		SyncSummary:              f.syncSummaryIntraRun,
+		CompactionThresholdRatio: f.contextCompactionThresholdRatio,
+		EnableDetailedMetrics:    f.enableDetailedMetrics,
+	}
+	// Aggregate config from ContentRequestProcessor.
+	for _, p := range f.requestProcessors {
+		if crp, ok := p.(*processor.ContentRequestProcessor); ok {
+			config.AddSummary = crp.AddSessionSummary
+			config.MaxHistoryRuns = crp.MaxHistoryRuns
+			config.MessageFilterMode = string(crp.TimelineFilterMode)
+			config.ReasoningContentMode = crp.ReasoningContentMode
+			if crp.SessionSummaryInjectionMode == processor.SessionSummaryInjectionSystem {
+				config.SummaryInjectionMode = "system"
+			} else if crp.SessionSummaryInjectionMode == processor.SessionSummaryInjectionUser {
+				config.SummaryInjectionMode = "user"
+			} else {
+				config.SummaryInjectionMode = "none"
+			}
+			if crp.ContextCompactionConfig.Enabled {
+				config.ToolResultMaxTokens = crp.ContextCompactionConfig.ToolResultMaxTokens
+				config.OversizedToolResultMaxTokens = crp.ContextCompactionConfig.OversizedToolResultMaxTokens
+				config.KeepRecentRequests = crp.ContextCompactionConfig.KeepRecentRequests
+			}
+			break
+		}
+	}
+	return config
 }

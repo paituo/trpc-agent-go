@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -110,9 +110,10 @@ func (f *fileToolSet) listFile(
 			}
 		}
 		rsp.Message = fmt.Sprintf(
-			"Error: cannot access path '%s': %v",
+			"Error: cannot access path '%s': %v. %s",
 			reqPath,
 			err,
+			f.missingFileHint(),
 		)
 		return rsp, fmt.Errorf("accessing path '%s': %w", reqPath, err)
 	}

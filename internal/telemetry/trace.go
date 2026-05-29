@@ -466,6 +466,58 @@ type TraceChatAttributes struct {
 	EventID          string
 	TimeToFirstToken time.Duration
 	TaskType         string
+	// ContextMetrics holds context control metrics for this LLM call.
+	// When non-nil, these attributes are added to the span so they
+	// appear in Langfuse observations.
+	ContextMetrics *TraceChatContextMetrics
+}
+
+// TraceChatContextMetrics carries context control metrics data from the
+// ContextMetricsTracker to the TraceChat span attributes.
+type TraceChatContextMetrics struct {
+	InputTokens             int
+	WindowSize              int
+	UsageRatio              float64
+	InitialTokens           int
+	InitialMessageCount     int
+	TailoredTokens          int
+	TailoredMessages        int
+	CompactedTokens         int
+	MessageCount            int
+	CompactionTriggered     bool
+	TailoringTriggered      bool
+	SummaryTriggered        bool
+	ToolCompactionTriggered  bool
+	OversizedTruncTriggered  bool
+	HistoryTrimTriggered    bool
+	EnableCompaction        bool
+	EnableTokenTailoring    bool
+	SyncSummary             bool
+	SummaryInjectionMode    string
+	AddSummary              bool
+	TailoringStrategy       string
+	MessageFilterMode       string
+	ReasoningContentMode    string
+	CompactionThresholdRatio float64
+	ToolResultMaxTokens     int
+	OversizedToolMaxTokens  int
+	MaxHistoryRuns          int
+	KeepRecentRequests      int
+	// Extended metrics (only populated when EnableDetailedMetrics is true).
+	CompletionTokens       int
+	TotalTokens            int
+	CachedTokens           int
+	CacheCreationTokens    int
+	CacheReadTokens        int
+	ReasoningTokens        int
+	ToolDefinitionTokens   int
+	ProtocolOverheadTokens int
+	UsageRatioByInitial    float64
+	EnableDetailedMetrics  bool
+	ReserveOutputTokens    int
+	InputTokensFloor       int
+	SafetyMarginRatio      float64
+	MaxInputTokensRatio    float64
 }
 
 // NewSummarizeTaskType creates a task type for summarize.
@@ -512,6 +564,11 @@ func TraceChat(span trace.Span, attributes *TraceChatAttributes) {
 
 	// Set all attributes at once
 	span.SetAttributes(attrs...)
+
+	// Add context metrics attributes if available.
+	if attributes.ContextMetrics != nil {
+		span.SetAttributes(buildContextMetricsAttributes(attributes.ContextMetrics)...)
+	}
 
 	// Handle response error status
 	if attributes.Response != nil && attributes.Response.Error != nil {
@@ -694,6 +751,88 @@ func responseErrorAttributes(respErr *model.ResponseError, fallback string) []at
 		),
 		attribute.String(semconvtrace.KeyErrorMessage, respErr.Message),
 	}
+}
+
+// buildContextMetricsAttributes builds context control metric attributes from TraceChatContextMetrics.
+// Attributes are organized under three prefixes:
+//   context.state.*   — runtime state (tokens, messages, ratios)
+//   context.config.*  — configuration settings (thresholds, strategies, toggles)
+//   context.trigger.* — whether a control mechanism was activated
+func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyValue {
+	if m == nil {
+		return nil
+	}
+	attrs := []attribute.KeyValue{
+		// State metrics (basic)
+		attribute.Int("context.state.input_tokens", m.InputTokens),
+		attribute.Int("context.state.window_size", m.WindowSize),
+		attribute.Float64("context.state.usage_ratio", m.UsageRatio),
+		attribute.Int("context.state.initial_tokens", m.InitialTokens),
+		attribute.Int("context.state.initial_message_count", m.InitialMessageCount),
+		attribute.Int("context.state.tailored_tokens", m.TailoredTokens),
+		attribute.Int("context.state.tailored_messages", m.TailoredMessages),
+		attribute.Int("context.state.compacted_tokens", m.CompactedTokens),
+		attribute.Int("context.state.message_count", m.MessageCount),
+	}
+	// Extended state metrics (only when detailed metrics are enabled).
+	if m.EnableDetailedMetrics {
+		attrs = append(attrs,
+			attribute.Int("context.state.completion_tokens", m.CompletionTokens),
+			attribute.Int("context.state.total_tokens", m.TotalTokens),
+			attribute.Int("context.state.cached_tokens", m.CachedTokens),
+			attribute.Int("context.state.cache_creation_tokens", m.CacheCreationTokens),
+			attribute.Int("context.state.cache_read_tokens", m.CacheReadTokens),
+			attribute.Int("context.state.reasoning_tokens", m.ReasoningTokens),
+			attribute.Int("context.state.tool_definition_tokens", m.ToolDefinitionTokens),
+			attribute.Int("context.state.protocol_overhead_tokens", m.ProtocolOverheadTokens),
+			attribute.Float64("context.state.usage_ratio_by_initial", m.UsageRatioByInitial),
+		)
+	}
+	// Config metrics (basic)
+	attrs = append(attrs,
+		attribute.Bool("context.config.enable_compaction", m.EnableCompaction),
+		attribute.Bool("context.config.enable_token_tailoring", m.EnableTokenTailoring),
+		attribute.Bool("context.config.sync_summary", m.SyncSummary),
+		attribute.String("context.config.summary_injection_mode", m.SummaryInjectionMode),
+		attribute.Bool("context.config.add_summary", m.AddSummary),
+		attribute.String("context.config.tailoring_strategy", m.TailoringStrategy),
+		attribute.String("context.config.message_filter_mode", m.MessageFilterMode),
+		attribute.String("context.config.reasoning_content_mode", m.ReasoningContentMode),
+		attribute.Float64("context.config.compaction_threshold_ratio", m.CompactionThresholdRatio),
+		attribute.Int("context.config.tool_result_max_tokens", m.ToolResultMaxTokens),
+		attribute.Int("context.config.oversized_tool_result_max_tokens", m.OversizedToolMaxTokens),
+		attribute.Int("context.config.max_history_runs", m.MaxHistoryRuns),
+		attribute.Int("context.config.keep_recent_requests", m.KeepRecentRequests),
+	)
+	// Extended config metrics (only when detailed metrics are enabled).
+	if m.EnableDetailedMetrics {
+		attrs = append(attrs,
+			attribute.Int("context.config.reserve_output_tokens", m.ReserveOutputTokens),
+			attribute.Int("context.config.input_tokens_floor", m.InputTokensFloor),
+			attribute.Float64("context.config.safety_margin_ratio", m.SafetyMarginRatio),
+			attribute.Float64("context.config.max_input_tokens_ratio", m.MaxInputTokensRatio),
+		)
+	}
+	// Trigger metrics (only when activated)
+	if m.CompactionTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.compaction", true))
+	}
+	if m.TailoringTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.tailoring", true))
+	}
+	if m.SummaryTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.summary", true))
+	}
+	if m.ToolCompactionTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.tool_compaction", true))
+	}
+	if m.OversizedTruncTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.oversized_truncation", true))
+	}
+	if m.HistoryTrimTriggered {
+		attrs = append(attrs, attribute.Bool("context.trigger.history_trim", true))
+	}
+	return attrs
 }
 
 // NewGRPCConn creates a new gRPC connection to the OpenTelemetry Collector.

@@ -130,6 +130,9 @@ type Invocation struct {
 
 	// parent is the parent invocation, if any
 	parent *Invocation
+	// parentInvocationID is the parent invocation ID when parent is not available
+	// (e.g., async subagent runs). Used for trace linking only.
+	parentInvocationID string
 	// traceCapture stores the shared execution trace capture for one root run.
 	traceCapture *tracecapture.Capture
 	traceMu      sync.Mutex
@@ -524,6 +527,15 @@ func WithPropagateChildAgentErrors(enabled bool) RunOption {
 func WithDisableTracing(disable bool) RunOption {
 	return func(opts *RunOptions) {
 		opts.DisableTracing = disable
+	}
+}
+
+// WithParentInvocationID sets the parent invocation ID for trace linking.
+// This is used when the invocation is created independently but needs to be
+// linked to a parent invocation's trace (e.g., async subagent runs).
+func WithParentInvocationID(parentID string) RunOption {
+	return func(opts *RunOptions) {
+		opts.ParentInvocationID = parentID
 	}
 }
 
@@ -1117,6 +1129,10 @@ type RunOptions struct {
 
 	// ExecutionTraceEnabled enables in-process execution trace recording for this run.
 	ExecutionTraceEnabled bool
+
+	// ParentInvocationID is the parent invocation ID for trace linking when
+	// this invocation is not created via Clone (e.g., async subagent runs).
+	ParentInvocationID string
 
 	// RequestID is the request id of the request.
 	RequestID string
@@ -1861,6 +1877,14 @@ func (inv *Invocation) GetParentInvocation() *Invocation {
 		return nil
 	}
 	return inv.parent
+}
+
+// GetParentInvocationID returns the parent invocation ID for trace linking.
+func (inv *Invocation) GetParentInvocationID() string {
+	if inv == nil {
+		return ""
+	}
+	return inv.parentInvocationID
 }
 
 // InjectIntoEvent inject invocation information into event.
