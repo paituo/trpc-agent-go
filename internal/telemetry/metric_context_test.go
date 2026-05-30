@@ -2,33 +2,88 @@ package telemetry
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
+
+	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
-func TestRecordCompactionTrigger(t *testing.T) {
-	before := GetCompactionTriggerCount()
-	RecordCompactionTrigger(context.Background())
-	after := GetCompactionTriggerCount()
-	if after != before+1 {
-		t.Fatalf("expected %d, got %d", before+1, after)
+func TestNewContextMetricsTracker(t *testing.T) {
+	config := ContextConfigSnapshot{
+		EnableCompaction: true,
+	}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	if tracker == nil {
+		t.Fatal("expected non-nil tracker")
 	}
 }
 
-func TestRecordTokenUsageRatio(t *testing.T) {
-	RecordTokenUsageRatio(context.Background(), 0.75)
-	got := GetTokenUsageRatio()
-	if got != 0.75 {
-		t.Fatalf("expected 0.75, got %f", got)
+func TestRecordInitialState(t *testing.T) {
+	config := ContextConfigSnapshot{}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	messages := []model.Message{
+		{Role: model.RoleUser, Content: "hello"},
+	}
+	tracker.RecordInitialState(messages, model.NewSimpleTokenCounter())
+	if tracker.initialMessageCount != 1 {
+		t.Fatalf("expected 1, got %d", tracker.initialMessageCount)
 	}
 }
 
-func TestGetTokenUsageRatio_Default(t *testing.T) {
-	old := ContextTokenUsageRatio
-	ContextTokenUsageRatio = atomic.Value{}
-	got := GetTokenUsageRatio()
-	if got != 0 {
-		t.Fatalf("expected 0, got %f", got)
+func TestRecordHistoryTrim(t *testing.T) {
+	config := ContextConfigSnapshot{}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	tracker.RecordHistoryTrim(true, 10, 5)
+	if !tracker.historyTrimTriggered {
+		t.Fatal("expected history trim triggered")
 	}
-	ContextTokenUsageRatio = old
+}
+
+func TestRecordSummaryTriggered(t *testing.T) {
+	config := ContextConfigSnapshot{}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	tracker.RecordSummaryTriggered(true)
+	if !tracker.summaryTriggered {
+		t.Fatal("expected summary triggered")
+	}
+}
+
+func TestRecordCompaction(t *testing.T) {
+	config := ContextConfigSnapshot{}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	tracker.RecordPreCompaction(1000)
+	tracker.RecordPostCompaction(500, true)
+	if !tracker.compactionTriggered {
+		t.Fatal("expected compaction triggered")
+	}
+	if tracker.preCompactionTokens != 1000 {
+		t.Fatalf("expected 1000, got %d", tracker.preCompactionTokens)
+	}
+	if tracker.postCompactionTokens != 500 {
+		t.Fatalf("expected 500, got %d", tracker.postCompactionTokens)
+	}
+}
+
+func TestToTraceChatContextMetrics_Nil(t *testing.T) {
+	var tracker *ContextMetricsTracker
+	result := tracker.ToTraceChatContextMetrics()
+	if result != nil {
+		t.Fatal("expected nil")
+	}
+}
+
+func TestWithContextMetricsTracker(t *testing.T) {
+	config := ContextConfigSnapshot{}
+	tracker := NewContextMetricsTracker(context.Background(), nil, config)
+	ctx := WithContextMetricsTracker(context.Background(), tracker)
+	got := ContextMetricsTrackerFromContext(ctx)
+	if got != tracker {
+		t.Fatal("expected same tracker from context")
+	}
+}
+
+func TestContextMetricsTrackerFromContext_NotFound(t *testing.T) {
+	got := ContextMetricsTrackerFromContext(context.Background())
+	if got != nil {
+		t.Fatal("expected nil")
+	}
 }
