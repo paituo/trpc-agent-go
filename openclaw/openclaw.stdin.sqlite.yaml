@@ -6,7 +6,7 @@ admin:
   enabled: true
 agent:
   type: "llm"
-  planner_type: "react"
+  planner_type: "builtin"
   instruction: "You are a helpful assistant for terminal chat."
   add_session_summary: true
   session_summary_injection_mode: "system"

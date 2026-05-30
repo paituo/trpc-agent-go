@@ -1036,6 +1036,9 @@ func NewRuntimeWithOptions(
 			ContextCompactionOversizedToolResultMaxTokens: opts.ContextCompactionOversizedToolResultMaxTokens,
 			MaxHistoryRuns:                                opts.MaxHistoryRuns,
 			PreloadMemory:                                 opts.PreloadMemory,
+			EnableDetailedContextMetrics:                  opts.EnableDetailedContextMetrics,
+			ContextCompactionForceCleanToolNames:          splitCSV(opts.ContextCompactionForceCleanToolNames),
+			ContextCompactionKeepToolNames:                splitCSV(opts.ContextCompactionKeepToolNames),
 			GenerationConfig:                              opts.GenerationConfig,
 			PlannerType:                                   opts.PlannerType,
 			PlannerConfig:                                 opts.PlannerConfig,
@@ -1059,6 +1062,9 @@ func NewRuntimeWithOptions(
 			SkillsToolResults:   opts.SkillsToolResults,
 			SkillsSkipFallback:  opts.SkillsSkipFallback,
 			SkillsToolingGuide:  opts.SkillsToolingGuide,
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
 			KnowledgesConfig:    opts.KnowledgesConfig,
 			StateDir:            resolvedStateDir,
 			MemoryFileStore:     fileMemoryStore,
@@ -2766,6 +2772,9 @@ type agentConfig struct {
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
+	EnableDetailedContextMetrics                  bool
+	ContextCompactionForceCleanToolNames          []string
+	ContextCompactionKeepToolNames                []string
 	GenerationConfig                              *model.GenerationConfig
 	PlannerType                                   string
 	PlannerConfig                                 map[string]any
@@ -2787,6 +2796,9 @@ type agentConfig struct {
 	SkillsToolResults   bool
 	SkillsSkipFallback  bool
 	SkillsToolingGuide  *string
+	SkillsProjectAgentsRoot  bool
+	SkillsPersonalAgentsRoot bool
+	SkillsManagedRoot        bool
 	KnowledgesConfig    []knowledgeEntry
 
 	StateDir string

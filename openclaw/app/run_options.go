@@ -158,6 +158,10 @@ type runOptions struct {
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
+	EnableDetailedContextMetrics             bool
+	ContextCompactionForceCleanToolNames     string
+	ContextCompactionKeepToolNames           string
+
 	PlannerType            string
 	PlannerConfig          map[string]any
 	AgentInstruction       string
@@ -192,6 +196,8 @@ type runOptions struct {
 	GenerationConfig    *model.GenerationConfig
 	ModelContextWindow  int
 	ModelConfig         *yaml.Node
+	EnableTokenTailoring  bool
+	TokenTailoringConfig  *yaml.Node
 	KnowledgesConfig    []knowledgeEntry
 	SkillsRoot          string
 	SkillsExtraDir      string
@@ -207,6 +213,9 @@ type runOptions struct {
 	SkillsToolResults   bool
 	SkillsSkipFallback  bool
 	SkillsToolingGuide  *string
+	SkillsProjectAgentsRoot  bool
+	SkillsPersonalAgentsRoot bool
+	SkillsManagedRoot        bool
 	StateDir            string
 
 	DebugRecorderEnabled bool
@@ -1036,6 +1045,10 @@ type agentRunConfig struct {
 	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
 
+	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
 
@@ -1080,6 +1093,7 @@ type modelConfig struct {
 	OpenAIVariant    *string               `yaml:"openai_variant,omitempty"`
 	GenerationConfig *generationConfigYAML `yaml:"generation_config,omitempty"`
 	ContextWindow    *int                  `yaml:"context_window,omitempty"`
+	TokenTailoring   *bool                 `yaml:"token_tailoring,omitempty"`
 	Config           *rawYAMLNode          `yaml:"config,omitempty"`
 }
 
@@ -1106,6 +1120,10 @@ type skillsConfig struct {
 	Root      *string  `yaml:"root,omitempty"`
 	ExtraDirs []string `yaml:"extra_dirs,omitempty"`
 	Debug     *bool    `yaml:"debug,omitempty"`
+
+	ProjectAgentsRoot  *bool `yaml:"project_agents_root,omitempty"`
+	PersonalAgentsRoot *bool `yaml:"personal_agents_root,omitempty"`
+	ManagedRoot        *bool `yaml:"managed_root,omitempty"`
 
 	AllowBundled       []string `yaml:"allow_bundled,omitempty"`
 	AllowBundledCamel  []string `yaml:"allowBundled,omitempty"`
@@ -1451,6 +1469,24 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagPreloadMemory) {
 			opts.PreloadMemory = *cfg.Agent.PreloadMemory
 		}
+		if cfg.Agent.EnableDetailedContextMetrics != nil &&
+			!flagWasSet(set, "enable-detailed-context-metrics") {
+			opts.EnableDetailedContextMetrics = *cfg.Agent.EnableDetailedContextMetrics
+		}
+		if len(cfg.Agent.ContextCompactionForceCleanToolNames) > 0 &&
+			!flagWasSet(set, "context-compaction-force-clean-tool-names") {
+			opts.ContextCompactionForceCleanToolNames = strings.Join(
+				cfg.Agent.ContextCompactionForceCleanToolNames,
+				csvDelimiter,
+			)
+		}
+		if len(cfg.Agent.ContextCompactionKeepToolNames) > 0 &&
+			!flagWasSet(set, "context-compaction-keep-tool-names") {
+			opts.ContextCompactionKeepToolNames = strings.Join(
+				cfg.Agent.ContextCompactionKeepToolNames,
+				csvDelimiter,
+			)
+		}
 		if cfg.Agent.PlannerType != "" &&
 			!flagWasSet(set, "agent-planner-type") {
 			opts.PlannerType = cfg.Agent.PlannerType
@@ -1568,6 +1604,10 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "context-window") {
 			opts.ModelContextWindow = *cfg.Model.ContextWindow
 		}
+		if cfg.Model.TokenTailoring != nil &&
+			!flagWasSet(set, "token-tailoring") {
+			opts.EnableTokenTailoring = *cfg.Model.TokenTailoring
+		}
 	}
 	if cfg.Knowledges != nil {
 		if len(cfg.Knowledges.Entries) > 0 {
@@ -1629,6 +1669,18 @@ func (cfg *fileConfig) apply(
 		}
 		if cfg.Skills.Debug != nil && !flagWasSet(set, "skills-debug") {
 			opts.SkillsDebug = *cfg.Skills.Debug
+		}
+		if cfg.Skills.ProjectAgentsRoot != nil &&
+			!flagWasSet(set, "skills-project-agents-root") {
+			opts.SkillsProjectAgentsRoot = *cfg.Skills.ProjectAgentsRoot
+		}
+		if cfg.Skills.PersonalAgentsRoot != nil &&
+			!flagWasSet(set, "skills-personal-agents-root") {
+			opts.SkillsPersonalAgentsRoot = *cfg.Skills.PersonalAgentsRoot
+		}
+		if cfg.Skills.ManagedRoot != nil &&
+			!flagWasSet(set, "skills-managed-root") {
+			opts.SkillsManagedRoot = *cfg.Skills.ManagedRoot
 		}
 		allowBundled := cfg.Skills.AllowBundled
 		if len(allowBundled) == 0 {

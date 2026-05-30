@@ -299,3 +299,6 @@ openclaw/app/app_zh.go
 tool/yaml2md/dbg.ps1
 tool/yaml2md/yaml2md.ps1
 tool/TOOLS_CATALOG.md
+docs/TOOLS_CATALOG.md
+app.upstream.tmp
+openclaw4.exe
