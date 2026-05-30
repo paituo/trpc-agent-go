@@ -200,6 +200,7 @@ type ModelSpec struct {
 	OpenAIVariant        string
 	Headers              map[string]string
 	DebugRecorderEnabled bool
+	ContextWindow        int
 
 	Config *yaml.Node
 }
