@@ -3,22 +3,29 @@
 package platform
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
 
 func TestShell_Windows(t *testing.T) {
-	s := Shell()
-	if s == "" {
-		t.Fatal("Shell() returned empty string")
+	spec, err := Shell()
+	if err != nil {
+		t.Fatalf("Shell() returned error: %v", err)
 	}
-	if !strings.Contains(strings.ToLower(s), "powershell") && s != "cmd" {
-		t.Fatalf("unexpected shell on Windows: %s", s)
+	if spec.Command == "" {
+		t.Fatal("Shell() returned empty command")
+	}
+	if !strings.Contains(strings.ToLower(spec.Command), "powershell") && !strings.Contains(strings.ToLower(spec.Command), "cmd") {
+		t.Fatalf("unexpected shell on Windows: %s", spec.Command)
 	}
 }
 
 func TestBuildCommand_Windows_PowerShell(t *testing.T) {
-	name, args := BuildCommand("Write-Host hello")
+	name, args, err := BuildCommand(context.Background(), "Write-Host hello")
+	if err != nil {
+		t.Fatalf("BuildCommand returned error: %v", err)
+	}
 	if name == "" {
 		t.Fatal("BuildCommand returned empty name")
 	}
