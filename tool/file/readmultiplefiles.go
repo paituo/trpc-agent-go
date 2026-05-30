@@ -177,6 +177,17 @@ func (f *fileToolSet) readFiles(
 					)
 					return
 				}
+				chunk, truncated := readPartialLines(content, defaultMaxReadLines)
+				if truncated {
+					results[idx].Contents = chunk
+					lines := strings.Count(chunk, "\n")
+					results[idx].Message = fmt.Sprintf(
+						"Successfully read %s, total lines: %d (truncated)",
+						rp,
+						lines,
+					)
+					return
+				}
 				results[idx].Contents = content
 				lines := strings.Count(content, "\n") + 1
 				results[idx].Message = fmt.Sprintf(
@@ -235,8 +246,20 @@ func (f *fileToolSet) readFiles(
 				)
 				return
 			}
-			lines := strings.Count(string(data), "\n") + 1
-			results[idx].Contents = string(data)
+			content = string(data)
+			chunk, truncated := readPartialLines(content, defaultMaxReadLines)
+			if truncated {
+				results[idx].Contents = chunk
+				lines := strings.Count(chunk, "\n")
+				results[idx].Message = fmt.Sprintf(
+					"Successfully read %s, total lines: %d (truncated)",
+					rp,
+					lines,
+				)
+				return
+			}
+			lines := strings.Count(content, "\n") + 1
+			results[idx].Contents = content
 			results[idx].Message = fmt.Sprintf(
 				"Successfully read %s, total lines: %d",
 				rp,
