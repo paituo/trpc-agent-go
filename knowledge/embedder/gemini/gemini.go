@@ -240,6 +240,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *genai.EmbedC
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
+	log.Infof("embedding request: model=%s, text_len=%d", e.model, len(text))
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestEncodingFormat: &e.requestOptions.MIMEType,
@@ -273,5 +274,9 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *genai.EmbedC
 	}
 
 	// Call Gemini embeddings API.
-	return e.client.Models.EmbedContent(ctx, model, []*genai.Content{content}, &request)
+	rsp, err = e.client.Models.EmbedContent(ctx, model, []*genai.Content{content}, &request)
+	if err == nil && rsp != nil {
+		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
+	}
+	return
 }
