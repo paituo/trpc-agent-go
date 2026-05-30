@@ -38,11 +38,13 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent/claudecode"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	localexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/flow/processor"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -2503,7 +2505,17 @@ func newAgent(
 		llmagent.WithGlobalInstruction(strings.TrimSpace(cfg.SystemPrompt)),
 		llmagent.WithGenerationConfig(genConfig),
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
+		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
+		llmagent.WithContextCompactionThresholdRatio(
+			cfg.ContextCompactionThresholdRatio,
+		),
+		llmagent.WithContextCompactionToolResultMaxTokens(
+			cfg.ContextCompactionToolResultMaxTokens,
+		),
+		llmagent.WithContextCompactionKeepRecentRequests(
+			cfg.ContextCompactionKeepRecentRequests,
+		),
 		llmagent.WithContextCompactionOversizedToolResultMaxTokens(
 			cfg.ContextCompactionOversizedToolResultMaxTokens,
 		),
@@ -2561,6 +2573,22 @@ func newAgent(
 		opts = append(opts, llmagent.WithCodeExecutor(exec))
 	}
 
+	if cfg.SessionSummaryInjectionMode != "" {
+		opts = append(
+			opts,
+			llmagent.WithSessionSummaryInjectionMode(
+				processor.SessionSummaryInjectionMode(
+					cfg.SessionSummaryInjectionMode,
+				),
+			),
+		)
+	}
+	if cfg.PlannerType != "" {
+		if pl := buildPlannerFromConfig(cfg); pl != nil {
+			opts = append(opts, llmagent.WithPlanner(pl))
+		}
+	}
+
 	callbacks := tool.NewCallbacks()
 	registerMemoryFileToolCallback(
 		callbacks,
@@ -2571,6 +2599,26 @@ func newAgent(
 	opts = append(opts, llmagent.WithToolCallbacks(callbacks))
 
 	return llmagent.New(defaultAgentName, opts...), repo, nil
+}
+
+func buildPlannerFromConfig(cfg agentConfig) planner.Planner {
+	typeName := strings.ToLower(strings.TrimSpace(cfg.PlannerType))
+	if typeName == "" {
+		return nil
+	}
+	factory, ok := LookupPlanner(typeName)
+	if !ok {
+		log.Warnf("planner type not registered: %s", typeName)
+		return nil
+	}
+	deps := PlannerDeps{AppName: cfg.AppName, StateDir: cfg.StateDir}
+	spec := PlannerSpec{Type: typeName, Name: typeName, Config: cfg.PlannerConfig}
+	pl, err := factory(deps, spec)
+	if err != nil {
+		log.Warnf("create planner failed: %v", err)
+		return nil
+	}
+	return pl
 }
 
 func buildOpenClawToolingGuidance(cfg agentConfig) string {
