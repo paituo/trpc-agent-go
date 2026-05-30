@@ -31,8 +31,9 @@ const (
 	metadataDeliveryChannel = "openclaw.delivery.channel"
 	metadataDeliveryTarget  = "openclaw.delivery.target"
 
-	metadataIsolation           = "openclaw.subagent.isolation"
-	metadataWorktreePath        = "openclaw.subagent.worktree.path"
+	metadataIsolation              = "openclaw.subagent.isolation"
+	metadataParentInvocationID     = "openclaw.subagent.parent_invocation_id"
+	metadataWorktreePath           = "openclaw.subagent.worktree.path"
 	metadataWorktreeBranch      = "openclaw.subagent.worktree.branch"
 	metadataWorktreeRepoRoot    = "openclaw.subagent.worktree.repo_root"
 	metadataWorktreeBaseCommit  = "openclaw.subagent.worktree.base_commit"
@@ -72,6 +73,7 @@ type SpawnRequest struct {
 	Isolation                      string
 	Delivery                       deliveryTarget
 	SuppressCompletionNotification bool
+	ParentInvocationID             string
 }
 
 func subagentStorePath(stateDir string) string {
