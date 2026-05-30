@@ -70,8 +70,7 @@ func (f *fileToolSet) listFile(
 	if ref.Scheme == fileref.SchemeWorkspace {
 		rsp.Path = fileref.WorkspaceRef(ref.Path)
 		rsp.Files, rsp.Folders = listWorkspaceEntries(ctx, ref.Path)
-		rsp.Message = fmt.Sprintf(
-			"Found %d files and %d folders in %s",
+		rsp.Message = listFileSummary(
 			len(rsp.Files),
 			len(rsp.Folders),
 			rsp.Path,
@@ -100,8 +99,7 @@ func (f *fileToolSet) listFile(
 				rsp.Path = fileref.WorkspaceRef(clean)
 				rsp.Files = wsFiles
 				rsp.Folders = wsFolders
-				rsp.Message = fmt.Sprintf(
-					"Found %d files and %d folders in %s",
+				rsp.Message = listFileSummary(
 					len(rsp.Files),
 					len(rsp.Folders),
 					rsp.Path,
@@ -158,21 +156,28 @@ func (f *fileToolSet) listFile(
 		}
 	}
 	// Create a summary message.
-	if reqPath == "" {
-		rsp.Message = fmt.Sprintf(
-			"Found %d files and %d folders in base directory",
-			len(rsp.Files),
-			len(rsp.Folders),
-		)
-	} else {
-		rsp.Message = fmt.Sprintf(
-			"Found %d files and %d folders in %s",
-			len(rsp.Files),
-			len(rsp.Folders),
-			reqPath,
-		)
+	desc := reqPath
+	if desc == "" {
+		desc = "base directory"
 	}
+	rsp.Message = listFileSummary(
+		len(rsp.Files),
+		len(rsp.Folders),
+		desc,
+	)
 	return rsp, nil
+}
+
+func listFileSummary(files, folders int, desc string) string {
+	if files == 0 && folders == 0 {
+		return fmt.Sprintf("Directory '%s' is empty", desc)
+	}
+	return fmt.Sprintf(
+		"Found %d files and %d folders in %s",
+		files,
+		folders,
+		desc,
+	)
 }
 
 func listWorkspaceEntries(
