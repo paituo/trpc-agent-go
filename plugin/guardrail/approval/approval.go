@@ -28,24 +28,27 @@ type Plugin struct {
 	defaultToolPolicy ToolPolicy
 	toolPolicies      map[string]ToolPolicy
 	tokenCounter      model.TokenCounter
+	enabled           bool
 }
 
 // New creates a new approval plugin.
 func New(options ...Option) (*Plugin, error) {
 	opts := newOptions(options...)
-	if err := validateToolPolicy(opts.defaultToolPolicy); err != nil {
-		return nil, fmt.Errorf("newing approval plugin: default tool policy: %w", err)
-	}
-	for toolName, policy := range opts.toolPolicies {
-		if toolName == "" {
-			return nil, fmt.Errorf("newing approval plugin: tool policy name is empty")
+	if opts.enabled {
+		if err := validateToolPolicy(opts.defaultToolPolicy); err != nil {
+			return nil, fmt.Errorf("newing approval plugin: default tool policy: %w", err)
 		}
-		if err := validateToolPolicy(policy); err != nil {
-			return nil, fmt.Errorf("newing approval plugin: tool %q policy: %w", toolName, err)
+		for toolName, policy := range opts.toolPolicies {
+			if toolName == "" {
+				return nil, fmt.Errorf("newing approval plugin: tool policy name is empty")
+			}
+			if err := validateToolPolicy(policy); err != nil {
+				return nil, fmt.Errorf("newing approval plugin: tool %q policy: %w", toolName, err)
+			}
 		}
-	}
-	if requiresReviewer(opts) && opts.reviewer == nil {
-		return nil, fmt.Errorf("newing approval plugin: reviewer is nil")
+		if requiresReviewer(opts) && opts.reviewer == nil {
+			return nil, fmt.Errorf("newing approval plugin: reviewer is nil")
+		}
 	}
 	return &Plugin{
 		name:              opts.name,
@@ -53,6 +56,7 @@ func New(options ...Option) (*Plugin, error) {
 		defaultToolPolicy: opts.defaultToolPolicy,
 		toolPolicies:      opts.toolPolicies,
 		tokenCounter:      model.NewSimpleTokenCounter(),
+		enabled:           opts.enabled,
 	}, nil
 }
 
@@ -72,6 +76,9 @@ func (p *Plugin) Register(r *plugin.Registry) {
 func (p *Plugin) beforeTool() tool.BeforeToolCallbackStructured {
 	return func(ctx context.Context, args *tool.BeforeToolArgs) (*tool.BeforeToolResult, error) {
 		if args == nil {
+			return nil, nil
+		}
+		if !p.enabled {
 			return nil, nil
 		}
 		policy := p.resolveToolPolicy(args.ToolName)
