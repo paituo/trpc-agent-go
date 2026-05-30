@@ -377,6 +377,7 @@ func TestBeforeTool_UnsupportedPolicyReturnsFailureMessage(t *testing.T) {
 		defaultToolPolicy: ToolPolicy("unsupported"),
 		toolPolicies:      map[string]ToolPolicy{},
 		tokenCounter:      model.NewSimpleTokenCounter(),
+		enabled:           true,
 	}
 	result, runErr := p.beforeTool()(context.Background(), &tool.BeforeToolArgs{
 		ToolName:   "shell",
