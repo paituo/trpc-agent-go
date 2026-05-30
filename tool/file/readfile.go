@@ -40,6 +40,10 @@ type readFileResponse struct {
 	FileName      string `json:"file_name"`
 	Contents      string `json:"contents"`
 	Message       string `json:"message"`
+
+	Truncated     bool  `json:"truncated,omitempty"`
+	TotalLines    int   `json:"total_lines,omitempty"`
+	FileSizeBytes int64 `json:"file_size_bytes,omitempty"`
 }
 
 // readFile performs the read file operation.
@@ -162,12 +166,15 @@ func (f *fileToolSet) readFileFromRef(
 		source = fileref.ArtifactPrefix
 	}
 
-	chunk, start, end, total, empty, err := f.sliceReadFile(req, content)
+	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return true, err
 	}
 	rsp.Contents = chunk
+	rsp.TotalLines = total
+	rsp.Truncated = truncated
+	rsp.FileSizeBytes = int64(len(content))
 	if empty {
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s from %s, but file is empty",
@@ -176,15 +183,29 @@ func (f *fileToolSet) readFileFromRef(
 		)
 		return true, nil
 	}
-	rsp.Message = fmt.Sprintf(
-		"Successfully read %s from %s, start line: %d, "+
-			"end line: %d, total lines: %d",
-		req.FileName,
-		source,
-		start,
-		end,
-		total,
-	)
+	if truncated {
+		rsp.Message = fmt.Sprintf(
+			"Successfully read %s from %s (truncated), start line: %d, "+
+				"end line: %d, total lines: %d, "+
+				"file size: %d bytes",
+			req.FileName,
+			source,
+			start,
+			end,
+			total,
+			len(content),
+		)
+	} else {
+		rsp.Message = fmt.Sprintf(
+			"Successfully read %s from %s, start line: %d, "+
+				"end line: %d, total lines: %d",
+			req.FileName,
+			source,
+			start,
+			end,
+			total,
+		)
+	}
 	return true, nil
 }
 
@@ -251,7 +272,7 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return err
 	}
-	chunk, startLine, endLine, total, empty, err := f.sliceReadFile(
+	chunk, startLine, endLine, total, empty, truncated, err := f.sliceReadFile(
 		req,
 		string(contents),
 	)
@@ -260,6 +281,9 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 		return err
 	}
 	rsp.Contents = chunk
+	rsp.TotalLines = total
+	rsp.Truncated = truncated
+	rsp.FileSizeBytes = stat.Size()
 	if empty {
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s, but file is empty",
@@ -267,14 +291,28 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 		)
 		return nil
 	}
-	rsp.Message = fmt.Sprintf(
-		"Successfully read %s, start line: %d, "+
-			"end line: %d, total lines: %d",
-		req.FileName,
-		startLine,
-		endLine,
-		total,
-	)
+	if truncated {
+		rsp.Message = fmt.Sprintf(
+			"Successfully read %s (truncated), start line: %d, "+
+				"end line: %d, total lines: %d, "+
+				"file size: %d bytes. "+
+				"Use start_line/num_lines to read specific sections.",
+			req.FileName,
+			startLine,
+			endLine,
+			total,
+			stat.Size(),
+		)
+	} else {
+		rsp.Message = fmt.Sprintf(
+			"Successfully read %s, start line: %d, "+
+				"end line: %d, total lines: %d",
+			req.FileName,
+			startLine,
+			endLine,
+			total,
+		)
+	}
 	return nil
 }
 
@@ -296,12 +334,15 @@ func (f *fileToolSet) readFileFromCache(
 		return true, err
 	}
 
-	chunk, start, end, total, empty, err := f.sliceReadFile(req, content)
+	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return true, err
 	}
 	rsp.Contents = chunk
+	rsp.TotalLines = total
+	rsp.Truncated = truncated
+	rsp.FileSizeBytes = int64(len(content))
 	if empty {
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s, but file is empty",
@@ -309,25 +350,39 @@ func (f *fileToolSet) readFileFromCache(
 		)
 		return true, nil
 	}
-	rsp.Message = fmt.Sprintf(
-		"Loaded %s from a prior skill_run output_files "+
-			"cache, start line: %d, end line: %d, "+
-			"total lines: %d (mime: %s)",
-		req.FileName,
-		start,
-		end,
-		total,
-		mime,
-	)
+	if truncated {
+		rsp.Message = fmt.Sprintf(
+			"Loaded %s from a prior skill_run output_files "+
+				"cache (truncated), start line: %d, end line: %d, "+
+				"total lines: %d, file size: %d bytes (mime: %s)",
+			req.FileName,
+			start,
+			end,
+			total,
+			len(content),
+			mime,
+		)
+	} else {
+		rsp.Message = fmt.Sprintf(
+			"Loaded %s from a prior skill_run output_files "+
+				"cache, start line: %d, end line: %d, "+
+				"total lines: %d (mime: %s)",
+			req.FileName,
+			start,
+			end,
+			total,
+			mime,
+		)
+	}
 	return true, nil
 }
 
 func (f *fileToolSet) sliceReadFile(
 	req *readFileRequest,
 	content string,
-) (string, int, int, int, bool, error) {
+) (string, int, int, int, bool, bool, error) {
 	if int64(len(content)) > f.maxFileSize {
-		return "", 0, 0, 0, false, fmt.Errorf(
+		return "", 0, 0, 0, false, false, fmt.Errorf(
 			"file size is beyond of max file size, "+
 				"file size: %d, max file size: %d",
 			len(content),
@@ -335,7 +390,7 @@ func (f *fileToolSet) sliceReadFile(
 		)
 	}
 	if content == "" {
-		return "", 0, 0, 0, true, nil
+		return "", 0, 0, 0, true, false, nil
 	}
 	chunk, start, end, total, err := sliceTextByLines(
 		content,
@@ -343,10 +398,10 @@ func (f *fileToolSet) sliceReadFile(
 		req.NumLines,
 	)
 	if err != nil {
-		return "", 0, 0, 0, false, err
+		return "", 0, 0, 0, false, false, err
 	}
-	chunk, _ = readPartialLines(chunk, defaultMaxReadLines)
-	return chunk, start, end, total, false, nil
+	chunk, truncated := readPartialLines(chunk, defaultMaxReadLines)
+	return chunk, start, end, total, false, truncated, nil
 }
 
 func sliceTextByLines(
