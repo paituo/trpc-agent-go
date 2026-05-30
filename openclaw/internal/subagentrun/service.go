@@ -174,6 +174,11 @@ func (s *Service) Spawn(
 		deliveryMetadata = metadataForDelivery(req.Delivery)
 	}
 	metadata := mergeMetadata(deliveryMetadata, worktreeMetadata)
+	if req.ParentInvocationID != "" {
+		metadata = mergeMetadata(metadata, map[string]string{
+			metadataParentInvocationID: req.ParentInvocationID,
+		})
+	}
 	run, err := s.core.Spawn(ctx, coretaskrun.SpawnRequest{
 		ID:                      runID,
 		OwnerUserID:             req.OwnerUserID,
