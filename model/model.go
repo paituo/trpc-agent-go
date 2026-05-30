@@ -75,4 +75,18 @@ type Info struct {
 	// ContextWindow is the model context window in tokens.
 	// A non-positive value means the window is unknown for this model instance.
 	ContextWindow int
+	// TailoringStrategyName is the name of the token tailoring strategy, e.g. "middle_out".
+	TailoringStrategyName string
+	// EnableTokenTailoring indicates whether automatic token tailoring is enabled.
+	EnableTokenTailoring bool
+	// ProtocolOverheadTokens is the number of tokens reserved for protocol overhead.
+	ProtocolOverheadTokens int
+	// ReserveOutputTokens is the number of tokens reserved for output generation.
+	ReserveOutputTokens int
+	// InputTokensFloor is the minimum number of input tokens.
+	InputTokensFloor int
+	// SafetyMarginRatio is the safety margin ratio for token counting inaccuracies.
+	SafetyMarginRatio float64
+	// MaxInputTokensRatio is the maximum input tokens ratio of the context window.
+	MaxInputTokensRatio float64
 }
