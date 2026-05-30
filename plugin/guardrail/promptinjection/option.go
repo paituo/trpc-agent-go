@@ -18,11 +18,13 @@ type Option func(*options)
 type options struct {
 	name     string
 	reviewer review.Reviewer
+	enabled  bool
 }
 
 func newOptions(opts ...Option) *options {
 	options := &options{
-		name: defaultPluginName,
+		name:    defaultPluginName,
+		enabled: true,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -43,5 +45,12 @@ func WithName(name string) Option {
 func WithReviewer(reviewer review.Reviewer) Option {
 	return func(opts *options) {
 		opts.reviewer = reviewer
+	}
+}
+
+// WithPromptInjectionEnabled sets whether the prompt injection plugin is enabled.
+func WithPromptInjectionEnabled(enabled bool) Option {
+	return func(opts *options) {
+		opts.enabled = enabled
 	}
 }
