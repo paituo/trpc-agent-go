@@ -1896,6 +1896,8 @@ func InjectIntoEvent(inv *Invocation, e *event.Event) {
 	e.RequestID = inv.RunOptions.RequestID
 	if inv.parent != nil {
 		e.ParentInvocationID = inv.parent.InvocationID
+	} else if inv.ParentInvocationID != "" {
+		e.ParentInvocationID = inv.ParentInvocationID
 	}
 	e.InvocationID = inv.InvocationID
 	e.Branch = inv.Branch
