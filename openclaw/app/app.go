@@ -44,11 +44,13 @@ import (
 	sandboxexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/sandbox"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/evolution"
+	"trpc.group/trpc-go/trpc-agent-go/internal/flow/processor"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -2108,11 +2110,11 @@ func run(
 			StateDir:                resolvedStateDir,
 			MemoryFileStore:         fileMemoryStore,
 
-			EnableLocalExec:     opts.EnableLocalExec,
-			CodeExecutor:        opts.CodeExecutor,
-			EnableOpenClawTools: opts.EnableOpenClawTools,
-			EnableParallelTools: opts.EnableParallelTools,
-			codeExecutor:        codeExec,
+			EnableLocalExec:          opts.EnableLocalExec,
+			CodeExecutor:             opts.CodeExecutor,
+			EnableOpenClawTools:      opts.EnableOpenClawTools,
+			EnableParallelTools:      opts.EnableParallelTools,
+			codeExecutor:             codeExec,
 			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
 			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
 			SkillsManagedRoot:        opts.SkillsManagedRoot,
@@ -3207,6 +3209,12 @@ func newAgent(
 		genConfig,
 		repo,
 	)
+	opts = append(opts,
+		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
+		llmagent.WithContextCompactionThresholdRatio(cfg.ContextCompactionThresholdRatio),
+		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
+		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
+	)
 	if cfg.PostToolPromptEnabled != nil {
 		opts = append(
 			opts,
@@ -3264,6 +3272,21 @@ func newAgent(
 			opts = append(opts, llmagent.WithRefreshToolSetsOnRun(true))
 		}
 		opts = appendCodeExecutionOptions(opts, exec, cfg.CodeExecutor)
+	}
+	if cfg.SessionSummaryInjectionMode != "" {
+		opts = append(
+			opts,
+			llmagent.WithSessionSummaryInjectionMode(
+				processor.SessionSummaryInjectionMode(
+					cfg.SessionSummaryInjectionMode,
+				),
+			),
+		)
+	}
+	if cfg.PlannerType != "" {
+		if pl := buildPlannerFromConfig(cfg); pl != nil {
+			opts = append(opts, llmagent.WithPlanner(pl))
+		}
 	}
 	opts = append(opts, llmagent.WithToolCallbacks(callbacks))
 
@@ -3402,6 +3425,26 @@ func copyStringMap(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func buildPlannerFromConfig(cfg agentConfig) planner.Planner {
+	typeName := strings.ToLower(strings.TrimSpace(cfg.PlannerType))
+	if typeName == "" {
+		return nil
+	}
+	factory, ok := LookupPlanner(typeName)
+	if !ok {
+		log.Warnf("planner type not registered: %s", typeName)
+		return nil
+	}
+	deps := PlannerDeps{AppName: cfg.AppName, StateDir: cfg.StateDir}
+	spec := PlannerSpec{Type: typeName, Name: typeName, Config: cfg.PlannerConfig}
+	pl, err := factory(deps, spec)
+	if err != nil {
+		log.Warnf("create planner failed: %v", err)
+		return nil
+	}
+	return pl
 }
 
 func buildOpenClawToolingGuidance(cfg agentConfig) string {
@@ -3640,16 +3683,16 @@ type agentConfig struct {
 	DeadlineFinalizationWindow                    time.Duration
 	MaxToolIterations                             int
 	PreloadMemory                                 int
-	SessionSummaryInjectionMode          string
-	SyncSummaryIntraRun                  bool
-	ContextCompactionThresholdRatio      float64
-	ContextCompactionToolResultMaxTokens int
-	ContextCompactionKeepRecentRequests  int
-	EnableDetailedContextMetrics         bool
-	ContextCompactionForceCleanToolNames []string
-	ContextCompactionKeepToolNames       []string
-	PlannerType                          string
-	PlannerConfig                        map[string]any
+	SessionSummaryInjectionMode                   string
+	SyncSummaryIntraRun                           bool
+	ContextCompactionThresholdRatio               float64
+	ContextCompactionToolResultMaxTokens          int
+	ContextCompactionKeepRecentRequests           int
+	EnableDetailedContextMetrics                  bool
+	ContextCompactionForceCleanToolNames          []string
+	ContextCompactionKeepToolNames                []string
+	PlannerType                                   string
+	PlannerConfig                                 map[string]any
 	GenerationConfig                              *model.GenerationConfig
 	PostToolPromptEnabled                         *bool
 	Instruction                                   string
