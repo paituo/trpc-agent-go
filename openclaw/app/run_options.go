@@ -101,20 +101,20 @@ const (
 	flagPreloadMemory                                 = "preload-memory"
 	flagToolCallArgumentsJSONRepair                   = "tool-call-arguments-json-repair"
 
-	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
-	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
-	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
-	flagContextWindow                          = "context-window"
-	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
-	flagSkillsManagedRoot                      = "skills-managed-root"
-	flagPlannerType                            = "agent-planner-type"
-	flagPlannerConfig                          = "agent-planner-config"
+	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
+	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
+	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
+	flagContextWindow                        = "context-window"
+	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
+	flagSkillsManagedRoot                    = "skills-managed-root"
+	flagPlannerType                          = "agent-planner-type"
+	flagPlannerConfig                        = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -218,20 +218,20 @@ type runOptions struct {
 	ToolCallArgumentsJSONRepair                   bool
 	PostToolPromptEnabled                         *bool
 
-	SessionSummaryInjectionMode                string
-	SyncSummaryIntraRun                        bool
-	ContextCompactionThresholdRatio            float64
-	ContextCompactionToolResultMaxTokens       int
-	ContextCompactionKeepRecentRequests        int
-	EnableDetailedContextMetrics               bool
-	ContextCompactionForceCleanToolNames       string
-	ContextCompactionKeepToolNames             string
-	PlannerType                                string
-	PlannerConfig                              map[string]any
-	ModelContextWindow                         int
-	SkillsProjectAgentsRoot                    bool
-	SkillsPersonalAgentsRoot                   bool
-	SkillsManagedRoot                          bool
+	SessionSummaryInjectionMode          string
+	SyncSummaryIntraRun                  bool
+	ContextCompactionThresholdRatio      float64
+	ContextCompactionToolResultMaxTokens int
+	ContextCompactionKeepRecentRequests  int
+	EnableDetailedContextMetrics         bool
+	ContextCompactionForceCleanToolNames string
+	ContextCompactionKeepToolNames       string
+	PlannerType                          string
+	PlannerConfig                        map[string]any
+	ModelContextWindow                   int
+	SkillsProjectAgentsRoot              bool
+	SkillsPersonalAgentsRoot             bool
+	SkillsManagedRoot                    bool
 
 	AgentInstruction       string
 	AgentInstructionFiles  string
@@ -1365,15 +1365,15 @@ type debugRecorderConfig struct {
 type agentRunConfig struct {
 	Type *string `yaml:"type,omitempty"`
 
-	AddSessionSummary                             *bool `yaml:"add_session_summary,omitempty"`
+	AddSessionSummary                             *bool    `yaml:"add_session_summary,omitempty"`
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
-	EnableContextCompaction                       *bool `yaml:"enable_context_compaction,omitempty"`
+	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
-	ContextCompactionOversizedToolResultMaxTokens *int  `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
-	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
+	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
+	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	// MaxLLMCalls limits agent-facing model calls per invocation. Auxiliary
 	// session summary and auto-memory extraction calls are excluded.
 	MaxLLMCalls                        *int    `yaml:"max_llm_calls,omitempty"`
@@ -1386,9 +1386,9 @@ type agentRunConfig struct {
 	DisablePostToolPrompt              *bool   `yaml:"disable_post_tool_prompt,omitempty"`
 	DisablePostToolPromptCamel         *bool   `yaml:"disablePostToolPrompt,omitempty"`
 
-	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
-	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
-	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+	EnableDetailedContextMetrics         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	ContextCompactionForceCleanToolNames []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames       []string `yaml:"context_compaction_keep_tool_names,omitempty"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -2020,64 +2020,63 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagPreloadMemory) {
 			opts.PreloadMemory = *cfg.Agent.PreloadMemory
 		}
-	if cfg.Agent.ToolCallArgumentsJSONRepair != nil &&
-		!flagWasSet(set, flagToolCallArgumentsJSONRepair) {
-		opts.ToolCallArgumentsJSONRepair = *cfg.Agent.ToolCallArgumentsJSONRepair
-	}
-	disablePostToolPrompt := firstBoolPtr(
-		cfg.Agent.DisablePostToolPrompt,
-		cfg.Agent.DisablePostToolPromptCamel,
-	)
-	if disablePostToolPrompt != nil {
-		enabled := !*disablePostToolPrompt
-		opts.PostToolPromptEnabled = &enabled
-	}
-	if cfg.Agent.SessionSummaryInjectionMode != nil &&
-		!flagWasSet(set, flagSessionSummaryInjectionMode) {
-		opts.SessionSummaryInjectionMode = strings.TrimSpace(
-			*cfg.Agent.SessionSummaryInjectionMode,
+		if cfg.Agent.ToolCallArgumentsJSONRepair != nil &&
+			!flagWasSet(set, flagToolCallArgumentsJSONRepair) {
+			opts.ToolCallArgumentsJSONRepair = *cfg.Agent.ToolCallArgumentsJSONRepair
+		}
+		disablePostToolPrompt := firstBoolPtr(
+			cfg.Agent.DisablePostToolPrompt,
+			cfg.Agent.DisablePostToolPromptCamel,
 		)
-	}
-	if cfg.Agent.SyncSummaryIntraRun != nil &&
-		!flagWasSet(set, flagSyncSummaryIntraRun) {
-		opts.SyncSummaryIntraRun = *cfg.Agent.SyncSummaryIntraRun
-	}
-	if cfg.Agent.ContextCompactionThresholdRatio != nil &&
-		!flagWasSet(set, flagContextCompactionThresholdRatio) {
-		opts.ContextCompactionThresholdRatio = *cfg.Agent.ContextCompactionThresholdRatio
-	}
-	if cfg.Agent.ContextCompactionToolResultMaxTokens != nil &&
-		!flagWasSet(set, flagContextCompactionToolResultMaxTokens) {
-		opts.ContextCompactionToolResultMaxTokens = *cfg.Agent.ContextCompactionToolResultMaxTokens
-	}
-	if cfg.Agent.ContextCompactionKeepRecentRequests != nil &&
-		!flagWasSet(set, flagContextCompactionKeepRecentRequests) {
-		opts.ContextCompactionKeepRecentRequests = *cfg.Agent.ContextCompactionKeepRecentRequests
-	}
-	if cfg.Agent.EnableDetailedContextMetrics != nil &&
-		!flagWasSet(set, flagEnableDetailedContextMetrics) {
-		opts.EnableDetailedContextMetrics = *cfg.Agent.EnableDetailedContextMetrics
-	}
-	if !flagWasSet(set, flagContextCompactionForceCleanToolNames) {
-		opts.ContextCompactionForceCleanToolNames = strings.Join(
-			cfg.Agent.ContextCompactionForceCleanToolNames,
-			csvDelimiter,
-		)
-	}
-	if !flagWasSet(set, flagContextCompactionKeepToolNames) {
-		opts.ContextCompactionKeepToolNames = strings.Join(
-			cfg.Agent.ContextCompactionKeepToolNames,
-			csvDelimiter,
-		)
-	}
-	if cfg.Agent.PlannerType != "" &&
-		!flagWasSet(set, flagPlannerType) {
-		opts.PlannerType = cfg.Agent.PlannerType
-	}
-	if cfg.Agent.PlannerConfig != nil &&
-		!flagWasSet(set, flagPlannerConfig) {
-		opts.PlannerConfig = cfg.Agent.PlannerConfig
-	}
+		if disablePostToolPrompt != nil {
+			enabled := !*disablePostToolPrompt
+			opts.PostToolPromptEnabled = &enabled
+		}
+		if cfg.Agent.SessionSummaryInjectionMode != nil &&
+			!flagWasSet(set, flagSessionSummaryInjectionMode) {
+			opts.SessionSummaryInjectionMode = strings.TrimSpace(
+				*cfg.Agent.SessionSummaryInjectionMode,
+			)
+		}
+		if cfg.Agent.SyncSummaryIntraRun != nil &&
+			!flagWasSet(set, flagSyncSummaryIntraRun) {
+			opts.SyncSummaryIntraRun = *cfg.Agent.SyncSummaryIntraRun
+		}
+		if cfg.Agent.ContextCompactionThresholdRatio != nil &&
+			!flagWasSet(set, flagContextCompactionThresholdRatio) {
+			opts.ContextCompactionThresholdRatio = *cfg.Agent.ContextCompactionThresholdRatio
+		}
+		if cfg.Agent.ContextCompactionToolResultMaxTokens != nil &&
+			!flagWasSet(set, flagContextCompactionToolResultMaxTokens) {
+			opts.ContextCompactionToolResultMaxTokens = *cfg.Agent.ContextCompactionToolResultMaxTokens
+		}
+		if cfg.Agent.ContextCompactionKeepRecentRequests != nil &&
+			!flagWasSet(set, flagContextCompactionKeepRecentRequests) {
+			opts.ContextCompactionKeepRecentRequests = *cfg.Agent.ContextCompactionKeepRecentRequests
+		}
+		if cfg.Agent.EnableDetailedContextMetrics != nil &&
+			!flagWasSet(set, flagEnableDetailedContextMetrics) {
+			opts.EnableDetailedContextMetrics = *cfg.Agent.EnableDetailedContextMetrics
+		}
+		if !flagWasSet(set, flagContextCompactionForceCleanToolNames) {
+			opts.ContextCompactionForceCleanToolNames = strings.Join(
+				cfg.Agent.ContextCompactionForceCleanToolNames,
+				csvDelimiter,
+			)
+		}
+		if !flagWasSet(set, flagContextCompactionKeepToolNames) {
+			opts.ContextCompactionKeepToolNames = strings.Join(
+				cfg.Agent.ContextCompactionKeepToolNames,
+				csvDelimiter,
+			)
+		}
+		if cfg.Agent.PlannerType != "" &&
+			!flagWasSet(set, flagPlannerType) {
+			opts.PlannerType = cfg.Agent.PlannerType
+		}
+		if cfg.Agent.PlannerConfig != nil &&
+			!flagWasSet(set, flagPlannerConfig) {
+			opts.PlannerConfig = cfg.Agent.PlannerConfig
 		}
 		if cfg.Agent.Instruction != nil &&
 			!flagWasSet(set, flagAgentInstruction) {
