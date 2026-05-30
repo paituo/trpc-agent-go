@@ -1576,6 +1576,10 @@ func (a *LLMAgent) setupInvocation(invocation *agent.Invocation) {
 	// treat them as "no limit", preserving existing behavior.
 	invocation.MaxLLMCalls = a.option.MaxLLMCalls
 	invocation.MaxToolIterations = a.option.MaxToolIterations
+
+	if invocation.ParentInvocationID == "" {
+		invocation.ParentInvocationID = invocation.RunOptions.ParentInvocationID
+	}
 }
 
 // withWorkspace installs a workspaceio.Workspace into ctx so that

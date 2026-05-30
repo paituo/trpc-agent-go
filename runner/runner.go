@@ -528,6 +528,9 @@ func (r *runner) Run(
 		agent.WithInvocationEventFilterKey(eventFilterKey),
 		agent.WithInvocationPlugins(r.pluginManager),
 	)
+	if ro.ParentInvocationID != "" {
+		invocation.ParentInvocationID = ro.ParentInvocationID
+	}
 	if rootLookupName := r.selectedRootLookupName(
 		ro,
 		awaitUserReplyRootName,
