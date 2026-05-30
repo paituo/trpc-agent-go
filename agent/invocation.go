@@ -146,6 +146,9 @@ type Invocation struct {
 	// AgentTool calls to the same sub-agent: parentInvocationId alone cannot
 	// disambiguate the parallel branches; ParentMetadata.TriggerID can.
 	ParentMetadata *ParentInvocationMetadata
+	// ParentInvocationID is the invocation ID of the parent agent,
+	// used for cross-agent distributed trace linking.
+	ParentInvocationID string
 	// EndInvocation is a flag that indicates if the invocation is complete.
 	EndInvocation bool
 	// Session is the session that is being used for the invocation.
@@ -1135,6 +1138,9 @@ type RunOptions struct {
 	// If empty, the runner falls back to its default app name.
 	AppName string
 
+	// ParentInvocationID is the parent invocation ID for trace continuity.
+	ParentInvocationID string
+
 	// RuntimeState contains key-value pairs that will be merged into the initial state
 	// for this specific run. This allows callers to pass dynamic parameters
 	// (e.g., room ID, user context) without modifying the agent's base initial state.
@@ -1552,21 +1558,22 @@ func (inv *Invocation) Clone(invocationOpts ...InvocationOptions) *Invocation {
 		return nil
 	}
 	newInv := &Invocation{
-		InvocationID:    uuid.NewString(),
-		ParentMetadata:  inv.ParentMetadata,
-		Session:         inv.Session,
-		SessionService:  inv.SessionService,
-		Message:         inv.Message,
-		RunOptions:      inv.RunOptions,
-		MemoryService:   inv.MemoryService,
-		MemoryReader:    inv.MemoryReader,
-		ArtifactService: inv.ArtifactService,
-		Plugins:         inv.Plugins,
-		noticeMu:        inv.noticeMu,
-		noticeChannels:  inv.noticeChannels,
-		eventFilterKey:  inv.eventFilterKey,
-		parent:          inv,
-		state:           inv.cloneState(),
+		InvocationID:       uuid.NewString(),
+		ParentMetadata:     inv.ParentMetadata,
+		ParentInvocationID: inv.ParentInvocationID,
+		Session:            inv.Session,
+		SessionService:     inv.SessionService,
+		Message:            inv.Message,
+		RunOptions:         inv.RunOptions,
+		MemoryService:      inv.MemoryService,
+		MemoryReader:       inv.MemoryReader,
+		ArtifactService:    inv.ArtifactService,
+		Plugins:            inv.Plugins,
+		noticeMu:           inv.noticeMu,
+		noticeChannels:     inv.noticeChannels,
+		eventFilterKey:     inv.eventFilterKey,
+		parent:             inv,
+		state:              inv.cloneState(),
 	}
 
 	for _, opt := range invocationOpts {
@@ -1613,6 +1620,7 @@ func (inv *Invocation) View(invocationOpts ...InvocationOptions) *Invocation {
 		InvocationID:         inv.InvocationID,
 		ParentMetadata:       inv.ParentMetadata,
 		Branch:               inv.Branch,
+		ParentInvocationID:   inv.ParentInvocationID,
 		EndInvocation:        inv.EndInvocation,
 		Session:              inv.Session,
 		SessionService:       inv.SessionService,
@@ -1658,6 +1666,7 @@ func (inv *Invocation) SyncView(view *Invocation) {
 	inv.InvocationID = view.InvocationID
 	inv.ParentMetadata = view.ParentMetadata
 	inv.Branch = view.Branch
+	inv.ParentInvocationID = view.ParentInvocationID
 	inv.EndInvocation = view.EndInvocation
 	inv.Session = view.Session
 	inv.SessionService = view.SessionService
@@ -2037,6 +2046,14 @@ func (inv *Invocation) GetParentInvocation() *Invocation {
 		return nil
 	}
 	return inv.parent
+}
+
+// GetParentInvocationID returns the parent invocation ID for trace linking.
+func (inv *Invocation) GetParentInvocationID() string {
+	if inv == nil {
+		return ""
+	}
+	return inv.ParentInvocationID
 }
 
 // InjectIntoEvent inject invocation information into event.
