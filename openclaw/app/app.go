@@ -4155,6 +4155,11 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if len(spec.Headers) > 0 {
 		opts = append(opts, openai.WithHeaders(spec.Headers))
 	}
+	if spec.ContextWindow > 0 {
+		opts = append(
+			opts, openai.WithContextWindow(spec.ContextWindow),
+		)
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -4198,6 +4203,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		Headers:              headers,
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
 		Config:               opts.ModelConfig,
+		ContextWindow:        opts.ModelContextWindow,
 	}
 	mdl, err := f(spec)
 	if err != nil {
