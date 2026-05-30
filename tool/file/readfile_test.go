@@ -808,3 +808,47 @@ func TestFileTool_ReadFile_ArtifactRef(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "hi", rsp.Contents)
 }
+
+func TestReadPartialLines_NoTruncation(t *testing.T) {
+	content := "line1\nline2\nline3"
+	result, truncated := readPartialLines(content, 5)
+	assert.False(t, truncated)
+	assert.Equal(t, content, result)
+}
+
+func TestReadPartialLines_Truncation(t *testing.T) {
+	content := "line1\nline2\nline3\nline4\nline5"
+	result, truncated := readPartialLines(content, 3)
+	assert.True(t, truncated)
+	assert.Equal(t, "line1\nline2\nline3\n... (truncated)", result)
+}
+
+func TestReadPartialLines_ExactMatch(t *testing.T) {
+	content := "line1\nline2\nline3"
+	result, truncated := readPartialLines(content, 3)
+	assert.False(t, truncated)
+	assert.Equal(t, content, result)
+}
+
+func TestReadPartialLines_ZeroMaxLines(t *testing.T) {
+	content := "line1\nline2\nline3"
+	result, truncated := readPartialLines(content, 0)
+	assert.False(t, truncated)
+	assert.Equal(t, content, result)
+}
+
+func TestReadPartialLines_EmptyContent(t *testing.T) {
+	result, truncated := readPartialLines("", 10)
+	assert.False(t, truncated)
+	assert.Equal(t, "", result)
+}
+
+func TestReadPartialLines_SingleLine(t *testing.T) {
+	result, truncated := readPartialLines("only", 1)
+	assert.False(t, truncated)
+	assert.Equal(t, "only", result)
+
+	result, truncated = readPartialLines("only", 2)
+	assert.False(t, truncated)
+	assert.Equal(t, "only", result)
+}
