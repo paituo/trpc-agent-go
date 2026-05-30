@@ -334,6 +334,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
+	log.Infof("embedding request: model=%s, text_len=%d", e.model, len(text))
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestEncodingFormat: &e.encodingFormat,
@@ -375,7 +376,11 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 	copy(requestOpts, e.requestOptions)
 
 	// Call OpenAI embeddings API.
-	return e.client.Embeddings.New(ctx, request, requestOpts...)
+	rsp, err = e.client.Embeddings.New(ctx, request, requestOpts...)
+	if err == nil && rsp != nil {
+		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Data))
+	}
+	return
 }
 
 // GetDimensions implements the embedder.Embedder interface.
