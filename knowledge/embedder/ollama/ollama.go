@@ -251,6 +251,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
+	log.Infof("embedding request: model=%s, text_len=%d", e.model, len(text))
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestModel:  e.model,
@@ -285,6 +286,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 		rsp = &embedResponse{
 			Embeddings: [][]float64{res.Embedding},
 		}
+		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
 		return rsp, nil
 	}
 	req := &api.EmbedRequest{
@@ -322,5 +324,6 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 		}
 		rsp.Embeddings = append(rsp.Embeddings, embdeddings)
 	}
+	log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
 	return
 }
