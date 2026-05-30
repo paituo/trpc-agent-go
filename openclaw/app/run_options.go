@@ -983,10 +983,22 @@ type agentRunConfig struct {
 	Type *string `yaml:"type,omitempty"`
 
 	AddSessionSummary                             *bool `yaml:"add_session_summary,omitempty"`
+	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
+	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
 	EnableContextCompaction                       *bool `yaml:"enable_context_compaction,omitempty"`
+	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
+	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
+	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
 	ContextCompactionOversizedToolResultMaxTokens *int  `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
 	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
 	PreloadMemory                                 *int  `yaml:"preload_memory,omitempty"`
+
+	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+
+	PlannerType   string         `yaml:"planner_type"`
+	PlannerConfig map[string]any `yaml:"planner_config"`
 
 	Instruction      *string  `yaml:"instruction,omitempty"`
 	InstructionFiles []string `yaml:"instruction_files,omitempty"`
