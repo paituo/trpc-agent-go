@@ -92,6 +92,8 @@ func validateReadFileRequest(req *readFileRequest) error {
 const (
 	errNotTextFile     = "file is not a UTF-8 text file"
 	errNotTextFileTmpl = "file is not a UTF-8 text file (mime: %s)"
+
+	defaultMaxReadLines = 2000
 )
 
 func validateTextString(content string, mimeType string) error {
@@ -339,7 +341,11 @@ func (f *fileToolSet) sliceReadFile(
 		req.StartLine,
 		req.NumLines,
 	)
-	return chunk, start, end, total, false, err
+	if err != nil {
+		return "", 0, 0, 0, false, err
+	}
+	chunk, _ = readPartialLines(chunk, defaultMaxReadLines)
+	return chunk, start, end, total, false, nil
 }
 
 func sliceTextByLines(
@@ -378,6 +384,14 @@ func sliceTextByLines(
 		end,
 		totalLines,
 		nil
+}
+
+func readPartialLines(content string, maxLines int) (string, bool) {
+	lines := strings.Split(content, "\n")
+	if maxLines > 0 && len(lines) > maxLines {
+		return strings.Join(lines[:maxLines], "\n") + "\n... (truncated)", true
+	}
+	return content, false
 }
 
 // readFileTool returns a callable tool for reading file.
