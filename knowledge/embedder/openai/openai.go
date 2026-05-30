@@ -467,6 +467,10 @@ func (e *Embedder) response(ctx context.Context, text string) (*openai.CreateEmb
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
+	// Upstream moved the embedding trace/span into send(), which now records
+	// the request attributes, provider prompt tokens, and error. The branch
+	// trace added in ece400a69 is functionally covered by send(), so we keep
+	// the upstream single-call form here.
 	return e.send(ctx, e.newRequest(openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)}))
 }
 
@@ -539,7 +543,11 @@ func (e *Embedder) send(
 	copy(requestOpts, e.requestOptions)
 
 	// Call OpenAI embeddings API.
-	return e.client.Embeddings.New(ctx, request, requestOpts...)
+	rsp, err = e.client.Embeddings.New(ctx, request, requestOpts...)
+	if err == nil && rsp != nil {
+		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Data))
+	}
+	return
 }
 
 // GetDimensions implements the embedder.Embedder interface.
