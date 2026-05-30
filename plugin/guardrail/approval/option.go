@@ -20,6 +20,7 @@ type options struct {
 	reviewer          review.Reviewer
 	defaultToolPolicy ToolPolicy
 	toolPolicies      map[string]ToolPolicy
+	enabled           bool
 }
 
 func newOptions(opts ...Option) *options {
@@ -27,6 +28,7 @@ func newOptions(opts ...Option) *options {
 		name:              defaultPluginName,
 		defaultToolPolicy: ToolPolicyRequireApproval,
 		toolPolicies:      make(map[string]ToolPolicy),
+		enabled:           true,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -64,5 +66,12 @@ func WithToolPolicy(name string, policy ToolPolicy) Option {
 			opts.toolPolicies = make(map[string]ToolPolicy)
 		}
 		opts.toolPolicies[name] = policy
+	}
+}
+
+// WithApprovalEnabled sets whether the approval plugin is enabled.
+func WithApprovalEnabled(enabled bool) Option {
+	return func(opts *options) {
+		opts.enabled = enabled
 	}
 }
