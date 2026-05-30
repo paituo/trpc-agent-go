@@ -204,6 +204,7 @@ type ModelSpec struct {
 	MaxRetries                   *int
 	Headers                      map[string]string
 	DebugRecorderEnabled         bool
+	ContextWindow                int
 
 	Config *yaml.Node
 }
