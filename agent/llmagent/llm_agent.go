@@ -1763,6 +1763,10 @@ func (a *LLMAgent) setupInvocation(invocation *agent.Invocation) {
 		a.option.llmCallLimitFinalizationInstruction,
 		a.option.toolIterationLimitFinalizationInstruction,
 	)
+
+	if invocation.ParentInvocationID == "" {
+		invocation.ParentInvocationID = invocation.RunOptions.ParentInvocationID
+	}
 }
 
 // withWorkspace installs a workspaceio.Workspace into ctx so that
