@@ -1279,6 +1279,16 @@ func NewRuntimeWithOptions(
 			PostToolPromptEnabled: postToolPromptEnabled,
 			Instruction:           prompts.Instruction,
 			SystemPrompt:          prompts.SystemPrompt,
+			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
+			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
+			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
+			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
+			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
+			PlannerType:                          opts.PlannerType,
+			PlannerConfig:                        opts.PlannerConfig,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1311,6 +1321,10 @@ func NewRuntimeWithOptions(
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
 			codeExecutor:         codeExec,
+
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -2058,6 +2072,16 @@ func run(
 			PostToolPromptEnabled: postToolPromptEnabled,
 			Instruction:           prompts.Instruction,
 			SystemPrompt:          prompts.SystemPrompt,
+			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
+			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
+			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
+			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
+			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
+			PlannerType:                          opts.PlannerType,
+			PlannerConfig:                        opts.PlannerConfig,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -2089,6 +2113,9 @@ func run(
 			EnableOpenClawTools: opts.EnableOpenClawTools,
 			EnableParallelTools: opts.EnableParallelTools,
 			codeExecutor:        codeExec,
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
 
 			ToolProviders: opts.ToolProviders,
 			ToolSets:      opts.ToolSets,
@@ -3613,6 +3640,16 @@ type agentConfig struct {
 	DeadlineFinalizationWindow                    time.Duration
 	MaxToolIterations                             int
 	PreloadMemory                                 int
+	SessionSummaryInjectionMode          string
+	SyncSummaryIntraRun                  bool
+	ContextCompactionThresholdRatio      float64
+	ContextCompactionToolResultMaxTokens int
+	ContextCompactionKeepRecentRequests  int
+	EnableDetailedContextMetrics         bool
+	ContextCompactionForceCleanToolNames []string
+	ContextCompactionKeepToolNames       []string
+	PlannerType                          string
+	PlannerConfig                        map[string]any
 	GenerationConfig                              *model.GenerationConfig
 	PostToolPromptEnabled                         *bool
 	Instruction                                   string
@@ -3651,6 +3688,10 @@ type agentConfig struct {
 	EnableOpenClawTools  bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
+
+	SkillsProjectAgentsRoot  bool
+	SkillsPersonalAgentsRoot bool
+	SkillsManagedRoot        bool
 
 	ToolProviders []pluginSpec
 
