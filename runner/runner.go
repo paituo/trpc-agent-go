@@ -676,6 +676,9 @@ func (r *runner) Run(
 		awaitUserReplyRootName,
 		awaitUserReplyLookupPath,
 	)
+	if ro.ParentInvocationID != "" {
+		invocation.ParentInvocationID = ro.ParentInvocationID
+	}
 	currentTurnSession, err := sessionroute.ResolveCurrentTurnSession(
 		execCtx,
 		r.sessionService,
