@@ -27,6 +27,10 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool/function"
 )
 
+const (
+	defaultMaxMatchesPerFile = 100
+)
+
 // searchContentRequest represents the input for the search content operation.
 type searchContentRequest struct {
 	// Path is a relative directory under base_directory.
@@ -460,6 +464,22 @@ func searchTextContent(
 	content string,
 	re *regexp.Regexp,
 ) *fileMatch {
+	return searchTextContentWithLimit(path, content, re, defaultMaxMatchesPerFile)
+}
+
+func searchTextContentWithLimit(
+	path string,
+	content string,
+	re *regexp.Regexp,
+	maxMatches int,
+) *fileMatch {
+	if strings.IndexByte(content, 0) >= 0 {
+		return &fileMatch{
+			FilePath: path,
+			Matches:  []*lineMatch{},
+			Message:  "skipped binary file",
+		}
+	}
 	lines := strings.Split(content, "\n")
 	matches := &fileMatch{
 		FilePath: path,
@@ -471,6 +491,9 @@ func searchTextContent(
 				LineNumber:  lineNum + 1,
 				LineContent: line,
 			})
+			if maxMatches > 0 && len(matches.Matches) >= maxMatches {
+				break
+			}
 		}
 	}
 	return matches
@@ -529,15 +552,24 @@ func searchFileContent(
 	if err != nil {
 		return nil, err
 	}
+	if strings.IndexByte(string(content), 0) >= 0 {
+		return &fileMatch{
+			FilePath: filePath,
+			Matches:  []*lineMatch{},
+			Message:  "skipped binary file",
+		}, nil
+	}
 	lines := strings.Split(string(content), "\n")
 	fileMatches := &fileMatch{Matches: []*lineMatch{}}
-	// Search each line for matches.
 	for lineNum, line := range lines {
 		if re.MatchString(line) {
 			fileMatches.Matches = append(fileMatches.Matches, &lineMatch{
-				LineNumber:  lineNum + 1, // Line numbers are 1-based.
+				LineNumber:  lineNum + 1,
 				LineContent: line,
 			})
+			if len(fileMatches.Matches) >= defaultMaxMatchesPerFile {
+				break
+			}
 		}
 	}
 	return fileMatches, nil
