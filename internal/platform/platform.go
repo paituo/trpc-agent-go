@@ -8,16 +8,24 @@
 //
 //
 
-// Package platform provides cross-platform shell and command abstractions.
+// Package platform provides cross-platform abstractions for command execution.
 package platform
 
-// Shell returns the name of the preferred shell on the current platform.
-func Shell() string {
+import "context"
+
+// ShellSpec describes the command and arguments for a platform shell.
+type ShellSpec struct {
+	Command string   // e.g. "bash" or "powershell.exe"
+	Args    []string // e.g. ["-lc"] or ["-NoProfile", "-NonInteractive", "-Command"]
+}
+
+// Shell returns the OS-appropriate shell spec for the current platform.
+func Shell() (ShellSpec, error) {
 	return shell()
 }
 
 // BuildCommand builds a command string suitable for running via the
 // platform's shell on the given command line.
-func BuildCommand(command string) (name string, args []string) {
-	return buildCommand(command)
+func BuildCommand(ctx context.Context, userCommand string) (name string, args []string, err error) {
+	return buildCommand(ctx, userCommand)
 }
