@@ -24,18 +24,20 @@ type Plugin struct {
 	name         string
 	reviewer     promptreview.Reviewer
 	tokenCounter model.TokenCounter
+	enabled      bool
 }
 
 // New creates a new prompt injection plugin.
 func New(options ...Option) (*Plugin, error) {
 	opts := newOptions(options...)
-	if opts.reviewer == nil {
+	if opts.enabled && opts.reviewer == nil {
 		return nil, fmt.Errorf("newing prompt injection plugin: reviewer is nil")
 	}
 	return &Plugin{
 		name:         opts.name,
 		reviewer:     opts.reviewer,
 		tokenCounter: model.NewSimpleTokenCounter(),
+		enabled:      opts.enabled,
 	}, nil
 }
 
@@ -55,6 +57,9 @@ func (p *Plugin) Register(r *plugin.Registry) {
 func (p *Plugin) beforeModel() model.BeforeModelCallbackStructured {
 	return func(ctx context.Context, args *model.BeforeModelArgs) (*model.BeforeModelResult, error) {
 		if p == nil || args == nil || args.Request == nil {
+			return nil, nil
+		}
+		if !p.enabled {
 			return nil, nil
 		}
 		req := p.buildReviewRequest(ctx, args.Request.Messages)
