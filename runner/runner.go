@@ -637,10 +637,28 @@ func (r *runner) Run(
 		return nil, err
 	}
 
-	invocation := r.newRunInvocation(
-		sess,
-		invocationMessage,
-		ag,
+	eventFilterKey := effectiveAppName
+	if ro.EventFilterKey != "" {
+		eventFilterKey = ro.EventFilterKey
+	}
+
+	invocation := agent.NewInvocation(
+		agent.WithInvocationSession(sess),
+		agent.WithInvocationSessionService(r.sessionService),
+		agent.WithInvocationMessage(invocationMessage),
+		agent.WithInvocationAgent(ag),
+		agent.WithInvocationRunOptions(ro),
+		agent.WithInvocationStructuredOutput(ro.StructuredOutput),
+		agent.WithInvocationStructuredOutputType(ro.StructuredOutputType),
+		agent.WithInvocationMemoryService(r.memoryService),
+		agent.WithInvocationArtifactService(r.artifactService),
+		agent.WithInvocationEventFilterKey(eventFilterKey),
+		agent.WithInvocationPlugins(r.pluginManager),
+	)
+	if ro.ParentInvocationID != "" {
+		invocation.ParentInvocationID = ro.ParentInvocationID
+	}
+	if rootLookupName := r.selectedRootLookupName(
 		ro,
 		effectiveAppName,
 		awaitUserReplyRootName,
