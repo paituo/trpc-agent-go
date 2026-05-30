@@ -3182,6 +3182,11 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	if baseURL != "" {
 		opts = append(opts, openai.WithBaseURL(baseURL))
 	}
+	if spec.ContextWindow > 0 {
+		opts = append(
+			opts, openai.WithContextWindow(spec.ContextWindow),
+		)
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3208,6 +3213,7 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		OpenAIVariant:        opts.OpenAIVariant,
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
 		Config:               opts.ModelConfig,
+		ContextWindow:        opts.ModelContextWindow,
 	}
 	return f(spec)
 }

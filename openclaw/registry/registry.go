@@ -198,6 +198,7 @@ type ModelSpec struct {
 	BaseURL              string
 	OpenAIVariant        string
 	DebugRecorderEnabled bool
+	ContextWindow        int
 
 	Config *yaml.Node
 }
