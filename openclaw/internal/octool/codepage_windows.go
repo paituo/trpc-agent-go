@@ -8,55 +8,47 @@
 //
 // trpc-agent-go is licensed under the Apache License Version 2.0.
 //
-//
 
 package octool
 
 import (
-	"sync"
-	"unicode/utf8"
+	"io"
+	"strings"
 
-	"golang.org/x/sys/windows"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
-var (
-	acp     uint32
-	acpOnce sync.Once
-)
+func tryDecodeBytes(data []byte) []byte {
+	for _, codec := range []encoding.Encoding{
+		charmap.CodePage437,
+		charmap.CodePage850,
+		charmap.CodePage852,
+		charmap.CodePage866,
+		charmap.CodePage1250,
+		charmap.CodePage1251,
+		charmap.CodePage1252,
+		charmap.CodePage1253,
+		charmap.CodePage1254,
+		charmap.CodePage1255,
+		charmap.CodePage1256,
+		charmap.CodePage1257,
+		charmap.CodePage1258,
+		unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM),
+		unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM),
+	} {
+		decoded, err := io.ReadAll(
+			transform.NewReader(
+				strings.NewReader(string(data)),
+				codec.NewDecoder(),
+			),
+		)
+		if err == nil && len(decoded) > 0 {
+			return decoded
+		}
+	}
 
-func getACP() uint32 {
-	acpOnce.Do(func() {
-		acp = windows.GetACP()
-	})
-	return acp
-}
-
-func toUTF8(input []byte) (string, error) {
-	if len(input) == 0 {
-		return "", nil
-	}
-	if utf8.Valid(input) {
-		return string(input), nil
-	}
-	acpCode := getACP()
-	if acpCode == 65001 {
-		return string(input), nil
-	}
-	wideLen, err := windows.MultiByteToWideChar(
-		acpCode, 0, &input[0], int32(len(input)), nil, 0,
-	)
-	if err != nil {
-		return "", err
-	}
-	if wideLen == 0 {
-		return "", nil
-	}
-	buf := make([]uint16, wideLen)
-	_, err = windows.MultiByteToWideChar(
-		acpCode, 0, &input[0], int32(len(input)), &buf[0], wideLen,
-	)
-	if err != nil {
-		return "", err
-	}
-	return windows.UTF16ToString(buf), nil
+	return data
 }
