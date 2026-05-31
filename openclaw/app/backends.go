@@ -264,10 +264,10 @@ func newSessionSummarizer(
 		return nil, errors.New("session summary requires a model")
 	}
 
-	// Override the token counter heuristic when configured.
-	// The framework default (4 runes/token) works well for English but
-	// underestimates Chinese text (~1–2 runes/token). Setting a lower
-	// value ensures summary triggers fire at the right time.
+	// Token counter selection priority:
+	// 1. Explicit config (SessionSummaryApproxRunesPerToken) takes precedence.
+	// 2. Otherwise, auto-detect from model name via model.NewTokenCounter,
+	//    which routes qwen/deepseek/glm to appropriate counters.
 	if opts.SessionSummaryApproxRunesPerToken > 0 {
 		summary.SetTokenCounter(
 			model.NewSimpleTokenCounter(
@@ -276,6 +276,8 @@ func newSessionSummarizer(
 				),
 			),
 		)
+	} else {
+		summary.SetTokenCounterByModel(mdl.Info().Name)
 	}
 
 	options := make([]summary.Option, 0, 6)
