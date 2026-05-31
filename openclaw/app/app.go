@@ -4160,6 +4160,19 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 			opts, openai.WithContextWindow(spec.ContextWindow),
 		)
 	}
+	if spec.EnableTokenTailoring {
+		opts = append(
+			opts, openai.WithEnableTokenTailoring(true),
+		)
+		if spec.TailoringStrategy != "" {
+			strategy := resolveTailoringStrategy(spec.TailoringStrategy)
+			if strategy != nil {
+				opts = append(
+					opts, openai.WithTailoringStrategy(strategy),
+				)
+			}
+		}
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -4204,6 +4217,8 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 		DebugRecorderEnabled: opts.DebugRecorderEnabled,
 		Config:               opts.ModelConfig,
 		ContextWindow:        opts.ModelContextWindow,
+		EnableTokenTailoring: opts.ModelTokenTailoringEnabled,
+		TailoringStrategy:    opts.ModelTokenTailoringStrategy,
 	}
 	mdl, err := f(spec)
 	if err != nil {
@@ -4487,6 +4502,15 @@ func modelCallBudgetFinalRequestFromOptions(
 		return cfg
 	default:
 		return cfg
+	}
+}
+
+func resolveTailoringStrategy(name string) model.TailoringStrategy {
+	switch strings.ToLower(name) {
+	case "middle_out":
+		return model.NewMiddleOutStrategy(model.NewSimpleTokenCounter())
+	default:
+		return nil
 	}
 }
 
