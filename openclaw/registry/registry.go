@@ -216,6 +216,8 @@ type ModelSpec struct {
 	OpenAIVariant        string
 	DebugRecorderEnabled bool
 	ContextWindow        int
+	EnableTokenTailoring bool
+	TailoringStrategy    string
 
 	Config *yaml.Node
 }
