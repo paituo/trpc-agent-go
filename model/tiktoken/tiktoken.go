@@ -14,6 +14,7 @@ package tiktoken
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/tiktoken-go/tokenizer"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -44,6 +45,13 @@ func New(modelName string) (*Counter, error) {
 		}
 	}
 	return &Counter{encoding: enc}, nil
+}
+
+// init auto-registers the tiktoken-based token counter factory with the root model package.
+// When this package is imported (even as a blank import), model.NewTokenCounter
+// will use tiktoken-go for qwen/deepseek and other known models.
+func init() {
+	model.SetTokenCounterFromModel(NewTokenCounter)
 }
 
 // CountTokens returns the token count for a single message using tiktoken-go.
@@ -87,6 +95,48 @@ func (c *Counter) CountTokens(_ context.Context, message model.Message) (int, er
 	}
 
 	return total, nil
+}
+
+// NewTokenCounter creates a model-aware TokenCounter based on the model name.
+//
+// Routing:
+//   - qwen*, qwq*  → o200k_base encoding (Qwen official recommendation)
+//   - deepseek*    → cl100k_base encoding (close to DeepSeek's tokenizer)
+//   - glm*         → SimpleTokenCounter(runes/1.8) (Zhipu official ratio)
+//   - others       → tiktoken by model name, fallback to SimpleTokenCounter
+//
+// This function should be registered at application startup via
+// model.SetTokenCounterFromModel(tiktoken.NewTokenCounter) to enable
+// tiktoken-based counters for all injection points.
+func NewTokenCounter(modelName string) model.TokenCounter {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+
+	switch {
+	case strings.HasPrefix(name, "qwen"), strings.HasPrefix(name, "qwq"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "deepseek"):
+		if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "glm"):
+		return model.NewSimpleTokenCounter(model.WithApproxRunesPerToken(1.8))
+	}
+
+	if c, err := New(modelName); err == nil {
+		return c
+	}
+
+	return model.NewSimpleTokenCounter()
+}
+
+func newWithEncoding(encoding tokenizer.Encoding) (*Counter, error) {
+	enc, err := tokenizer.Get(encoding)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s encoding: %w", encoding, err)
+	}
+	return &Counter{encoding: enc}, nil
 }
 
 // countToolCallTokens calculates the token count for a single tool call.

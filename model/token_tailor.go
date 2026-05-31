@@ -12,6 +12,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"trpc.group/trpc-go/trpc-agent-go/log"
@@ -754,3 +755,70 @@ func buildPrefixSum(ctx context.Context, tokenCounter TokenCounter, messages []M
 	}
 	return prefixSum
 }
+
+const (
+	// runesPerTokenQWEN is the approximate runes per token for Qwen series models.
+	// Qwen uses a BPE tokenizer compatible with OpenAI's o200k_base encoding.
+	// For Chinese text, approximately 1.5-1.7 characters per token.
+	runesPerTokenQWEN = 1.7
+
+	// runesPerTokenDeepSeek is the approximate runes per token for DeepSeek series models.
+	// DeepSeek official docs: 1 Chinese char ≈ 0.6 token, meaning ≈1.67 chars/token.
+	runesPerTokenDeepSeek = 1.7
+
+	// runesPerTokenGLM is the approximate runes per token for GLM (Zhipu) series models.
+	// Zhipu official docs: 1 token ≈ 1.8 Chinese characters.
+	runesPerTokenGLM = 1.8
+)
+
+// TokenCounterFromModel is a factory function type that creates a TokenCounter
+// based on the model name. Implementations may use tiktoken-go or other
+// model-specific tokenizers for higher accuracy.
+type TokenCounterFromModel func(modelName string) TokenCounter
+
+var tokenCounterFromModel TokenCounterFromModel
+
+// SetTokenCounterFromModel registers a custom TokenCounter factory function.
+// This allows external packages (e.g., model/tiktoken) to provide model-aware
+// token counters with higher accuracy.
+//
+// The function should handle all model names; unrecognized models should
+// fall back to a SimpleTokenCounter.
+func SetTokenCounterFromModel(fn TokenCounterFromModel) {
+	if fn != nil {
+		tokenCounterFromModel = fn
+	}
+}
+
+// NewTokenCounter creates a model-aware TokenCounter based on the model name.
+//
+// Routing (when no custom factory is registered):
+//   - qwen*, qwq*  → SimpleTokenCounter(runes/1.7)
+//   - deepseek*    → SimpleTokenCounter(runes/1.7)
+//   - glm*         → SimpleTokenCounter(runes/1.8)
+//   - others       → SimpleTokenCounter(runes/4.0)
+//
+// When a custom factory is registered via SetTokenCounterFromModel, it takes
+// precedence and this function delegates to it.
+func NewTokenCounter(modelName string) TokenCounter {
+	if tokenCounterFromModel != nil {
+		return tokenCounterFromModel(modelName)
+	}
+	return newTokenCounterHeuristic(modelName)
+}
+
+func newTokenCounterHeuristic(modelName string) TokenCounter {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	switch {
+	case strings.HasPrefix(name, "qwen"), strings.HasPrefix(name, "qwq"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
+	case strings.HasPrefix(name, "deepseek"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenDeepSeek))
+	case strings.HasPrefix(name, "glm"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenGLM))
+	default:
+		return NewSimpleTokenCounter()
+	}
+}
+
+
