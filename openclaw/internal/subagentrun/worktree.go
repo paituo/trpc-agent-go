@@ -147,6 +147,28 @@ func profileFromContext(
 	return profile, true
 }
 
+func buildSubagentInlineGlobalInstruction(
+	ctx context.Context,
+	lease *gitworktree.Lease,
+) string {
+	profile, ok := profileFromContext(ctx, lease)
+	systemPrompt := ""
+	if ok {
+		systemPrompt = strings.TrimSpace(profile.Prompt.SystemPrompt)
+	}
+
+	parts := []string{
+		"[Subagent Mode]\n" + subagentRunPrompt,
+	}
+	if lease != nil {
+		parts = append(parts, worktreeRunPrompt(*lease))
+	}
+	if systemPrompt != "" {
+		parts = append(parts, systemPrompt)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func worktreeSourceWorkdir(ctx context.Context) (string, error) {
 	workdir, err := runtimeprofile.ResolveWorkdir(ctx, "")
 	if err != nil {

@@ -13,9 +13,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
+	"trpc.group/trpc-go/trpc-agent-go/agent"
 	coretaskrun "trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
 	taskruninprocess "trpc.group/trpc-go/trpc-agent-go/agent/taskrun/inprocess"
 	"trpc.group/trpc-go/trpc-agent-go/internal/gitworktree"
@@ -164,9 +166,16 @@ func (s *Service) Spawn(
 
 	runOptions := runOptionsFromContext(ctx, lease)
 	runContext := runContextFromContext(ctx, lease)
-	messages := []model.Message{model.NewSystemMessage(subagentRunPrompt)}
-	if lease != nil {
-		messages = append(messages, model.NewSystemMessage(worktreeRunPrompt(*lease)))
+
+	var messages []model.Message
+	if subagentInlineInstruction() {
+		combined := buildSubagentInlineGlobalInstruction(ctx, lease)
+		runOptions = append(runOptions, agent.WithGlobalInstruction(combined))
+	} else {
+		messages = append(messages, model.NewSystemMessage(subagentRunPrompt))
+		if lease != nil {
+			messages = append(messages, model.NewSystemMessage(worktreeRunPrompt(*lease)))
+		}
 	}
 
 	var deliveryMetadata map[string]string
@@ -431,4 +440,11 @@ func translateCoreError(err error) error {
 	default:
 		return err
 	}
+}
+
+const envSubagentInlineInstruction = "OPENCLAW_SUBAGENT_INLINE_INSTRUCTION"
+
+func subagentInlineInstruction() bool {
+	v := strings.TrimSpace(os.Getenv(envSubagentInlineInstruction))
+	return v == "1" || strings.EqualFold(v, "true")
 }
