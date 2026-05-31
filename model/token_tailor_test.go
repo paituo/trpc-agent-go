@@ -1949,3 +1949,82 @@ func TestFitsWithinBudget_CountTokensError(t *testing.T) {
 	ok := fitsWithinBudget(context.Background(), counter, messages, 1)
 	require.False(t, ok)
 }
+
+func TestNewTokenCounter_HeuristicRouting(t *testing.T) {
+	tests := []struct {
+		name          string
+		modelName     string
+		expectedRatio float64
+	}{
+		{name: "qwen-max", modelName: "qwen-max", expectedRatio: runesPerTokenQWEN},
+		{name: "qwen-turbo", modelName: "qwen-turbo", expectedRatio: runesPerTokenQWEN},
+		{name: "qwq-32b", modelName: "qwq-32b", expectedRatio: runesPerTokenQWEN},
+		{name: "deepseek-chat", modelName: "deepseek-chat", expectedRatio: runesPerTokenDeepSeek},
+		{name: "deepseek-reasoner", modelName: "deepseek-reasoner", expectedRatio: runesPerTokenDeepSeek},
+		{name: "glm-4-flash", modelName: "glm-4-flash", expectedRatio: runesPerTokenGLM},
+		{name: "glm-4.7", modelName: "glm-4.7", expectedRatio: runesPerTokenGLM},
+		{name: "gpt-4o", modelName: "gpt-4o", expectedRatio: defaultApproxRunesPerToken},
+		{name: "claude-sonnet", modelName: "claude-sonnet", expectedRatio: defaultApproxRunesPerToken},
+		{name: "unknown-model", modelName: "unknown-model", expectedRatio: defaultApproxRunesPerToken},
+		{name: "empty", modelName: "", expectedRatio: defaultApproxRunesPerToken},
+		{name: "QWEN-MAX uppercase", modelName: "QWEN-MAX", expectedRatio: runesPerTokenQWEN},
+		{name: "DeepSeek mixed case", modelName: "DeepSeek-Chat", expectedRatio: runesPerTokenDeepSeek},
+		{name: "GLM mixed case", modelName: "GLM-4", expectedRatio: runesPerTokenGLM},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			counter := NewTokenCounter(tt.modelName)
+			sc, ok := counter.(*SimpleTokenCounter)
+			require.True(t, ok, "expected *SimpleTokenCounter, got %T", counter)
+			assert.Equal(t, tt.expectedRatio, sc.approxRunesPerToken,
+				"model=%q ratio mismatch", tt.modelName)
+		})
+	}
+}
+
+func TestNewTokenCounter_ChineseTokenAccuracy(t *testing.T) {
+	msg := NewUserMessage("你好世界你好世界你好世界你好世界你好世界")
+
+	counterDefault := NewSimpleTokenCounter()
+	defaultTokens, _ := counterDefault.CountTokens(context.Background(), msg)
+
+	counterQwen := NewTokenCounter("qwen-max")
+	qwenTokens, _ := counterQwen.CountTokens(context.Background(), msg)
+
+	counterDeepSeek := NewTokenCounter("deepseek-chat")
+	deepseekTokens, _ := counterDeepSeek.CountTokens(context.Background(), msg)
+
+	counterGLM := NewTokenCounter("glm-4")
+	glmTokens, _ := counterGLM.CountTokens(context.Background(), msg)
+
+	t.Logf("default(runes/4)=%d, qwen(runes/%.1f)=%d, deepseek(runes/%.1f)=%d, glm(runes/%.1f)=%d",
+		defaultTokens, runesPerTokenQWEN, qwenTokens,
+		runesPerTokenDeepSeek, deepseekTokens,
+		runesPerTokenGLM, glmTokens)
+
+	assert.Greater(t, qwenTokens, defaultTokens, "qwen should estimate more tokens than default for Chinese")
+	assert.Greater(t, deepseekTokens, defaultTokens, "deepseek should estimate more tokens than default for Chinese")
+	assert.Greater(t, glmTokens, defaultTokens, "glm should estimate more tokens than default for Chinese")
+}
+
+func TestSetTokenCounterFromModel(t *testing.T) {
+	customRatio := 2.5
+	customFn := func(modelName string) TokenCounter {
+		_ = modelName
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(customRatio))
+	}
+
+	SetTokenCounterFromModel(customFn)
+
+	counter := NewTokenCounter("any-model")
+	sc, ok := counter.(*SimpleTokenCounter)
+	require.True(t, ok)
+	assert.Equal(t, customRatio, sc.approxRunesPerToken)
+
+	SetTokenCounterFromModel(nil)
+	counter = NewTokenCounter("any-model")
+	sc, _ = counter.(*SimpleTokenCounter)
+	assert.Equal(t, customRatio, sc.approxRunesPerToken,
+		"nil should not override existing factory")
+}
