@@ -218,6 +218,8 @@ type ModelSpec struct {
 	Headers              map[string]string
 	DebugRecorderEnabled bool
 	ContextWindow        int
+	EnableTokenTailoring bool
+	TailoringStrategy    string
 
 	Config *yaml.Node
 }
