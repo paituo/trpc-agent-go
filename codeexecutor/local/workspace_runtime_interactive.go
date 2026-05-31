@@ -64,6 +64,11 @@ type interactiveSession struct {
 	timedOut bool
 	duration time.Duration
 
+	// procGroup wraps the process in a Windows Job Object so that
+	// killing the parent also terminates the entire process tree.
+	// It is nil on non-Windows platforms (no-op stub).
+	pg *procGroup
+
 	lineBase   int
 	lines      []string
 	partial    string
@@ -217,6 +222,13 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 
 	if runtime.GOOS != "windows" {
 		_ = cmd.Process.Signal(syscall.SIGTERM)
+	}
+
+	// Close the job object handle so that the OS can clean up
+	// the entire process tree on Windows.
+	if s.pg != nil {
+		_ = s.pg.close()
+		s.pg = nil
 	}
 
 	select {
@@ -444,6 +456,14 @@ func (r *Runtime) StartProgram(
 		}()
 	}
 
+	if cmd.Process != nil {
+		pg, err := newProcGroup()
+		if err == nil {
+			_ = pg.addProcess(cmd.Process.Pid)
+			sess.pg = pg
+		}
+	}
+
 	go func() {
 		err := cmd.Wait()
 		if sess.pipeDrain != nil {
@@ -451,6 +471,12 @@ func (r *Runtime) StartProgram(
 		}
 		sess.ioWG.Wait()
 		close(sess.ioDone)
+		// Close the job object so that the OS can also clean up any
+		// remaining child processes.  After this call the Job Object
+		// handle is invalid, making close() idempotent.
+		if sess.pg != nil {
+			_ = sess.pg.close()
+		}
 		sess.markDone(
 			interactiveExitCode(err),
 			time.Since(startedAt),
