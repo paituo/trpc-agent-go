@@ -17,6 +17,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/app"
 
+	_ "trpc.group/trpc-go/trpc-agent-go/model/tiktoken"
 	_ "trpc.group/trpc-go/trpc-agent-go/openclaw/plugins/echotool"
 	_ "trpc.group/trpc-go/trpc-agent-go/openclaw/plugins/stdin"
 )

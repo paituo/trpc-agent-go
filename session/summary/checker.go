@@ -70,6 +70,16 @@ func SetTokenCounter(counter model.TokenCounter) {
 	defaultTokenCounterMu.Unlock()
 }
 
+// SetTokenCounterByModel sets the default TokenCounter based on the model name.
+// It uses model.NewTokenCounter to select an appropriate counter for the model
+// (e.g., tiktoken-based for qwen/deepseek, rune-heuristic for glm).
+//
+// When a custom factory is registered via model.SetTokenCounterFromModel,
+// that factory takes precedence over the built-in heuristic.
+func SetTokenCounterByModel(modelName string) {
+	SetTokenCounter(model.NewTokenCounter(modelName))
+}
+
 // filterDeltaEvents returns events after the last summarized boundary stored
 // in session state. Exact boundaries use the last event ID when available;
 // timestamp-only boundaries keep same-timestamp events to avoid dropping
