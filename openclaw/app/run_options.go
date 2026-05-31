@@ -229,6 +229,8 @@ type runOptions struct {
 	PlannerType                          string
 	PlannerConfig                        map[string]any
 	ModelContextWindow                   int
+	ModelTokenTailoringEnabled           bool
+	ModelTokenTailoringStrategy          string
 	SkillsProjectAgentsRoot              bool
 	SkillsPersonalAgentsRoot             bool
 	SkillsManagedRoot                    bool
@@ -1439,6 +1441,7 @@ type modelConfig struct {
 	GenerationConfig *generationConfigYAML       `yaml:"generation_config,omitempty"`
 	ContextWindow    *int                        `yaml:"context_window,omitempty"`
 	Config           *rawYAMLNode                `yaml:"config,omitempty"`
+	TokenTailoring   *tokenTailoringConfig       `yaml:"token_tailoring,omitempty"`
 	Default          *string                     `yaml:"default,omitempty"`
 	Models           map[string]modelEntryConfig `yaml:"models,omitempty"`
 }
@@ -1514,6 +1517,11 @@ type generationConfigYAML struct {
 	ReasoningEffort  *string  `yaml:"reasoning_effort,omitempty"`
 	ThinkingEnabled  *bool    `yaml:"thinking_enabled,omitempty"`
 	ThinkingTokens   *int     `yaml:"thinking_tokens,omitempty"`
+}
+
+type tokenTailoringConfig struct {
+	Enabled  *bool   `yaml:"enabled,omitempty"`
+	Strategy *string `yaml:"strategy,omitempty"`
 }
 
 type gatewayConfig struct {
@@ -2237,6 +2245,16 @@ func (cfg *fileConfig) apply(
 			*cfg.Model.ContextWindow > 0 &&
 			!flagWasSet(set, flagContextWindow) {
 			opts.ModelContextWindow = *cfg.Model.ContextWindow
+		}
+		if cfg.Model.TokenTailoring != nil {
+			if cfg.Model.TokenTailoring.Enabled != nil {
+				opts.ModelTokenTailoringEnabled = *cfg.Model.TokenTailoring.Enabled
+			}
+			if cfg.Model.TokenTailoring.Strategy != nil {
+				opts.ModelTokenTailoringStrategy = strings.TrimSpace(
+					*cfg.Model.TokenTailoring.Strategy,
+				)
+			}
 		}
 	}
 	if cfg.Knowledges != nil {
