@@ -188,8 +188,19 @@ func TestResolvePath_AbsolutePath(t *testing.T) {
 	set, err := NewToolSet(WithBaseDir(dir))
 	assert.NoError(t, err)
 	fts := set.(*fileToolSet)
-	_, err = fts.resolvePath("/tmp/a.txt")
+	// Absolute path within baseDir should be accepted.
+	withinDir := filepath.Join(dir, "subdir", "a.txt")
+	p, err := fts.resolvePath(withinDir)
+	assert.NoError(t, err)
+	assert.Equal(t, withinDir, p)
+	// Path with ".." outside baseDir should still fail.
+	outsideDir := filepath.Join(dir, "..", "outside.txt")
+	_, err = fts.resolvePath(outsideDir)
 	assert.Error(t, err)
+	// On Windows, filepath.IsAbs("/tmp/a.txt") returns false,
+	// so it's resolved as a relative path. The original test
+	// using "/tmp/a.txt" was platform-dependent.
+	// The ".." traversal test above covers the external path case.
 }
 
 func TestResolvePath_Empty(t *testing.T) {
