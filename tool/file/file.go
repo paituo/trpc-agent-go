@@ -281,15 +281,27 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 }
 
 // resolvePath validates a path to prevent directory traversal attacks,
-// and resolves a relative path within the base directory.
+// and resolves the path within the base directory.
+// Relative paths are resolved against the base directory.
+// Absolute paths that fall within the base directory are accepted.
 func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
 	reqPath := f.normalizeInputsAlias(relativePath)
-	if filepath.IsAbs(reqPath) || strings.Contains(reqPath, "..") {
+	if strings.Contains(reqPath, "..") {
 		return "", fmt.Errorf(
-			"invalid path - absolute paths and '..' "+
-				"are not allowed: %s. %s",
+			"invalid path - '..' is not allowed: %s",
 			relativePath,
-			relativePathGuidance,
+		)
+	}
+	if filepath.IsAbs(reqPath) {
+		rel, err := filepath.Rel(f.baseDir, reqPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Join(f.baseDir, rel), nil
+		}
+		return "", fmt.Errorf(
+			"invalid path - absolute path outside base directory "+
+				"(base: %s): %s",
+			f.baseDir,
+			relativePath,
 		)
 	}
 	return filepath.Join(f.baseDir, reqPath), nil

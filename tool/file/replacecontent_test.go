@@ -151,20 +151,22 @@ func TestFileTool_ReplaceContent_TargetIsDirectory(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestFileTool_ReplaceContent_InvalidAbsolutePath(t *testing.T) {
+func TestFileTool_ReplaceContent_AbsolutePathWithinBaseDir(t *testing.T) {
 	// Prepare test file.
 	tempDir := t.TempDir()
 	fts := &fileToolSet{baseDir: tempDir}
 	absPath := filepath.Join(tempDir, "abs.txt")
 	// Replace.
 	req := &replaceContentRequest{
-		FileName:        absPath, // absolute path is not allowed by resolvePath
+		FileName:        absPath, // absolute path within baseDir is now allowed
 		OldString:       "a",
 		NewString:       "b",
 		NumReplacements: 1,
 	}
 	_, err := fts.replaceContent(context.Background(), req)
-	assert.Error(t, err)
+	// The file doesn't exist, so the error is "cannot access file",
+	// not "absolute path not allowed".
+	assert.ErrorContains(t, err, "accessing file")
 }
 
 func TestFileTool_ReplaceContent_RejectsFileRef(t *testing.T) {
