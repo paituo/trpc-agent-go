@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
+	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
@@ -71,8 +72,10 @@ type ContextCompactionSkipRecentFunc func(events []event.Event) int
 // ContextCompactionStats reports how much prompt history was compacted during
 // request projection.
 type ContextCompactionStats struct {
-	ToolResultsCompacted int
-	EstimatedTokensSaved int
+	ToolResultsCompacted     int
+	EstimatedTokensSaved     int
+	OversizedResultsTruncated int
+	OversizedTokensSaved     int
 }
 
 type toolResultCompactionRules struct {
@@ -93,6 +96,10 @@ func normalizeContextCompactionConfig(
 		cfg.OversizedToolResultMaxTokens = 0
 	}
 	if cfg.TokenCounter == nil {
+		log.WarnfContext(context.Background(),
+			"token-counter-fallback: normalizeContextCompactionConfig using default SimpleTokenCounter(4.0), "+
+				"configure WithContextCompactionTokenCounter for Chinese text accuracy",
+		)
 		cfg.TokenCounter = model.NewSimpleTokenCounter()
 	}
 	cfg.toolResultCompactionRules.forceCleanToolNames = normalizeToolNameSet(
@@ -174,6 +181,8 @@ func compactIncrementEvents(
 				cfg,
 			)
 			compacted = passEvents
+			stats.OversizedResultsTruncated = passStats.ToolResultsCompacted
+			stats.OversizedTokensSaved = passStats.EstimatedTokensSaved
 			stats = mergeContextCompactionStats(stats, passStats)
 		}
 	}
@@ -392,6 +401,8 @@ func mergeContextCompactionStats(
 ) ContextCompactionStats {
 	base.ToolResultsCompacted += delta.ToolResultsCompacted
 	base.EstimatedTokensSaved += delta.EstimatedTokensSaved
+	base.OversizedResultsTruncated += delta.OversizedResultsTruncated
+	base.OversizedTokensSaved += delta.OversizedTokensSaved
 	return base
 }
 
@@ -513,6 +524,9 @@ func truncateOversizedToolResultMessageWithCounter(
 		return msg, false, 0
 	}
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: truncateOversizedToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 
@@ -676,6 +690,9 @@ func compactHistoricalToolResultMessageWithCounter(
 	}
 
 	if counter == nil {
+		log.WarnfContext(ctx,
+			"token-counter-fallback: compactHistoricalToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
+		)
 		counter = model.NewSimpleTokenCounter()
 	}
 	originalTokens, err := counter.CountTokens(ctx, msg)
