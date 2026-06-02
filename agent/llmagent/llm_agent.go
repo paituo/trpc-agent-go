@@ -451,7 +451,10 @@ func buildRequestProcessorsWithAgent(a *LLMAgent, options *Options) []flow.Reque
 			options.ContextCompactionOversizedToolResultMaxTokens,
 		),
 		processor.WithContextCompactionTokenCounter(
-			options.ContextCompactionTokenCounter,
+			contextCompactionTokenCounter(
+				options.ContextCompactionTokenCounter,
+				a.model,
+			),
 		),
 		processor.WithPreserveSameBranch(options.PreserveSameBranch),
 		processor.WithPreserveForeignMessages(options.PreserveForeignMessages),
@@ -2468,4 +2471,20 @@ func (a *LLMAgent) systemPromptTextForInvocation(inv *agent.Invocation) prompt.T
 		}
 	}
 	return a.systemPrompt
+}
+
+// contextCompactionTokenCounter returns a model-aware TokenCounter for context compaction.
+// When an explicit counter is provided, it is used directly.
+// Otherwise, the counter is auto-detected from the model name via model.NewTokenCounter.
+func contextCompactionTokenCounter(
+	explicitCounter model.TokenCounter,
+	mdl model.Model,
+) model.TokenCounter {
+	if explicitCounter != nil {
+		return explicitCounter
+	}
+	if mdl != nil {
+		return model.NewTokenCounter(mdl.Info().Name)
+	}
+	return model.NewTokenCounter("")
 }
