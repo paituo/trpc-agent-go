@@ -93,17 +93,18 @@ func projectDocDirs(cwd string) ([]string, error) {
 	}
 
 	dirs := []string{abs}
-	for {
-		if hasProjectDocRootMarker(abs) {
-			break
-		}
-		parent := filepath.Dir(abs)
-		if parent == abs {
-			break
-		}
-		abs = parent
-		dirs = append(dirs, abs)
-	}
+	// TODO: 不允许递归查找
+	// for {
+	// 	if hasProjectDocRootMarker(abs) {
+	// 		break
+	// 	}
+	// 	parent := filepath.Dir(abs)
+	// 	if parent == abs {
+	// 		break
+	// 	}
+	// 	abs = parent
+	// 	dirs = append(dirs, abs)
+	// }
 	reverseStrings(dirs)
 	return dirs, nil
 }
