@@ -31,6 +31,7 @@ type readFileRequest struct {
 	FileName  string `json:"file_name" jsonschema:"description=Relative file path under base_directory or workspace:// or artifact:// file ref to read"`
 	StartLine *int   `json:"start_line,omitempty" jsonschema:"description=Optional 1-based start line to begin reading from"`
 	NumLines  *int   `json:"num_lines,omitempty" jsonschema:"description=Optional maximum number of lines to return"`
+	MaxChars  *int   `json:"max_chars,omitempty" jsonschema:"description=Optional maximum number of characters to return"`
 }
 
 // readFileResponse represents the output from the read file operation.
@@ -96,8 +97,6 @@ func validateReadFileRequest(req *readFileRequest) error {
 const (
 	errNotTextFile     = "file is not a UTF-8 text file"
 	errNotTextFileTmpl = "file is not a UTF-8 text file (mime: %s)"
-
-	defaultMaxReadLines = 2000
 )
 
 func validateTextString(content string, mimeType string) error {
@@ -165,7 +164,7 @@ func (f *fileToolSet) readFileFromRef(
 		source = fileref.ArtifactPrefix
 	}
 
-	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content)
+	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content, int64(len(content)))
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return true, err
@@ -186,13 +185,14 @@ func (f *fileToolSet) readFileFromRef(
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s from %s (truncated), start line: %d, "+
 				"end line: %d, total lines: %d, "+
-				"file size: %d bytes",
+				"file size: %d bytes, max: %d bytes",
 			req.FileName,
 			source,
 			start,
 			end,
 			total,
 			len(content),
+			f.maxFileSize,
 		)
 	} else {
 		rsp.Message = fmt.Sprintf(
@@ -248,18 +248,8 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 			req.FileName,
 		)
 	}
-	if stat.Size() > f.maxFileSize {
-		rsp.Message = fmt.Sprintf(
-			"Error: file is too large: %d > %d",
-			stat.Size(),
-			f.maxFileSize,
-		)
-		return fmt.Errorf(
-			"file is too large: %d > %d",
-			stat.Size(),
-			f.maxFileSize,
-		)
-	}
+
+	rsp.FileSizeBytes = stat.Size()
 
 	contents, err := os.ReadFile(filePath)
 	if err != nil {
@@ -274,6 +264,7 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 	chunk, startLine, endLine, total, empty, truncated, err := f.sliceReadFile(
 		req,
 		string(contents),
+		stat.Size(),
 	)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
@@ -282,7 +273,6 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 	rsp.Contents = chunk
 	rsp.TotalLines = total
 	rsp.Truncated = truncated
-	rsp.FileSizeBytes = stat.Size()
 	if empty {
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s, but file is empty",
@@ -290,17 +280,19 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 		)
 		return nil
 	}
+
 	if truncated {
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s (truncated), start line: %d, "+
 				"end line: %d, total lines: %d, "+
-				"file size: %d bytes. "+
-				"Use start_line/num_lines to read specific sections.",
+				"file size: %d bytes, max: %d bytes. "+
+				"Use start_line/num_lines or max_chars to read specific sections.",
 			req.FileName,
 			startLine,
 			endLine,
 			total,
 			stat.Size(),
+			f.maxFileSize,
 		)
 	} else {
 		rsp.Message = fmt.Sprintf(
@@ -333,7 +325,7 @@ func (f *fileToolSet) readFileFromCache(
 		return true, err
 	}
 
-	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content)
+	chunk, start, end, total, empty, truncated, err := f.sliceReadFile(req, content, int64(len(content)))
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return true, err
@@ -353,12 +345,14 @@ func (f *fileToolSet) readFileFromCache(
 		rsp.Message = fmt.Sprintf(
 			"Loaded %s from a prior skill_run output_files "+
 				"cache (truncated), start line: %d, end line: %d, "+
-				"total lines: %d, file size: %d bytes (mime: %s)",
+				"total lines: %d, file size: %d bytes, "+
+				"max: %d bytes (mime: %s)",
 			req.FileName,
 			start,
 			end,
 			total,
 			len(content),
+			f.maxFileSize,
 			mime,
 		)
 	} else {
@@ -379,15 +373,8 @@ func (f *fileToolSet) readFileFromCache(
 func (f *fileToolSet) sliceReadFile(
 	req *readFileRequest,
 	content string,
+	fileSize int64,
 ) (string, int, int, int, bool, bool, error) {
-	if int64(len(content)) > f.maxFileSize {
-		return "", 0, 0, 0, false, false, fmt.Errorf(
-			"file size is beyond of max file size, "+
-				"file size: %d, max file size: %d",
-			len(content),
-			f.maxFileSize,
-		)
-	}
 	if content == "" {
 		return "", 0, 0, 0, true, false, nil
 	}
@@ -399,8 +386,34 @@ func (f *fileToolSet) sliceReadFile(
 	if err != nil {
 		return "", 0, 0, 0, false, false, err
 	}
-	chunk, truncated := readPartialLines(chunk, defaultMaxReadLines)
+
+	maxChars := f.maxFileSize
+	if req.MaxChars != nil && *req.MaxChars > 0 {
+		maxChars = int64(*req.MaxChars)
+	}
+
+	var chunkTruncated bool
+	if int64(len(chunk)) > maxChars {
+		chunk, chunkTruncated = truncateText(chunk, int(maxChars))
+	}
+
+	if chunkTruncated {
+		end = start + strings.Count(chunk, "\n")
+	}
+
+	truncated := fileSize > f.maxFileSize || chunkTruncated
 	return chunk, start, end, total, false, truncated, nil
+}
+
+func truncateText(text string, maxChars int) (string, bool) {
+	if maxChars <= 0 {
+		return text, false
+	}
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return text, false
+	}
+	return string(runes[:maxChars]), true
 }
 
 func sliceTextByLines(
@@ -441,14 +454,6 @@ func sliceTextByLines(
 		nil
 }
 
-func readPartialLines(content string, maxLines int) (string, bool) {
-	lines := strings.Split(content, "\n")
-	if maxLines > 0 && len(lines) > maxLines {
-		return strings.Join(lines[:maxLines], "\n") + "\n... (truncated)", true
-	}
-	return content, false
-}
-
 // readFileTool returns a callable tool for reading file.
 func (f *fileToolSet) readFileTool() tool.CallableTool {
 	return function.NewFunctionTool(
@@ -457,7 +462,9 @@ func (f *fileToolSet) readFileTool() tool.CallableTool {
 		function.WithDescription(
 			"Read a text file under base_directory. Supports "+
 				"workspace:// and artifact:// refs. Optional "+
-				"start_line and num_lines select line ranges.",
+				"start_line and num_lines select line ranges. "+
+				"Optional max_chars limits the number of characters "+
+				"returned (useful for large files).",
 		),
 	)
 }
