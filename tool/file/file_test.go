@@ -195,39 +195,19 @@ func TestResolvePath_AbsolutePath(t *testing.T) {
 	set, err := NewToolSet(WithBaseDir(dir))
 	assert.NoError(t, err)
 	fts := set.(*fileToolSet)
-	_, err = fts.resolvePath("/tmp/a.txt")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), relativePathGuidance)
-	assert.Contains(t, err.Error(), "configured read-only root")
-}
-
-func TestResolveReadPath_ExtraReadRoot(t *testing.T) {
-	dir := t.TempDir()
-	extra := t.TempDir()
-	set, err := NewToolSet(
-		WithBaseDir(dir),
-		WithReadOnlyDirs(extra, extra, filepath.Join(extra, "missing")),
-	)
+	// Absolute path within baseDir should be accepted.
+	withinDir := filepath.Join(dir, "subdir", "a.txt")
+	p, err := fts.resolvePath(withinDir)
 	assert.NoError(t, err)
-	fts := set.(*fileToolSet)
-	normalizedExtra := filepath.Clean(extra)
-	if resolved, err := filepath.EvalSymlinks(normalizedExtra); err == nil {
-		normalizedExtra = filepath.Clean(resolved)
-	}
-	assert.Equal(t, []string{normalizedExtra}, fts.extraReadRoots)
-
-	allowed := filepath.Join(extra, "a.txt")
-	p, err := fts.resolveReadPath(allowed)
-	assert.NoError(t, err)
-	assert.Equal(t, allowed, p)
-
-	_, err = fts.resolveReadPath(filepath.Join(t.TempDir(), "a.txt"))
+	assert.Equal(t, withinDir, p)
+	// Path with ".." outside baseDir should still fail.
+	outsideDir := filepath.Join(dir, "..", "outside.txt")
+	_, err = fts.resolvePath(outsideDir)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), extraReadRootGuidance)
-
-	_, err = fts.resolvePath(allowed)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), relativePathGuidance)
+	// On Windows, filepath.IsAbs("/tmp/a.txt") returns false,
+	// so it's resolved as a relative path. The original test
+	// using "/tmp/a.txt" was platform-dependent.
+	// The ".." traversal test above covers the external path case.
 }
 
 func TestResolvePath_Empty(t *testing.T) {

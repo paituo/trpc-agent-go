@@ -460,12 +460,12 @@ func (f *fileToolSet) readFileTool() tool.CallableTool {
 		f.readFile,
 		function.WithName("read_file"),
 		function.WithDescription(
-			"Read a text file under base_directory. Supports "+
-				"workspace:// refs, artifact:// refs, and "+
-				"absolute paths under configured read-only roots. "+
-				"Optional start_line and num_lines select line "+
-				"ranges. Optional max_chars limits the number of "+
-				"characters returned (useful for large files).",
+			"Read a text file under base_directory. Prefer relative "+
+				"paths (e.g. \"dir/file.txt\") over absolute paths. "+
+				"Supports workspace:// and artifact:// refs. Optional "+
+				"start_line and num_lines select line ranges. "+
+				"Optional max_chars limits the number of characters "+
+				"returned (useful for large files).",
 		),
 	)
 }
