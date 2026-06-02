@@ -80,6 +80,7 @@ const (
 	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
 	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
 	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
+	flagContextCompactionApproxRunesPerToken   = "context-compaction-approx-runes-per-token"
 	flagContextWindow                          = "context-window"
 	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
 	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
@@ -171,6 +172,7 @@ type runOptions struct {
 	EnableDetailedContextMetrics               bool
 	ContextCompactionForceCleanToolNames       string
 	ContextCompactionKeepToolNames             string
+	ContextCompactionApproxRunesPerToken       float64
 	PlannerType                                string
 	PlannerConfig                              map[string]any
 	ModelContextWindow                         int
@@ -475,6 +477,14 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagContextCompactionKeepToolNames,
 		"",
 		"Comma-separated tool names to keep during compaction",
+	)
+	fs.Float64Var(
+		&opts.ContextCompactionApproxRunesPerToken,
+		flagContextCompactionApproxRunesPerToken,
+		0,
+		"Approximate runes per token for context compaction token "+
+			"counter (0 uses framework default 4.0; "+
+			"set ~1.6-2.0 for Chinese-heavy content)",
 	)
 	fs.StringVar(
 		&opts.PlannerType,
@@ -1106,6 +1116,7 @@ type agentRunConfig struct {
 	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
 	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
 	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+	ContextCompactionApproxRunesPerToken     *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -1547,6 +1558,10 @@ func (cfg *fileConfig) apply(
 				cfg.Agent.ContextCompactionKeepToolNames,
 				csvDelimiter,
 			)
+		}
+		if cfg.Agent.ContextCompactionApproxRunesPerToken != nil &&
+			!flagWasSet(set, flagContextCompactionApproxRunesPerToken) {
+			opts.ContextCompactionApproxRunesPerToken = *cfg.Agent.ContextCompactionApproxRunesPerToken
 		}
 		if cfg.Agent.PlannerType != "" &&
 			!flagWasSet(set, flagPlannerType) {
@@ -2281,6 +2296,12 @@ func finalizeRunOptions(opts *runOptions) error {
 		math.IsInf(v, 0) || v < 0 {
 		return fmt.Errorf(
 			"invalid session-summary-approx-runes-per-token: %v", v,
+		)
+	}
+	if v := opts.ContextCompactionApproxRunesPerToken; math.IsNaN(v) ||
+		math.IsInf(v, 0) || v < 0 {
+		return fmt.Errorf(
+			"invalid context-compaction-approx-runes-per-token: %v", v,
 		)
 	}
 	normalizeA2AOptions(opts)

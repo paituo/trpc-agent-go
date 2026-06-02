@@ -1044,8 +1044,8 @@ func NewRuntimeWithOptions(
 			EnableContextCompaction: opts.EnableContextCompaction,
 			ContextCompactionOversizedToolResultMaxTokens: opts.
 				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
+			MaxHistoryRuns:                       opts.MaxHistoryRuns,
+			PreloadMemory:                        opts.PreloadMemory,
 			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
 			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
@@ -1054,11 +1054,12 @@ func NewRuntimeWithOptions(
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
 			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
+			ContextCompactionApproxRunesPerToken: opts.ContextCompactionApproxRunesPerToken,
 			PlannerType:                          opts.PlannerType,
 			PlannerConfig:                        opts.PlannerConfig,
-			GenerationConfig: opts.GenerationConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			GenerationConfig:                     opts.GenerationConfig,
+			Instruction:                          prompts.Instruction,
+			SystemPrompt:                         prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1580,8 +1581,8 @@ func run(
 			EnableContextCompaction: opts.EnableContextCompaction,
 			ContextCompactionOversizedToolResultMaxTokens: opts.
 				ContextCompactionOversizedToolResultMaxTokens,
-			MaxHistoryRuns:   opts.MaxHistoryRuns,
-			PreloadMemory:    opts.PreloadMemory,
+			MaxHistoryRuns:                       opts.MaxHistoryRuns,
+			PreloadMemory:                        opts.PreloadMemory,
 			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
 			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
 			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
@@ -1590,11 +1591,12 @@ func run(
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
 			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
+			ContextCompactionApproxRunesPerToken: opts.ContextCompactionApproxRunesPerToken,
 			PlannerType:                          opts.PlannerType,
 			PlannerConfig:                        opts.PlannerConfig,
-			GenerationConfig: opts.GenerationConfig,
-			Instruction:      prompts.Instruction,
-			SystemPrompt:     prompts.SystemPrompt,
+			GenerationConfig:                     opts.GenerationConfig,
+			Instruction:                          prompts.Instruction,
+			SystemPrompt:                         prompts.SystemPrompt,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1619,7 +1621,7 @@ func run(
 
 			EnableLocalExec:     opts.EnableLocalExec,
 			EnableOpenClawTools: opts.EnableOpenClawTools,
-			EnableParallelTools:  opts.EnableParallelTools,
+			EnableParallelTools: opts.EnableParallelTools,
 
 			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
 			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
@@ -2533,6 +2535,17 @@ func newAgent(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
 	}
+	if cfg.ContextCompactionApproxRunesPerToken > 0 {
+		counter := model.NewSimpleTokenCounter(
+			model.WithApproxRunesPerToken(
+				cfg.ContextCompactionApproxRunesPerToken,
+			),
+		)
+		opts = append(
+			opts,
+			llmagent.WithContextCompactionTokenCounter(counter),
+		)
+	}
 	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
 		opts,
@@ -2811,16 +2824,17 @@ type agentConfig struct {
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
-	SessionSummaryInjectionMode          string
-	SyncSummaryIntraRun                  bool
-	ContextCompactionThresholdRatio      float64
-	ContextCompactionToolResultMaxTokens int
-	ContextCompactionKeepRecentRequests  int
-	EnableDetailedContextMetrics         bool
-	ContextCompactionForceCleanToolNames []string
-	ContextCompactionKeepToolNames       []string
-	PlannerType                          string
-	PlannerConfig                        map[string]any
+	SessionSummaryInjectionMode                   string
+	SyncSummaryIntraRun                           bool
+	ContextCompactionThresholdRatio               float64
+	ContextCompactionToolResultMaxTokens          int
+	ContextCompactionKeepRecentRequests           int
+	EnableDetailedContextMetrics                  bool
+	ContextCompactionForceCleanToolNames          []string
+	ContextCompactionKeepToolNames                []string
+	ContextCompactionApproxRunesPerToken          float64
+	PlannerType                                   string
+	PlannerConfig                                 map[string]any
 	GenerationConfig                              *model.GenerationConfig
 	Instruction                                   string
 	SystemPrompt                                  string
