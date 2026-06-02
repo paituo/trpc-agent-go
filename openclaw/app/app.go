@@ -4415,7 +4415,8 @@ func parseOpenAIVariant(
 		openai.VariantQwen,
 		openai.VariantGLM,
 		openai.VariantMiniMax,
-		openai.VariantKimi:
+		openai.VariantKimi,
+		openai.VariantVLLM:
 		return variant, nil
 	default:
 		return "", fmt.Errorf("unsupported openai variant: %s", raw)
