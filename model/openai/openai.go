@@ -71,6 +71,10 @@ const (
 	VariantDeepSeek Variant = "deepseek"
 	// VariantQwen is the Qwen variant with specific base_url handling.
 	VariantQwen Variant = "qwen"
+	// VariantVLLM is the vLLM variant.
+	// vLLM requires thinking to be passed via chat_template_kwargs
+	// rather than as a top-level parameter.
+	VariantVLLM Variant = "vllm"
 )
 
 // thinkingValueConvertor converts ThinkingEnabled bool to the variant-specific value.
@@ -224,6 +228,9 @@ var variantConfigs = map[Variant]variantConfig{
 		// refer:https://help.aliyun.com/zh/model-studio/deep-thinking
 		thinkingEnabledKey:     model.EnabledThinkingKey,
 		thinkingValueConvertor: defaultThinkingValueConvertor,
+	},
+	VariantVLLM: {
+		// vLLM handles thinking via chat_template_kwargs in buildChatRequest.
 	},
 }
 
@@ -774,6 +781,16 @@ func (m *Model) buildChatRequest(request *model.Request) (*openai.ChatCompletion
 		chatRequest.ReasoningEffort = shared.ReasoningEffort(*request.ReasoningEffort)
 	}
 	opts := m.buildThinkingOption(request)
+	// vLLM requires thinking to be passed via chat_template_kwargs
+	// rather than as a top-level parameter. Both the thinking toggle
+	// and reasoning_effort must be inside the same kwargs object.
+	if m.variant == VariantVLLM && request.ThinkingEnabled != nil {
+		kwargs := map[string]any{"thinking": *request.ThinkingEnabled}
+		if request.ReasoningEffort != nil {
+			kwargs["reasoning_effort"] = *request.ReasoningEffort
+		}
+		opts = append(opts, openaiopt.WithJSONSet("chat_template_kwargs", kwargs))
+	}
 	// Add model-level extra fields to the request.
 	for key, value := range m.extraFields {
 		opts = append(opts, openaiopt.WithJSONSet(key, value))
@@ -807,6 +824,10 @@ func (m *Model) buildThinkingOption(request *model.Request) []openaiopt.RequestO
 	var opts []openaiopt.RequestOption
 	if request.ThinkingTokens != nil {
 		opts = append(opts, openaiopt.WithJSONSet(model.ThinkingTokensKey, *request.ThinkingTokens))
+	}
+	// vLLM handles thinking via chat_template_kwargs in buildChatRequest.
+	if m.variant == VariantVLLM {
+		return opts
 	}
 	if request.ThinkingEnabled == nil {
 		return opts
