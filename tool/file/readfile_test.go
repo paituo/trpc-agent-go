@@ -439,10 +439,15 @@ func TestFileTool_ReadFile_ExceedMaxFileSize(t *testing.T) {
 	testFile := filepath.Join(tempDir, "test.txt")
 	err = os.WriteFile(testFile, []byte(testContent), 0644)
 	assert.NoError(t, err)
-	// Test reading the file.
+	// Test reading the file - should succeed with truncated content.
 	req := &readFileRequest{FileName: "test.txt"}
-	_, err = fileToolSet.readFile(context.Background(), req)
-	assert.Error(t, err)
+	rsp, err := fileToolSet.readFile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	assert.NotEmpty(t, rsp.Contents)
+	assert.Equal(t, int64(len(testContent)), rsp.FileSizeBytes)
+	assert.Contains(t, rsp.Message, "truncated")
+	assert.Contains(t, rsp.Message, "start_line/num_lines")
 }
 
 func TestFileTool_ReadFile_FromRef_TooLarge(t *testing.T) {
@@ -461,10 +466,13 @@ func TestFileTool_ReadFile_FromRef_TooLarge(t *testing.T) {
 		},
 	})
 
-	_, err = fileToolSet.readFile(ctx, &readFileRequest{
+	rsp, err := fileToolSet.readFile(ctx, &readFileRequest{
 		FileName: "workspace://out/a.txt",
 	})
-	assert.Error(t, err)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	assert.NotEmpty(t, rsp.Contents)
+	assert.Contains(t, rsp.Message, "truncated")
 }
 
 func TestFileTool_ReadFile_FromRef_EmptyFile(t *testing.T) {
@@ -765,48 +773,4 @@ func TestFileTool_ReadFile_ArtifactRef(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "hi", rsp.Contents)
-}
-
-func TestReadPartialLines_NoTruncation(t *testing.T) {
-	content := "line1\nline2\nline3"
-	result, truncated := readPartialLines(content, 5)
-	assert.False(t, truncated)
-	assert.Equal(t, content, result)
-}
-
-func TestReadPartialLines_Truncation(t *testing.T) {
-	content := "line1\nline2\nline3\nline4\nline5"
-	result, truncated := readPartialLines(content, 3)
-	assert.True(t, truncated)
-	assert.Equal(t, "line1\nline2\nline3\n... (truncated)", result)
-}
-
-func TestReadPartialLines_ExactMatch(t *testing.T) {
-	content := "line1\nline2\nline3"
-	result, truncated := readPartialLines(content, 3)
-	assert.False(t, truncated)
-	assert.Equal(t, content, result)
-}
-
-func TestReadPartialLines_ZeroMaxLines(t *testing.T) {
-	content := "line1\nline2\nline3"
-	result, truncated := readPartialLines(content, 0)
-	assert.False(t, truncated)
-	assert.Equal(t, content, result)
-}
-
-func TestReadPartialLines_EmptyContent(t *testing.T) {
-	result, truncated := readPartialLines("", 10)
-	assert.False(t, truncated)
-	assert.Equal(t, "", result)
-}
-
-func TestReadPartialLines_SingleLine(t *testing.T) {
-	result, truncated := readPartialLines("only", 1)
-	assert.False(t, truncated)
-	assert.Equal(t, "only", result)
-
-	result, truncated = readPartialLines("only", 2)
-	assert.False(t, truncated)
-	assert.Equal(t, "only", result)
 }

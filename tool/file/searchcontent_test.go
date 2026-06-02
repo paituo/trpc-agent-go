@@ -431,9 +431,10 @@ func TestSearchContent_FilePatternRef_TooLarge(t *testing.T) {
 		ContentPattern: "1",
 	}
 	rsp, err := fts.searchContent(ctx, &req)
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	assert.NotNil(t, rsp)
-	assert.Contains(t, rsp.Message, "file size is beyond")
+	assert.Len(t, rsp.FileMatches, 1)
+	assert.Contains(t, rsp.FileMatches[0].Message, "partial search")
 }
 
 func TestSearchContent_FilePatternRef_NoMatches(t *testing.T) {
