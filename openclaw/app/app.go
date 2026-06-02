@@ -3215,6 +3215,17 @@ func newAgent(
 		llmagent.WithContextCompactionToolResultMaxTokens(cfg.ContextCompactionToolResultMaxTokens),
 		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
 	)
+	if cfg.ContextCompactionApproxRunesPerToken > 0 {
+		counter := model.NewSimpleTokenCounter(
+			model.WithApproxRunesPerToken(
+				cfg.ContextCompactionApproxRunesPerToken,
+			),
+		)
+		opts = append(
+			opts,
+			llmagent.WithContextCompactionTokenCounter(counter),
+		)
+	}
 	if cfg.PostToolPromptEnabled != nil {
 		opts = append(
 			opts,
@@ -3691,6 +3702,7 @@ type agentConfig struct {
 	EnableDetailedContextMetrics                  bool
 	ContextCompactionForceCleanToolNames          []string
 	ContextCompactionKeepToolNames                []string
+	ContextCompactionApproxRunesPerToken           float64
 	PlannerType                                   string
 	PlannerConfig                                 map[string]any
 	GenerationConfig                              *model.GenerationConfig
