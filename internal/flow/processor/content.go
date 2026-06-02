@@ -28,6 +28,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	iflow "trpc.group/trpc-go/trpc-agent-go/internal/flow"
+	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
 	"trpc.group/trpc-go/trpc-agent-go/internal/util/message"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
@@ -773,9 +774,38 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 		summaryCutoff,
 	)
 
-	// When user-mode injection is active for summary or preload context, prepend
-	// it as user content near history. Prefer merging into the first user
-	// history/current message so the context stays attached to the live user
+	if skipHistory {
+		// When include_contents=none, only get events from current invocation
+		// to preserve tool call history within the current ReAct loop.
+		// This fixes the infinite loop issue where the agent doesn't see its
+		// own tool calls when running as an isolated subgraph.
+		if includeInvocationMessage {
+			messages = p.getCurrentInvocationMessages(invocation)
+		}
+	} else {
+		var compactionStats ContextCompactionStats
+		messages, compactionStats = p.getIncrementMessagesWithCutoff(invocation, summaryCutoff)
+		if p.hasCompactedCurrentInvocationToolResults(invocation, summaryCutoff.at) {
+			invocation.SetState(contentHasCompactedToolResultsStateKey, true)
+		}
+		tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+		tracker.RecordToolCompaction(compactionStats.ToolResultsCompacted > 0, compactionStats.EstimatedTokensSaved)
+		tracker.RecordOversizedTruncation(compactionStats.OversizedResultsTruncated > 0, compactionStats.OversizedTokensSaved)
+	}
+
+	// Apply MaxHistoryRuns limit when AddSessionSummary is false.
+	if !skipHistory && !p.AddSessionSummary && p.MaxHistoryRuns > 0 {
+		before := len(messages)
+		messages = applyMaxHistoryRuns(messages, p.MaxHistoryRuns)
+		after := len(messages)
+		trimmed := before > after
+		tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+		tracker.RecordHistoryTrim(trimmed, before, after)
+	}
+
+	// When user-mode summary injection is active, prepend the summary as a
+	// user message near history. Prefer merging into the first user
+	// history/current message so the summary stays attached to the live user
 	// turn. If no such message exists, fall back to a trailing user message in
 	// req.Messages (for example, injected context) to avoid creating an extra
 	// adjacent user block.
@@ -786,6 +816,9 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 			req.Messages,
 		)
 	}
+
+	tracker := itelemetry.ContextMetricsTrackerFromContext(ctx)
+	tracker.RecordSummaryTriggered(p.AddSessionSummary && summaryText != "")
 
 	req.Messages = append(req.Messages, messages...)
 	return len(messages) == 0
@@ -1217,21 +1250,17 @@ func (p *ContentRequestProcessor) formatSummary(summary string) string {
 
 // getHistoryMessages gets history messages for the current filter, potentially truncated by MaxHistoryRuns.
 // This method is used when AddSessionSummary is false to get recent history messages.
-func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) []model.Message {
-	return p.getIncrementMessagesAfterCutoff(
-		inv,
-		nil,
-		summaryHistoryCutoffFromTime(since),
-	)
+func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) ([]model.Message, ContextCompactionStats) {
+	return p.getIncrementMessagesWithCutoff(inv, summaryHistoryCutoffFromTime(since))
 }
 
-func (p *ContentRequestProcessor) getIncrementMessagesAfterCutoff(
+func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
 	inv *agent.Invocation,
 	req *model.Request,
 	cutoff summaryHistoryCutoff,
-) []model.Message {
+) ([]model.Message, ContextCompactionStats) {
 	if inv.Session == nil {
-		return nil
+		return nil, ContextCompactionStats{}
 	}
 	filter := inv.GetEventFilterKey()
 	var includedInvocationMessage bool
@@ -1353,13 +1382,8 @@ func (p *ContentRequestProcessor) getIncrementMessagesAfterCutoff(
 	}
 
 	messages = p.mergeUserMessages(messages)
-
-	// Apply MaxHistoryRuns limit when AddSessionSummary is false.
-	if !p.AddSessionSummary && p.MaxHistoryRuns > 0 {
-		messages = applyMaxHistoryRuns(messages, p.MaxHistoryRuns)
-	}
 	messages = annotateUserMessagesWithAttachedFiles(messages)
-	return messages
+	return messages, stats
 }
 
 func sessionEventsSnapshot(sess *session.Session) []event.Event {

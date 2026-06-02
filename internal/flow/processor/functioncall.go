@@ -968,6 +968,15 @@ func (p *FunctionCallResponseProcessor) runParallelToolCall(
 		if !shouldIgnoreError {
 			returnErr = err
 		}
+		// Record telemetry for the error tool call before returning.
+		if startedSpan {
+			decl := p.lookupDeclaration(tools, tc.Function.Name)
+			var sess = &session.Session{}
+			if invocation != nil && invocation.Session != nil {
+				sess = invocation.Session
+			}
+			itelemetry.TraceToolCall(span, sess, decl, modifiedArgs, errorEvent, err)
+		}
 		p.sendToolResult(ctx, resultChan, toolResult{
 			index:    index,
 			event:    errorEvent,
