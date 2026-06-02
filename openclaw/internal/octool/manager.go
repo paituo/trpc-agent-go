@@ -18,10 +18,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 const (
@@ -47,6 +50,7 @@ const (
 		`sleep 0.05; ` +
 		`kill -KILL $pids 2>/dev/null || true; ` +
 		`fi; }; trap __trpc_claw_cleanup_jobs EXIT`
+
 	shellEnvDumpCommand = "env -0"
 )
 
@@ -342,7 +346,7 @@ func runForeground(
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := shellCmdWithStartup(ctx, params.Command, true, cleanStartup)
+	cmd := shellCmd(ctx, params.Command)
 	prepareCommandProcess(cmd)
 	cmd.Dir = params.Workdir
 	cmd.Env = mergedEnv(baseEnv, params.Env)
@@ -358,44 +362,16 @@ func runForeground(
 	return string(out), code, nil
 }
 
-func shellCmd(
-	ctx context.Context,
-	command string,
-	cleanupShellJobs bool,
-) *exec.Cmd {
-	return shellCmdWithStartup(ctx, command, cleanupShellJobs, false)
-}
-
-func shellCmdWithStartup(
-	ctx context.Context,
-	command string,
-	cleanupShellJobs bool,
-	cleanStartup bool,
-) *exec.Cmd {
-	if cleanupShellJobs {
-		command = shellCommandWithExitCleanup(command)
+// shellCmd builds an exec.Cmd for running a user command through the
+// OS-appropriate shell. On Unix this is bash -lc, on Windows it is
+// powershell.exe or cmd.exe.
+func shellCmd(ctx context.Context, command string) *exec.Cmd {
+	p, args, err := platform.BuildCommand(ctx, command)
+	if err != nil {
+		// Fallback to bash on Unix for backward compatibility
+		return exec.CommandContext(ctx, "bash", "-lc", command)
 	}
-	cmd := exec.CommandContext(
-		ctx,
-		shellProgram,
-		append(shellArgs(cleanStartup), command)...,
-	)
-	cmd.Cancel = func() error {
-		return forceKillCommandProcess(cmd)
-	}
-	cmd.WaitDelay = defaultIODrain
-	return cmd
-}
-
-func shellArgs(cleanStartup bool) []string {
-	if cleanStartup {
-		return []string{shellNoProfileFlag, shellNoRcFlag, shellCommandFlag}
-	}
-	return []string{shellLoginFlag}
-}
-
-func shellCommandWithExitCleanup(command string) string {
-	return shellExitCleanup + "\n" + command
+	return exec.CommandContext(ctx, p, args...)
 }
 
 func mergedEnv(
@@ -494,8 +470,6 @@ func (m *Manager) startBackground(
 	cmd := shellCmdWithStartup(
 		ctx,
 		params.Command,
-		!params.Background,
-		m.cleanShellStartup,
 	)
 	cmd.Dir = params.Workdir
 	cmd.Env = mergedEnv(m.baseEnv, params.Env)
@@ -554,12 +528,32 @@ func (m *Manager) startBackground(
 		}
 	}
 
+	// Windows: create a Job Object to manage the process tree.
+	// This ensures all child processes are terminated when the
+	// session ends. If Job Object creation fails, we continue
+	// without it — the parent process will still be terminated
+	// by cmd.Process.Kill(), but orphaned child processes may
+	// remain.
+	var j *jobObject
+	if runtime.GOOS == "windows" && cmd.Process != nil {
+		job, err := newJobObject()
+		if err == nil {
+			_ = job.enableKillOnClose()
+			if err := job.assignProcess(cmd.Process); err == nil {
+				j = job
+			} else {
+				_ = job.close()
+			}
+		}
+	}
+
 	go func() {
 		sess.ioWG.Wait()
 		close(sess.ioDone)
 	}()
 
 	sess.cmd = cmd
+	sess.job = j
 	m.mu.Lock()
 	m.sessions[sess.id] = sess
 	m.mu.Unlock()
@@ -581,6 +575,13 @@ func (m *Manager) startBackground(
 			code = ps.ExitCode()
 		}
 		sess.markDone(code)
+		// On Windows, close the Job Object when the session is done.
+		// This is a safety net for non-kill session endings (process
+		// exits naturally). If the session was killed via kill(), the
+		// job was already closed and this is a no-op.
+		if j != nil {
+			_ = j.close()
+		}
 		cancel()
 		_ = sess.closeIO()
 	}()
@@ -856,13 +857,25 @@ func snapshotLoginShellEnv(
 	ctx context.Context,
 	workdir string,
 ) map[string]string {
+	if runtime.GOOS == "windows" {
+		// Windows has no login shell concept; use process environment directly.
+		// PowerShell and cmd.exe both inherit the process environment,
+		// and "env -0" is not a valid command on either.
+		env := make(map[string]string)
+		for _, kv := range os.Environ() {
+			if k, v, ok := strings.Cut(kv, "="); ok {
+				env[k] = v
+			}
+		}
+		return env
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(ctx, defaultShellEnvTimeout)
 	defer cancel()
 
-	cmd := shellCmd(ctx, shellEnvDumpCommand, false)
+	cmd := shellCmd(ctx, shellEnvDumpCommand)
 	cmd.Dir = workdir
 
 	out, err := cmd.Output()
