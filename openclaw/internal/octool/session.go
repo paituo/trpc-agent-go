@@ -35,6 +35,10 @@ type session struct {
 	stdin   io.WriteCloser
 	closeIO func() error
 	cancel  context.CancelFunc
+	// job is the Windows Job Object for process tree management.
+	// When the session finishes, closing this handle terminates
+	// all processes in the job automatically. nil on non-Windows.
+	job *jobObject `json:"-" msgpack:"-"`
 
 	doneCh chan struct{}
 	ioDone chan struct{}
@@ -94,17 +98,26 @@ func (s *session) markDone(exitCode int) {
 	close(s.doneCh)
 }
 
-func (s *session) readFrom(r io.Reader) {
-	if r == nil {
+func (s *session) readFrom(reader io.Reader) {
+	if reader == nil {
 		return
 	}
-	rd := bufio.NewReaderSize(r, 32*1024)
+	bufReader := bufio.NewReaderSize(reader, 32*1024)
 	for {
-		b, err := rd.ReadBytes('\n')
-		if len(b) > 0 {
-			s.appendOutput(string(b))
+		chunk, err := bufReader.ReadBytes('\n')
+		if len(chunk) > 0 {
+			if runtime.GOOS == "windows" {
+				chunk = []byte(decodeConsoleOutput(chunk))
+			}
+			s.appendOutput(string(chunk))
 		}
 		if err != nil {
+			if err != io.EOF && len(chunk) > 0 {
+				if runtime.GOOS == "windows" {
+					chunk = []byte(decodeConsoleOutput(chunk))
+				}
+				s.appendOutput(string(chunk))
+			}
 			return
 		}
 	}
@@ -333,10 +346,16 @@ func (s *session) kill(grace time.Duration) error {
 	s.mu.Lock()
 	cmd := s.cmd
 	cancel := s.cancel
+	j := s.job
 	s.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
+	}
+	// On Windows, close the Job Object handle to terminate the process tree.
+	// This must happen after cancel() to ensure the context is done first.
+	if j != nil {
+		_ = j.close()
 	}
 	if cmd == nil || cmd.Process == nil {
 		return nil
