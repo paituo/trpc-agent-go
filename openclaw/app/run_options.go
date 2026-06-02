@@ -94,21 +94,21 @@ const (
 	flagMaxToolIterations                             = "max-tool-iterations"
 	flagPreloadMemory                                 = "preload-memory"
 
-	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
-	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
-	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
-	flagContextCompactionApproxRunesPerToken   = "context-compaction-approx-runes-per-token"
-	flagContextWindow                          = "context-window"
-	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
-	flagSkillsManagedRoot                      = "skills-managed-root"
-	flagPlannerType                            = "agent-planner-type"
-	flagPlannerConfig                          = "agent-planner-config"
+	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
+	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
+	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
+	flagContextCompactionApproxRunesPerToken = "context-compaction-approx-runes-per-token"
+	flagContextWindow                        = "context-window"
+	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
+	flagSkillsManagedRoot                    = "skills-managed-root"
+	flagPlannerType                          = "agent-planner-type"
+	flagPlannerConfig                        = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -203,23 +203,23 @@ type runOptions struct {
 	PreloadMemory                                 int
 	PostToolPromptEnabled                         *bool
 
-	SessionSummaryInjectionMode                string
-	SyncSummaryIntraRun                        bool
-	ContextCompactionThresholdRatio            float64
-	ContextCompactionToolResultMaxTokens       int
-	ContextCompactionKeepRecentRequests        int
-	EnableDetailedContextMetrics               bool
-	ContextCompactionForceCleanToolNames       string
-	ContextCompactionKeepToolNames             string
-	ContextCompactionApproxRunesPerToken       float64
-	PlannerType                                string
-	PlannerConfig                              map[string]any
-	ModelContextWindow                         int
-	ModelTokenTailoringEnabled                 bool
-	ModelTokenTailoringStrategy                string
-	SkillsProjectAgentsRoot                    bool
-	SkillsPersonalAgentsRoot                   bool
-	SkillsManagedRoot                          bool
+	SessionSummaryInjectionMode          string
+	SyncSummaryIntraRun                  bool
+	ContextCompactionThresholdRatio      float64
+	ContextCompactionToolResultMaxTokens int
+	ContextCompactionKeepRecentRequests  int
+	EnableDetailedContextMetrics         bool
+	ContextCompactionForceCleanToolNames string
+	ContextCompactionKeepToolNames       string
+	ContextCompactionApproxRunesPerToken float64
+	PlannerType                          string
+	PlannerConfig                        map[string]any
+	ModelContextWindow                   int
+	ModelTokenTailoringEnabled           bool
+	ModelTokenTailoringStrategy          string
+	SkillsProjectAgentsRoot              bool
+	SkillsPersonalAgentsRoot             bool
+	SkillsManagedRoot                    bool
 
 	AgentInstruction       string
 	AgentInstructionFiles  string
@@ -317,6 +317,7 @@ type runOptions struct {
 
 	EnableLocalExec                    bool
 	CodeExecutor                       codeExecutorOptions
+	EnableExecuteTools                 bool
 	EnableOpenClawTools                bool
 	OpenClawToolingGuide               *string
 	EnableParallelTools                bool
@@ -1264,25 +1265,25 @@ type debugRecorderConfig struct {
 type agentRunConfig struct {
 	Type *string `yaml:"type,omitempty"`
 
-	AddSessionSummary                             *bool `yaml:"add_session_summary,omitempty"`
+	AddSessionSummary                             *bool    `yaml:"add_session_summary,omitempty"`
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
-	EnableContextCompaction                       *bool `yaml:"enable_context_compaction,omitempty"`
+	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
-	ContextCompactionOversizedToolResultMaxTokens *int  `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
-	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
-	MaxLLMCalls                                   *int  `yaml:"max_llm_calls,omitempty"`
-	MaxToolIterations                             *int  `yaml:"max_tool_iterations,omitempty"`
-	PreloadMemory                                 *int  `yaml:"preload_memory,omitempty"`
-	DisablePostToolPrompt                         *bool `yaml:"disable_post_tool_prompt,omitempty"`
-	DisablePostToolPromptCamel                    *bool `yaml:"disablePostToolPrompt,omitempty"`
+	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
+	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
+	MaxLLMCalls                                   *int     `yaml:"max_llm_calls,omitempty"`
+	MaxToolIterations                             *int     `yaml:"max_tool_iterations,omitempty"`
+	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
+	DisablePostToolPrompt                         *bool    `yaml:"disable_post_tool_prompt,omitempty"`
+	DisablePostToolPromptCamel                    *bool    `yaml:"disablePostToolPrompt,omitempty"`
 
-	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
-	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
-	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
-	ContextCompactionApproxRunesPerToken     *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
+	EnableDetailedContextMetrics         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	ContextCompactionForceCleanToolNames []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames       []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+	ContextCompactionApproxRunesPerToken *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -1406,6 +1407,7 @@ type skillEntryConfig struct {
 type toolsConfig struct {
 	EnableLocalExec               *bool               `yaml:"enable_local_exec,omitempty"`
 	CodeExecutor                  *codeExecutorConfig `yaml:"code_executor,omitempty"`
+	EnableExecuteTools            *bool               `yaml:"enable_execute_tools,omitempty"`
 	EnableOpenClawTools           *bool               `yaml:"enable_openclaw_tools,omitempty"`
 	OpenClawToolingGuide          *string             `yaml:"openclaw_tooling_guidance,omitempty"`
 	OpenClawToolingGuideCamel     *string             `yaml:"openClawToolingGuidance,omitempty"`
@@ -2199,6 +2201,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Tools.EnableParallelTools != nil &&
 			!flagWasSet(set, flagEnableParallelTools) {
 			opts.EnableParallelTools = *cfg.Tools.EnableParallelTools
+		}
+		if cfg.Tools.EnableExecuteTools != nil &&
+			!flagWasSet(set, "enable-execute-tools") {
+			opts.EnableExecuteTools = *cfg.Tools.EnableExecuteTools
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {

@@ -49,6 +49,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
 	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -262,18 +263,13 @@ const (
 		"only the extra docs you still need."
 	openClawToolingGuidance = "For common PDF, DOCX, text, CSV, " +
 		"and spreadsheet uploads already in the chat, prefer " +
-		"read_document or read_spreadsheet before falling back " +
-		"to exec_command. " +
+		"read_document or read_spreadsheet. " +
 		"For questions about the active chat history, recent " +
 		"turns, or who said something in the current session, use " +
 		"conversation_history before searching long-term memory. " +
 		"Only use long-term memory tools for facts that are not " +
 		"available in the current session. " +
-		"Do not call exec_command just to print OPENCLAW_* upload " +
-		"vars or inspect recent upload metadata when a matching " +
-		"chat file is already available. For other general local " +
-		"shell work, use exec_command. For interactive follow-up " +
-		"input, use " +
+		"For interactive follow-up input, use " +
 		"write_stdin and kill_session when needed. Use message " +
 		"to send to the current chat or an explicit target. " +
 		artifactCompletionRule + " " +
@@ -313,19 +309,7 @@ const (
 		"a matching upload for this chat. If the user wants a " +
 		"derived file sent back in the current chat, send it with " +
 		"message instead of asking which channel or delivery " +
-		"method to use. For exec_command, do " +
-		"not assume skill workspace paths like work/inputs. Do not " +
-		"expose local host paths to the user; when acknowledging a " +
-		"new upload, refer to it only by filename and media kind, " +
-		"not by OPENCLAW_* vars or a machine path. If the channel " +
-		"gives you an opaque placeholder filename, avoid surfacing " +
-		"that raw placeholder to the user unless they explicitly " +
-		"ask for the exact filename. Refer to uploads " +
-		"and generated files by user-facing filenames, and use " +
-		"OPENCLAW_LAST_*_NAME instead of basename(" +
-		"OPENCLAW_LAST_*_PATH) when deriving output filenames, " +
-		"because stored host paths may include internal dedupe " +
-		"prefixes. Use message " +
+		"method to use. Use message " +
 		"with host refs when possible, or with local file " +
 		"paths/artifact refs when needed, to send " +
 		"PDFs, images, audio, or video back to the current chat " +
@@ -336,8 +320,8 @@ const (
 		"returns media_files or media_dirs, call message with " +
 		"those paths unless your final reply already includes " +
 		"`MEDIA:` or `MEDIA_DIR:` lines for OpenClaw to " +
-		"auto-attach and hide from the user. When exec_command " +
-		"or write_stdin generates images that you need to inspect, " +
+		"auto-attach and hide from the user. When write_stdin " +
+		"generates images that you need to inspect, " +
 		"prefer printing `MEDIA:` / `MEDIA_DIR:` lines or the " +
 		"absolute image paths on their own lines. OpenClaw can " +
 		"reattach those generated images to the model for direct " +
@@ -411,6 +395,32 @@ const (
 		"this for any task that needs tool work; include all relevant " +
 		"user context in the request and ask for the completed result " +
 		"or exact blocker."
+
+	openClawExecToolingGuidance = "For common PDF, DOCX, text, CSV, " +
+		"and spreadsheet uploads, prefer read_document or " +
+		"read_spreadsheet before falling back to exec_command. " +
+		"Do not call exec_command just to print OPENCLAW_* upload " +
+		"vars or inspect recent upload metadata when a matching " +
+		"chat file is already available. For other general local " +
+		"shell work, use exec_command. " +
+		"For exec_command, do " +
+		"not assume skill workspace paths like work/inputs. Do not " +
+		"expose local host paths to the user; when acknowledging a " +
+		"new upload, refer to it only by filename and media kind, " +
+		"not by OPENCLAW_* vars or a machine path. If the channel " +
+		"gives you an opaque placeholder filename, avoid surfacing " +
+		"that raw placeholder to the user unless they explicitly " +
+		"ask for the exact filename. Refer to uploads " +
+		"and generated files by user-facing filenames, and use " +
+		"OPENCLAW_LAST_*_NAME instead of basename(" +
+		"OPENCLAW_LAST_*_PATH) when deriving output filenames, " +
+		"because stored host paths may include internal dedupe " +
+		"prefixes. When exec_command or write_stdin generates " +
+		"images that you need to inspect, prefer printing " +
+		"`MEDIA:` / `MEDIA_DIR:` lines or the absolute image paths " +
+		"on their own lines. OpenClaw can reattach those generated " +
+		"images to the model for direct visual inspection, so " +
+		"inspect the image before assuming OCR failed."
 
 	browserToolingGuidance = "For real browser automation, use " +
 		"browser. Prefer browser snapshot plus act for page " +
@@ -1076,6 +1086,7 @@ func NewRuntimeWithOptions(
 	}
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
+		opts.EnableExecuteTools,
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
@@ -1163,6 +1174,7 @@ func NewRuntimeWithOptions(
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			CodeExecutor:         opts.CodeExecutor,
+			EnableExecuteTools:   opts.EnableExecuteTools,
 			EnableOpenClawTools:  opts.EnableOpenClawTools,
 			OpenClawToolingGuide: opts.OpenClawToolingGuide,
 			EnableParallelTools:  opts.EnableParallelTools,
@@ -1694,6 +1706,7 @@ func run(
 	}
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
+		opts.EnableExecuteTools,
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
@@ -1792,9 +1805,10 @@ func run(
 
 			EnableLocalExec:     opts.EnableLocalExec,
 			CodeExecutor:        opts.CodeExecutor,
+			EnableExecuteTools:  opts.EnableExecuteTools,
 			EnableOpenClawTools: opts.EnableOpenClawTools,
-			EnableParallelTools:  opts.EnableParallelTools,
-			codeExecutor:         codeExec,
+			EnableParallelTools: opts.EnableParallelTools,
+			codeExecutor:        codeExec,
 
 			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
 			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
@@ -3133,48 +3147,12 @@ func buildOpenClawToolingGuidance(cfg agentConfig) string {
 	if cfg.OpenClawToolingGuide != nil {
 		return strings.TrimSpace(*cfg.OpenClawToolingGuide)
 	}
-	guidance := strings.TrimSpace(openClawToolingGuidance)
-	if !isSandboxCodeExecutor(cfg.CodeExecutor) {
-		return guidance
+	base := strings.TrimSpace(openClawToolingGuidance)
+	if cfg.EnableExecuteTools {
+		exec := strings.TrimSpace(openClawExecToolingGuidance)
+		return base + "\n\n" + exec
 	}
-	guidance = strings.Replace(
-		guidance,
-		"For other general local shell work, use exec_command. For interactive follow-up "+
-			"input, use write_stdin and kill_session when needed. Use message "+
-			"to send to the current chat or an explicit target. ",
-		"For other general local shell work, use exec_command. In sandbox mode, "+
-			"exec_command only supports foreground non-interactive commands; "+
-			"write_stdin, kill_session, background execution, TTY allocation, "+
-			"and session continuation are unavailable. Use message to send to "+
-			"the current chat or an explicit target. ",
-		1,
-	)
-	guidance = strings.Replace(
-		guidance,
-		"Chat uploads are saved to stable host paths. For host "+
-			"commands, prefer OPENCLAW_LAST_UPLOAD_PATH or "+
-			"OPENCLAW_SESSION_UPLOADS_DIR, OPENCLAW_LAST_UPLOAD_HOST_REF, "+
-			"OPENCLAW_LAST_UPLOAD_NAME, "+
-			"OPENCLAW_LAST_UPLOAD_MIME, OPENCLAW_MEMORY_FILE, "+
-			"OPENCLAW_USER_MEMORY_FILE, OPENCLAW_CHAT_MEMORY_FILE, and "+
-			"OPENCLAW_RECENT_UPLOADS_JSON instead of guessing "+
-			"attachment paths. ",
-		"Chat uploads still provide stable OPENCLAW_* metadata, but sandbox "+
-			"exec_command does not automatically mount host paths such as "+
-			"OPENCLAW_LAST_UPLOAD_PATH, OPENCLAW_SESSION_UPLOADS_DIR, "+
-			"OPENCLAW_MEMORY_FILE, OPENCLAW_USER_MEMORY_FILE, or "+
-			"OPENCLAW_CHAT_MEMORY_FILE. Use that metadata for filenames and "+
-			"host refs, and avoid assuming those host paths are directly "+
-			"readable inside the sandbox. ",
-		1,
-	)
-	guidance = strings.Replace(
-		guidance,
-		"When exec_command or write_stdin generates images",
-		"When exec_command generates images",
-		1,
-	)
-	return guidance
+	return base
 }
 
 func buildOpenClawSkillsGuidance(cfg agentConfig) string {
@@ -3415,6 +3393,7 @@ type agentConfig struct {
 	codeExecutor    codeexecutor.CodeExecutor
 
 	EnableOpenClawTools  bool
+	EnableExecuteTools   bool
 	OpenClawToolingGuide *string
 	EnableParallelTools  bool
 
@@ -3502,6 +3481,7 @@ func newRuntimeStores(stateDir string) (runtimeStores, error) {
 
 func buildOpenClawTools(
 	enabled bool,
+	enableExecuteTools bool,
 	stateDir string,
 	uploadStore *uploads.Store,
 	memoryFileStore *memoryfile.Store,
@@ -3554,16 +3534,13 @@ func buildOpenClawTools(
 		conversationtool.NewTool(),
 		octool.NewReadDocumentTool(uploadStore),
 		octool.NewReadSpreadsheetTool(uploadStore),
-		execTool,
+		octool.NewWriteStdinTool(mgr),
+		octool.NewKillSessionTool(mgr),
 		outbound.NewTool(router),
 		cronTool,
 	}
-	if mgr != nil {
-		tools = append(
-			tools,
-			octool.NewWriteStdinTool(mgr),
-			octool.NewKillSessionTool(mgr),
-		)
+	if enableExecuteTools {
+		tools = append(tools, execTool)
 	}
 	tools = append(tools, subagentTools.All()...)
 	return openClawToolsBundle{
