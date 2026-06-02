@@ -342,6 +342,7 @@ type runOptions struct {
 	SessionSummaryApproxRunesPerToken float64
 
 	EnableLocalExec                    bool
+	EnableExecuteTools                 bool
 	CodeExecutor                       codeExecutorOptions
 	EnableOpenClawTools                bool
 	OpenClawToolingGuide               *string
@@ -1590,6 +1591,7 @@ type skillEntryConfig struct {
 
 type toolsConfig struct {
 	EnableLocalExec               *bool               `yaml:"enable_local_exec,omitempty"`
+	EnableExecuteTools            *bool               `yaml:"enable_execute_tools,omitempty"`
 	CodeExecutor                  *codeExecutorConfig `yaml:"code_executor,omitempty"`
 	EnableOpenClawTools           *bool               `yaml:"enable_openclaw_tools,omitempty"`
 	OpenClawToolingGuide          *string             `yaml:"openclaw_tooling_guidance,omitempty"`
@@ -2487,6 +2489,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Tools.EnableParallelTools != nil &&
 			!flagWasSet(set, flagEnableParallelTools) {
 			opts.EnableParallelTools = *cfg.Tools.EnableParallelTools
+		}
+		if cfg.Tools.EnableExecuteTools != nil &&
+			!flagWasSet(set, "enable-execute-tools") {
+			opts.EnableExecuteTools = *cfg.Tools.EnableExecuteTools
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {
