@@ -1,22 +1,224 @@
 app_name: "openclaw-stdin-sqlite"
-state_dir: "./.openclaw-state/stdin-sqlite"
+state_dir: ".openclaw-state"
 
 http:
   addr: "127.0.0.1:18080"
 
 admin:
-  enabled: false
+  enabled: true
+  addr: "127.0.0.1:18089"
 
 agent:
-  instruction: "You are a helpful assistant for terminal chat."
+  type: "llm"
+  planner_type: "builtin"
+  planner_config:
+    verification_prompt: "验证执行结果是否符合预期"
+  instruction: |
+    你是一个乐于助人的助手。请保持回复简洁，但每次回复要足够充实以完成用户的请求。
+    当下一步明确在范围内、成本低廉且可逆时，请直接执行，无需请求确认。
+    仅包含开场白式的回复，如“我将……”、“我会……”、“我先……”或“接下来……”等，不能作为有效的最终答案。
+    如果需要使用工具，同一助手指令中必须包含工具调用；
+    如果不需要工具，则直接返回所请求的内容或已完成的结果，而非仅做声明。
+    对于写作、总结、推荐、解释或分析类任务，请在同一个回合中生成所请求的内容。
+    对于创建、编写、发送、发布、上传、安排或更新工件/外部资源的请求，
+    只有在您执行了操作并返回了结果链接、ID、文件标记或恢复后的确切阻碍原因后，该轮对话才算完成。
+    
+    # 如何使用 "sequential_thinking" 工具的指南：
+    你的思考应该深入细致，所以很长也没关系。将 total_thoughts 设置为至少 5，但也可以设置到 25。当你考虑多个可能的解决方案或问题的根本原因时，你需要更多的思考步骤。
+    在你认为必要的时候尽可能多地使用此工具来提高答案质量。
+    你可以在思考之间运行 bash 命令（如测试、重现脚本，或使用 'grep'/'find' 查找相关上下文）。
+    顺序思考工具可以帮助你分解复杂问题，逐步分析问题，并确保采取彻底的方法来解决问题。
+    在整个思考过程中不要犹豫多次使用它，以提高解决方案的深度和准确性。
 
-# Real model mode. Load credentials in shell before starting:
-#   source ~/.zshrc
-#   gpt52
+    当用户要求您执行任何超过 2 个步骤的任务时，请调用 todo_write 工具先进行规划，
+    然后逐项处理，并在进行过程中翻转状态。
+    注意：
+      1、智能体支持并发调用工具；
+      2、思考和回复全部采用中文；
+
+  #1、只禁止使用 exec_command 工具，不限制其他工具、技能的使用；
+  #2、智能体支持并发调用工具；
+      
+  # system_prompt_dir: "./prompts/system"
+  max_history_runs: 50
+  preload_memory: 10
+  enable_detailed_context_metrics: true
+  add_session_summary: true
+  session_summary_injection_mode: "system"
+  sync_summary_intra_run: true
+  enable_context_compaction: true
+  context_compaction_threshold_ratio: 0.4
+  context_compaction_tool_result_max_tokens: 512
+  context_compaction_keep_recent_requests: 2
+  context_compaction_oversized_tool_result_max_tokens: 2048
+  context_compaction_approx_runes_per_token: 1.6
+  context_compaction_force_clean_tool_names:
+    - "subagents_get"
+  context_compaction_keep_tool_names:
+    - "session_load"
+    - "session_search"
+
 model:
   mode: "openai"
-  name: "gpt-5.2"
+  name: "${OPENCLAW_MODEL_NAME}"
   openai_variant: "auto"
+  context_window: 128000  
+  token_tailoring:
+    enabled: true
+    strategy: "middle_out"
+  generation_config:
+    max_tokens: 12000
+    temperature: 0.1
+    stream: true
+    thinking_enabled: true
+    reasoning_effort: "high"
+
+knowledges:
+  providers:
+    - name: "qianqiziliao"
+      config:
+        embedder:
+          type: "openai"
+          model: "bge-m3"
+          base_url: "http://172.20.0.162:9997/v1"
+          api_key: "${EMBEDDER_API_KEY}"
+          dimensions: 1024
+        vector_store:
+          type: "inmemory"
+
+session:
+  backend: "sqlite"
+  summary:
+    enabled: true
+    mode: "auto"
+    policy: "any"
+    max_words: 1000
+    # 触发条件（任一满足即触发）
+    event_threshold: 20           # 自上次摘要后新增 20 个事件后触发
+    token_threshold: 8192         # 自上次摘要后新增 4000 个 token 后触发
+    idle_threshold: "10m"
+    approx_runes_per_token: 2
+
+  config:
+    path: "./data/sessions.sqlite"
+    skip_db_init: false
+
+memory:
+  backend: "sqlitevec"
+  config:
+    path: "./data/memory.sqlite"
+    skip_db_init: false
+    index_dimension: 1024
+    embedder:
+      type: "openai"
+      model: "bge-m3"
+      base_url: "http://172.20.0.162:9997/v1"
+      api_key: "${EMBEDDER_API_KEY}"
+      dimensions: 1024
+  limit: 200
+  auto:
+    enabled: true
+    policy: "any"
+    message_threshold: 10
+
+skills:
+  root: "./skills"
+  project_agents_root: false
+  personal_agents_root: false
+  managed_root: false
+  debug: true
+  watch: false
+  tool_profile: "full"
+  load_mode: "turn"
+  tooling_guidance: >
+    ## Skill Rules
+
+    1. **Match → Load immediately.** If the user names a skill, slash command,
+    or the task matches a skill description, call `skill_load` in the same turn.
+    No delay, no exceptions.
+
+    2. **Act, don't announce.** Mentioning a skill requires the `skill_load`
+    call in the same message. Brief preamble only; no capability disclaimers.
+
+    3. **Load before answer.** Never answer a matching task from memory or
+    short summaries. Always load `SKILL.md` first.
+
+    4. **Resolve & minimize.** Relative paths resolve from the skill directory.
+    Read only what's needed; keep context small.
+
+    5. **Durable → skill; lightweight → memory.** Durable capabilities
+    (workflows, integrations, rules) → create or update a local skill at a
+    user-managed root. Simple facts or preferences → use memory instead.
+
+    6. **Stable vs. evolving.** Platform code handles stable boundaries
+    (secrets, permissions, validation, execution guarantees). Skill context
+    handles evolving behavior (triggers, constraints, examples, recovery,
+    domain knowledge).
+
+    7. **Finish what you start.** Creating a skill? Write files, store no raw
+    secrets, validate, refresh if the runtime provides a path, then use it.
+    Reuse bundled assets when they fit.
+
+    8. **Minimal & honest.** Use the smallest skill set covering the task.
+    Don't invent from partial memory. Explore locally before asking. Missing
+    skill? State the issue briefly and fallback gracefully.
+
+tools:
+  enable_local_exec: true
+  enable_openclaw_tools: true
+  enable_parallel_tools: true
+  # tool_call_retry_policy:
+  #   max_attempts: 3
+  #   initial_interval_ms: 200
+  #   backoff_factor: 2.0
+  #   max_interval_ms: 2000
+  #   jitter: true
+  openclaw_tooling_guidance: >
+    Tool selection: prefer read_document/read_spreadsheet for uploaded
+    documents and spreadsheets; use write_stdin and kill_session for
+    interactive input; avoid exec_command for reading uploads or printing
+    OPENCLAW_* vars when a matching chat file exists.
+    Messaging: use message to send to current chat or explicit target.
+    Always send media (PDF/image/audio/video) via message with host refs
+    or local paths—mentioning a filename alone does not send it. If a
+    command returns media_files/media_dirs, call message with those paths
+    unless the reply already includes MEDIA:/MEDIA_DIR: lines. For
+    Telegram voice replies use as_voice=true or [[audio_as_voice]].
+    Uploads: match existing uploads by media kind (voice→audio,
+    video note→video, MIME-based media kind) before asking for re-upload.
+    Prefer OPENCLAW_LAST_UPLOAD_PATH or OPENCLAW_SESSION_UPLOADS_DIR for
+    paths; use OPENCLAW_LAST_*_NAME (not basename of PATH) for output
+    filenames. Refer to uploads by filename and media kind only—never
+    expose local host paths. Complete create/send/publish/upload/update
+    actions in the same turn and return the result link/ID/file marker.
+    Memory: use conversation_history for active chat questions; reserve
+    memory tools for cross-session durable facts only. OPENCLAW_MEMORY_FILE
+    stores stable facts/preferences/workflow rules—read when asked what
+    you remember, update with short bullet on 'remember this'. Never store
+    secrets or large transcripts. Prefer installed local tools for
+    OCR/PDF/audio/image/video work.
+    Subagents and cron: use subagents_spawn for long-running background
+    work; avoid for small tightly-coupled steps and never nest. For cron,
+    omit channel to default to current chat; write one-time execution
+    instructions. Use cron for future/recurring work.
+
+  providers:
+
+
+  toolsets:
+    - type: "file"
+      name: "fs"
+      config:
+        base_dir: "."
+        read_only: false
+        enable_save: true
+        enable_replace: true
+        enable_read: true
+        enable_read_multiple: true
+        enable_list: true
+        enable_search_file: true
+        enable_search_content: true
+        max_file_size: 61440
 
 # Evolution is disabled by default. Set enabled to true to opt into
 # asynchronous skill learning.
@@ -34,18 +236,16 @@ channels:
   - type: "stdin"
     name: "terminal"
     config:
-      from: "alice"
+      from: "user"
       show_prompt: true
       show_role_labels: true
+      user_label: "用户"
+      assistant_label: "助手"
 
-session:
-  backend: "sqlite"
-  config:
-    path: "./sessions.sqlite"
-    skip_db_init: false
-
-memory:
-  backend: "sqlite"
-  config:
-    path: "./memories.sqlite"
-    skip_db_init: false
+debug_recorder:
+  enabled: true
+  mode: "full"
+observability:
+  langfuse:
+    enabled: true
+    required: false
