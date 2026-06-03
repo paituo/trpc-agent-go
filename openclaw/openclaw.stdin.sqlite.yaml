@@ -7,6 +7,9 @@ http:
 admin:
   enabled: true
   addr: "127.0.0.1:18089"
+  static_mounts:
+    - path: "/chat/"
+      dir: "../examples/agui/client/tdesign-chat/dist"
 
 agent:
   type: "llm"
@@ -23,6 +26,13 @@ agent:
     对于创建、编写、发送、发布、上传、安排或更新工件/外部资源的请求，
     只有在您执行了操作并返回了结果链接、ID、文件标记或恢复后的确切阻碍原因后，该轮对话才算完成。
     
+    # 语言硬约束
+    你必须全程使用中文进行思考和回复，包括：
+    - 内部推理过程（thinking）必须使用中文
+    - 可见回复内容必须使用中文
+    - 工具调用的参数说明使用中文
+    违反此约束视为任务失败。
+
     # 如何使用 "sequential_thinking" 工具的指南：
     你的思考应该深入细致，所以很长也没关系。将 total_thoughts 设置为至少 5，但也可以设置到 25。当你考虑多个可能的解决方案或问题的根本原因时，你需要更多的思考步骤。
     在你认为必要的时候尽可能多地使用此工具来提高答案质量。
@@ -61,7 +71,7 @@ agent:
 model:
   mode: "openai"
   name: "${OPENCLAW_MODEL_NAME}"
-  openai_variant: "auto"
+  openai_variant: "${OPENAI_MODEL_VARIANT}"
   context_window: 128000  
   token_tailoring:
     enabled: true
@@ -166,6 +176,7 @@ skills:
 tools:
   enable_local_exec: true
   enable_openclaw_tools: true
+  #enable_execute_tools: false
   enable_parallel_tools: true
   # tool_call_retry_policy:
   #   max_attempts: 3
@@ -177,7 +188,9 @@ tools:
     Tool selection: prefer read_document/read_spreadsheet for uploaded
     documents and spreadsheets; use write_stdin and kill_session for
     interactive input; avoid exec_command for reading uploads or printing
-    OPENCLAW_* vars when a matching chat file exists.
+    OPENCLAW_* vars when a matching chat file exists. When the fs
+    toolset (read/list/write/search) is available, use those tools for
+    file operations instead of exec_command.
     Messaging: use message to send to current chat or explicit target.
     Always send media (PDF/image/audio/video) via message with host refs
     or local paths—mentioning a filename alone does not send it. If a

@@ -21,10 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	occhannel "trpc.group/trpc-go/trpc-agent-go/openclaw/channel"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/gwclient"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/gwproto"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/plugins/stdin/mdrenderer"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 )
 
@@ -34,12 +37,23 @@ const (
 	defaultFrom           = "local"
 	defaultUserLabel      = "User"
 	defaultAssistantLabel = "Assistant"
+	defaultReasoningLabel = "Thought"
 
 	exitCmd1 = "/exit"
 	exitCmd2 = "/quit"
 
 	defaultScannerBufBytes = 64 * 1024
 	defaultScannerMaxBytes = 1 << 20
+)
+
+var (
+	esc          = fmt.Sprintf("%c", 27)
+	colorReset   = esc + "[0m"
+	colorCyan    = esc + "[36m"
+	colorGreen   = esc + "[32m"
+	colorYellow  = esc + "[33m"
+	colorGray    = esc + "[90m"
+	colorMagenta = esc + "[35m"
 )
 
 func init() {
@@ -54,8 +68,11 @@ type channelCfg struct {
 	MaxLineBytes   int    `yaml:"max_line_bytes"`
 	ShowPrompt     bool   `yaml:"show_prompt,omitempty"`
 	ShowRoleLabels bool   `yaml:"show_role_labels,omitempty"`
+	ShowReasoning  *bool  `yaml:"show_reasoning,omitempty"`
+	ReasoningLabel string `yaml:"reasoning_label,omitempty"`
 	UserLabel      string `yaml:"user_label,omitempty"`
 	AssistantLabel string `yaml:"assistant_label,omitempty"`
+	EnableMarkdown bool   `yaml:"enable_markdown,omitempty"`
 }
 
 func newChannel(
@@ -90,6 +107,11 @@ func newChannel(
 		id = strings.TrimSpace(spec.Name)
 	}
 
+	showReasoning := true
+	if cfg.ShowReasoning != nil {
+		showReasoning = *cfg.ShowReasoning
+	}
+
 	return &channel{
 		id:             id,
 		gw:             deps.Gateway,
@@ -99,11 +121,11 @@ func newChannel(
 		maxLineBytes:   maxLineBytes,
 		showPrompt:     cfg.ShowPrompt,
 		showRoleLabels: cfg.ShowRoleLabels,
+		showReasoning:  showReasoning,
+		reasoningLabel: defaultLabel(cfg.ReasoningLabel, defaultReasoningLabel),
 		userLabel:      defaultLabel(cfg.UserLabel, defaultUserLabel),
-		assistantLabel: defaultLabel(
-			cfg.AssistantLabel,
-			defaultAssistantLabel,
-		),
+		assistantLabel: defaultLabel(cfg.AssistantLabel, defaultAssistantLabel),
+		enableMarkdown: cfg.EnableMarkdown,
 	}, nil
 }
 
@@ -115,8 +137,11 @@ type channel struct {
 
 	showPrompt     bool
 	showRoleLabels bool
+	showReasoning  bool
+	reasoningLabel string
 	userLabel      string
 	assistantLabel string
+	enableMarkdown bool
 
 	bufBytes     int
 	maxLineBytes int
@@ -152,8 +177,17 @@ func (c *channel) Run(ctx context.Context) error {
 			return nil
 		}
 
+		if err := c.processMessage(ctx, text); err != nil {
+			return err
+		}
+	}
+}
+
+func (c *channel) processMessage(ctx context.Context, text string) error {
+	streamClient, ok := c.gw.(registry.StreamingGatewayClient)
+	if !ok {
 		rsp, err := c.gw.SendMessage(ctx, gwclient.MessageRequest{
-			Channel: pluginType,
+			Channel: c.id,
 			From:    c.from,
 			Thread:  c.thread,
 			Text:    text,
@@ -161,14 +195,65 @@ func (c *channel) Run(ctx context.Context) error {
 		})
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
-			continue
+			return nil
 		}
 		if rsp.Ignored {
-			c.printReply("(ignored)")
-			continue
+			c.printIgnored()
+			return nil
 		}
-		c.printReply(rsp.Reply)
+		reply := rsp.Reply
+		if c.enableMarkdown {
+			reply = mdrenderer.Render(reply)
+		}
+		c.printReply(reply)
+		return nil
 	}
+
+	stream, err := streamClient.StreamMessage(ctx, gwclient.MessageRequest{
+		Channel: c.id,
+		From:    c.from,
+		Thread:  c.thread,
+		Text:    text,
+		UserID:  c.from,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil
+	}
+
+	ignored := false
+
+	for evt := range stream {
+		switch evt.Type {
+		case gwproto.StreamEventTypeRunIgnored:
+			ignored = true
+		case gwproto.StreamEventTypeThoughtCompleted:
+			if c.showReasoning && evt.Reply != "" {
+				reply := evt.Reply
+				if c.enableMarkdown {
+					reply = mdrenderer.Render(reply)
+				}
+				c.printReasoning(reply)
+			}
+		case gwproto.StreamEventTypeMessageCompleted:
+			if evt.Reply != "" {
+				reply := evt.Reply
+				if c.enableMarkdown {
+					reply = mdrenderer.Render(reply)
+				}
+				c.printReply(reply)
+			}
+		case gwproto.StreamEventTypeRunError, gwproto.StreamEventTypeRunCanceled:
+			if evt.Error != nil {
+				fmt.Fprintf(os.Stderr, "error: %s\n", evt.Error.Message)
+			}
+		}
+	}
+
+	if ignored {
+		c.printIgnored()
+	}
+	return nil
 }
 
 func defaultLabel(raw string, fallback string) string {
@@ -193,15 +278,47 @@ func (c *channel) printPromptTerminator() {
 	fmt.Fprintln(os.Stdout)
 }
 
+func (c *channel) printIgnored() {
+	fmt.Fprintf(os.Stdout, "%s(ignored)%s\n", colorYellow, colorReset)
+}
+
+func (c *channel) printReasoning(reasoning string) {
+	fmt.Fprintf(os.Stdout, "%s%s: %s%s\n", colorCyan, c.reasoningLabel, reasoning, colorReset)
+}
+
 func (c *channel) printReply(reply string) {
 	if c.showRoleLabels {
-		fmt.Fprintf(
-			os.Stdout,
-			"%s: %s\n",
-			c.assistantLabel,
-			reply,
-		)
+		fmt.Fprintf(os.Stdout, "%s%s: %s%s\n", colorGreen, c.assistantLabel, reply, colorReset)
 		return
 	}
-	fmt.Fprintln(os.Stdout, reply)
+	fmt.Fprintf(os.Stdout, "%s%s%s\n", colorGreen, reply, colorReset)
+}
+
+func (c *channel) SendMessage(
+	ctx context.Context,
+	target string,
+	msg occhannel.OutboundMessage,
+) error {
+	if c == nil {
+		return fmt.Errorf("stdin: channel unavailable")
+	}
+
+	userID := strings.TrimSpace(target)
+	if userID == "" {
+		userID = c.from
+	}
+
+	if strings.TrimSpace(msg.Text) != "" {
+		fmt.Fprintf(os.Stdout, "%s[stdin -> %s]%s %s\n", colorMagenta, userID, colorReset, msg.Text)
+	}
+
+	for _, file := range msg.Files {
+		fileName := strings.TrimSpace(file.Name)
+		if fileName == "" {
+			fileName = filepath.Base(file.Path)
+		}
+		fmt.Fprintf(os.Stdout, "%s[stdin -> %s]%s [file] %s\n", colorMagenta, userID, colorReset, fileName)
+	}
+
+	return nil
 }
