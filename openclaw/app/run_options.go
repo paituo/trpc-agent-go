@@ -28,6 +28,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/admin"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
 )
 
@@ -301,6 +302,8 @@ type runOptions struct {
 	EvolutionSkillScopeMode        skill.SkillScopeMode
 	EvolutionApprovalTimeout       time.Duration
 	EvolutionApprovalSweepInterval time.Duration
+
+	AdminStaticMounts []admin.StaticMount
 
 	DebugRecorderEnabled bool
 	DebugRecorderDir     string
@@ -1339,6 +1342,8 @@ type adminConfig struct {
 	Enabled  *bool   `yaml:"enabled,omitempty"`
 	Addr     *string `yaml:"addr,omitempty"`
 	AutoPort *bool   `yaml:"auto_port,omitempty"`
+
+	StaticMounts []admin.StaticMount `yaml:"static_mounts,omitempty"`
 }
 
 type observabilityConfig struct {
@@ -1927,6 +1932,9 @@ func (cfg *fileConfig) apply(
 		if cfg.Admin.AutoPort != nil &&
 			!flagWasSet(set, flagAdminAutoPort) {
 			opts.AdminAutoPort = *cfg.Admin.AutoPort
+		}
+		if len(cfg.Admin.StaticMounts) > 0 {
+			opts.AdminStaticMounts = cfg.Admin.StaticMounts
 		}
 	}
 	if cfg.Observability != nil {
