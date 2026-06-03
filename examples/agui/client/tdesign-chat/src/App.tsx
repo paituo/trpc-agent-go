@@ -571,10 +571,10 @@ export default function App() {
   const [siderWidth, setSiderWidth] = useState<number>(() => loadSiderWidth());
   const [isResizingSider, setIsResizingSider] = useState(false);
   const siderResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
-  const [serverAddress, setServerAddress] = useState<string>("127.0.0.1:8080");
-  const [serverAddressDraft, setServerAddressDraft] = useState<string>("127.0.0.1:8080");
-  const [endpointPath, setEndpointPath] = useState<string>("/agui");
-  const [endpointPathDraft, setEndpointPathDraft] = useState<string>("/agui");
+  const [serverAddress, setServerAddress] = useState<string>("127.0.0.1:7878");
+  const [serverAddressDraft, setServerAddressDraft] = useState<string>("127.0.0.1:7878");
+  const [endpointPath, setEndpointPath] = useState<string>("/chat");
+  const [endpointPathDraft, setEndpointPathDraft] = useState<string>("/chat");
   const [historyPathDraft, setHistoryPathDraft] = useState<string>("/history");
   const [historyHint, setHistoryHint] = useState<string>("");
   const [userId, setUserId] = useState<string>("demo-user");
@@ -812,8 +812,8 @@ export default function App() {
     setExternalToolDrafts({});
     setExternalToolLineageDrafts({});
 
-    const nextServerAddress = serverAddressDraft.trim() || "127.0.0.1:8080";
-    const nextEndpointPath = endpointPathDraft.trim() || "/agui";
+    const nextServerAddress = serverAddressDraft.trim() || "127.0.0.1:7878";
+    const nextEndpointPath = endpointPathDraft.trim() || "/chat";
     const nextHistoryPath = historyPathDraft.trim() || "/history";
     const nextThreadId = threadIdDraft.trim() || createThreadId();
 
@@ -965,7 +965,7 @@ export default function App() {
                     }}
                     className="header-field"
                     style={{ width: "100%" }}
-                    placeholder="/agui 或 完整URL"
+                    placeholder="/chat 或 完整URL"
                   />
 
                   <Input
