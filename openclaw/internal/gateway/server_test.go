@@ -4289,11 +4289,10 @@ func progressAfterMessageDeltaOptions() *gwproto.MessageStreamOptions {
 func TestStreamProgressHelpers(t *testing.T) {
 	t.Parallel()
 
-	update, ok := progressUpdateFromRunnerEvent(nil)
-	require.False(t, ok)
-	require.Equal(t, progressUpdate{}, update)
+	updates := progressUpdatesFromRunnerEvent(nil)
+	require.Empty(t, updates)
 
-	update, ok = progressUpdateFromRunnerEvent(&event.Event{
+	updates = progressUpdatesFromRunnerEvent(&event.Event{
 		Response: &model.Response{
 			Choices: []model.Choice{{
 				Message: model.Message{
@@ -4308,23 +4307,23 @@ func TestStreamProgressHelpers(t *testing.T) {
 			}},
 		},
 	})
-	require.True(t, ok)
+	require.Len(t, updates, 1)
 	require.Equal(
 		t,
 		gwproto.StreamProgressStageReadingDocument,
-		update.stage,
+		updates[0].stage,
 	)
-	require.Equal(t, "Reading document page 2", update.summary)
-	require.Equal(t, streamToolReadDocument, update.toolName)
-	require.Equal(t, "page 2", update.toolDetail)
-	require.Equal(t, testReadDocumentToolCallID, update.toolCallID)
+	require.Equal(t, "Reading document page 2", updates[0].summary)
+	require.Equal(t, streamToolReadDocument, updates[0].toolName)
+	require.Equal(t, "page 2", updates[0].toolDetail)
+	require.Equal(t, testReadDocumentToolCallID, updates[0].toolCallID)
 	require.Equal(
 		t,
 		gwproto.StreamToolStatusRunning,
-		update.toolStatus,
+		updates[0].toolStatus,
 	)
 
-	update, ok = progressUpdateFromRunnerEvent(&event.Event{
+	updates = progressUpdatesFromRunnerEvent(&event.Event{
 		Response: &model.Response{
 			Object: model.ObjectTypeToolResponse,
 			Choices: []model.Choice{{
@@ -4336,20 +4335,20 @@ func TestStreamProgressHelpers(t *testing.T) {
 			}},
 		},
 	})
-	require.True(t, ok)
+	require.Len(t, updates, 1)
 	require.Equal(
 		t,
 		gwproto.StreamProgressStageSummarizing,
-		update.stage,
+		updates[0].stage,
 	)
-	require.Equal(t, progressSummaryAnswering, update.summary)
-	require.Equal(t, streamToolReadDocument, update.toolName)
-	require.Empty(t, update.toolDetail)
-	require.Equal(t, testReadDocumentToolCallID, update.toolCallID)
+	require.Equal(t, progressSummaryAnswering, updates[0].summary)
+	require.Equal(t, streamToolReadDocument, updates[0].toolName)
+	require.Empty(t, updates[0].toolDetail)
+	require.Equal(t, testReadDocumentToolCallID, updates[0].toolCallID)
 	require.Equal(
 		t,
 		gwproto.StreamToolStatusCompleted,
-		update.toolStatus,
+		updates[0].toolStatus,
 	)
 }
 
