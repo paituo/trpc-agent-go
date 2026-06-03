@@ -37,6 +37,11 @@ const (
 	defaultCreateFileMode = os.FileMode(0644)
 	// defaultMaxFileSize is the default maximum file size to read, which is 1MB.
 	defaultMaxFileSize = 1024 * 1024
+	// defaultMaxToolResultChars is the default maximum number of characters
+	// returned in a single tool response. This prevents tool results from
+	// exceeding LLM provider limits (e.g. DeepSeek 60KB, OpenAI 120KB).
+	// 50KB is a safe default that works across most providers.
+	defaultMaxToolResultChars = 50 * 1024
 	// missingFileHintMaxEntries limits how many top-level entries are
 	// suggested when a requested file is missing.
 	missingFileHintMaxEntries = 6
@@ -164,6 +169,15 @@ func WithReadOnlyDirs(dirs ...string) Option {
 	}
 }
 
+// WithMaxToolResultChars sets the maximum number of characters returned
+// in a single tool response, default is 50KB (51200). This prevents tool
+// results from exceeding LLM provider limits on tool response size.
+func WithMaxToolResultChars(n int64) Option {
+	return func(f *fileToolSet) {
+		f.maxToolResultChars = n
+	}
+}
+
 // WithName sets the name of the file toolset.
 func WithName(name string) Option {
 	return func(f *fileToolSet) {
@@ -186,6 +200,7 @@ type fileToolSet struct {
 	createDirMode            os.FileMode
 	createFileMode           os.FileMode
 	maxFileSize              int64
+	maxToolResultChars       int64
 	tools                    []tool.Tool
 	name                     string
 }
@@ -222,6 +237,7 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 		createDirMode:            defaultCreateDirMode,
 		createFileMode:           defaultCreateFileMode,
 		maxFileSize:              defaultMaxFileSize,
+		maxToolResultChars:       defaultMaxToolResultChars,
 		name:                     "file",
 	}
 	// Apply user-provided options.
