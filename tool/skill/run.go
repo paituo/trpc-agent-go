@@ -494,7 +494,11 @@ func (t *RunTool) Call(
 	cwd := resolveCWD(in.Cwd, skillRoot)
 	rr, err := t.runProgram(ctxIO, eng, ws, skillRoot, cwd, in)
 	if err != nil {
-		return nil, err
+		return runOutput{
+			Stdout:   rr.Stdout,
+			Stderr:   err.Error(),
+			ExitCode: -1,
+		}, nil
 	}
 
 	autoFiles := t.autoExportWorkspaceOut(ctxIO, eng, ws, in)
@@ -505,7 +509,10 @@ func (t *RunTool) Call(
 		in,
 	)
 	if err != nil {
-		return nil, err
+		out := buildRunOutputWithLimits(rr, autoFiles, t.outputLimits)
+		out.Stderr = out.Stderr + "\n" + err.Error()
+		out.Warnings = append(out.Warnings, err.Error())
+		return out, nil
 	}
 	filteredOutputs := filterFailedEmptyOutputs(rr, files, manifest)
 	files = filteredOutputs.files
@@ -521,7 +528,9 @@ func (t *RunTool) Call(
 		outputsSaveSkipReason,
 	)
 	if err != nil {
-		return nil, err
+		out := buildRunOutputWithLimits(rr, autoFiles, t.outputLimits)
+		out.Warnings = append(out.Warnings, err.Error())
+		return out, nil
 	}
 	if len(filteredOutputs.warnings) > 0 {
 		out.Warnings = append(out.Warnings, filteredOutputs.warnings...)
