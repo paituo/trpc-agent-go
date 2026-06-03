@@ -227,8 +227,18 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	for _, opt := range opts {
 		opt(fileToolSet)
 	}
-	// Clean the base directory.
+	// Clean the base directory and resolve to absolute path
+	// to avoid CWD dependency at execution time.
 	fileToolSet.baseDir = filepath.Clean(fileToolSet.baseDir)
+	absDir, err := filepath.Abs(fileToolSet.baseDir)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to resolve base directory '%s': %w",
+			fileToolSet.baseDir,
+			err,
+		)
+	}
+	fileToolSet.baseDir = absDir
 	fileToolSet.extraReadRoots = normalizeExtraReadRoots(
 		fileToolSet.extraReadRoots,
 	)
