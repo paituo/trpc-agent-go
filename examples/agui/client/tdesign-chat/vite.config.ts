@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const proxyTarget = env.VITE_AG_UI_PROXY_TARGET || "http://127.0.0.1:8080";
 
   return {
+    base: "/chat/",
     plugins: [react()],
     server: {
       proxy: {
