@@ -491,15 +491,39 @@ func (s *Server) streamLocked(
 			continue
 		}
 
-		if update, ok := progressUpdateFromRunnerEvent(evt); ok &&
-			shouldSendProgressForEvent(run.streamOptions, sentText) {
-			if !sendProgressUpdate(
-				ctx,
-				out,
-				run,
-				&progress,
-				update,
-			) {
+		if updates := progressUpdatesFromRunnerEvent(evt);
+			len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
+			for _, update := range updates {
+				if !sendProgressUpdate(
+					ctx,
+					out,
+					run,
+					&progress,
+					update,
+				) {
+					return streamOutcome{
+						status: traceStatusError,
+						errMsg: contextErrMessage(ctx),
+					}
+				}
+			}
+		}
+
+		if len(evt.StateDelta) > 0 {
+			delta := make(map[string]json.RawMessage, len(evt.StateDelta))
+			for k, v := range evt.StateDelta {
+				if len(v) == 0 {
+					delta[k] = json.RawMessage("null")
+				} else {
+					delta[k] = json.RawMessage(v)
+				}
+			}
+			if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
+				Type:       gwproto.StreamEventTypeStateDelta,
+				SessionID:  run.sessionID,
+				RequestID:  resolvedStreamRequestID(evt.RequestID, run.requestID),
+				StateDelta: delta,
+			}) {
 				return streamOutcome{
 					status: traceStatusError,
 					errMsg: contextErrMessage(ctx),
@@ -567,13 +591,11 @@ func (s *Server) streamLocked(
 		thoughtDelta := streamThoughtDelta(evt)
 		if thoughtDelta != "" {
 			if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
-				Type:      gwproto.StreamEventTypeThoughtDelta,
-				SessionID: run.sessionID,
-				RequestID: resolvedStreamRequestID(
-					result.RequestID,
-					run.requestID,
-				),
-				Delta: thoughtDelta,
+				Type:               gwproto.StreamEventTypeThoughtDelta,
+				SessionID:          run.sessionID,
+				RequestID:          resolvedStreamRequestID(result.RequestID, run.requestID),
+				Delta:              thoughtDelta,
+				ReasoningSignature: reasoningSignatureFromEvent(evt),
 			}) {
 				return streamOutcome{
 					status: traceStatusError,
@@ -590,13 +612,11 @@ func (s *Server) streamLocked(
 			lastThoughtCompleted,
 		) {
 			if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
-				Type:      gwproto.StreamEventTypeThoughtCompleted,
-				SessionID: run.sessionID,
-				RequestID: resolvedStreamRequestID(
-					result.RequestID,
-					run.requestID,
-				),
-				Reply: thoughtReply,
+				Type:               gwproto.StreamEventTypeThoughtCompleted,
+				SessionID:          run.sessionID,
+				RequestID:          resolvedStreamRequestID(result.RequestID, run.requestID),
+				Reply:              thoughtReply,
+				ReasoningSignature: reasoningSignatureFromEvent(evt),
 			}) {
 				return streamOutcome{
 					status: traceStatusError,
@@ -614,11 +634,9 @@ func (s *Server) streamLocked(
 		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
 			Type:      gwproto.StreamEventTypeMessageDelta,
 			SessionID: run.sessionID,
-			RequestID: resolvedStreamRequestID(
-				result.RequestID,
-				run.requestID,
-			),
-			Delta: delta,
+			RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
+			Delta:     delta,
+			Model:     modelFromEvent(evt),
 		}) {
 			return streamOutcome{
 				status: traceStatusError,
@@ -688,11 +706,13 @@ func (s *Server) streamLocked(
 		reply = emptyReplyFallbackText
 	}
 	if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
-		Type:      gwproto.StreamEventTypeMessageCompleted,
-		SessionID: run.sessionID,
-		RequestID: requestID,
-		Reply:     reply,
-		Usage:     cloneGatewayUsage(result.Usage),
+		Type:         gwproto.StreamEventTypeMessageCompleted,
+		SessionID:    run.sessionID,
+		RequestID:    requestID,
+		Reply:        reply,
+		Usage:        cloneGatewayUsage(result.Usage),
+		FinishReason: result.FinishReason,
+		Model:        result.Model,
 	}) {
 		return streamOutcome{
 			status: traceStatusError,
@@ -744,40 +764,58 @@ type progressUpdate struct {
 	toolResult string
 	toolCallID string
 	toolStatus gwproto.StreamToolStatus
+	usage      *gwproto.Usage
+	model      string
 }
 
-func progressUpdateFromRunnerEvent(
+func progressUpdatesFromRunnerEvent(
 	evt *event.Event,
-) (progressUpdate, bool) {
+) []progressUpdate {
 	if evt == nil || evt.Response == nil {
-		return progressUpdate{}, false
+		return nil
 	}
 	if evt.Response.IsToolCallResponse() {
-		toolCall, ok := firstToolCall(evt.Response)
-		if !ok {
-			return progressUpdate{}, false
+		toolCalls := allToolCalls(evt.Response)
+		if len(toolCalls) == 0 {
+			return nil
 		}
-		return progressFromToolCall(toolCall)
+		updates := make([]progressUpdate, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			if u, ok := progressFromToolCall(tc); ok {
+				updates = append(updates, u)
+			}
+		}
+		return updates
 	}
 	if evt.Object == model.ObjectTypeToolResponse {
-		return progressFromToolResult(evt.Response), true
+		u := progressFromToolResult(evt.Response)
+		return []progressUpdate{u}
 	}
-	return progressUpdate{}, false
+	return nil
+}
+
+func allToolCalls(rsp *model.Response) []model.ToolCall {
+	if rsp == nil {
+		return nil
+	}
+	var calls []model.ToolCall
+	for _, choice := range rsp.Choices {
+		if len(choice.Message.ToolCalls) > 0 {
+			calls = append(calls, choice.Message.ToolCalls...)
+		}
+		if len(choice.Delta.ToolCalls) > 0 {
+			calls = append(calls, choice.Delta.ToolCalls...)
+		}
+	}
+	return calls
 }
 
 func firstToolCall(rsp *model.Response) (model.ToolCall, bool) {
-	if rsp == nil {
+	calls := allToolCalls(rsp)
+	if len(calls) == 0 {
 		return model.ToolCall{}, false
 	}
-	for _, choice := range rsp.Choices {
-		if len(choice.Message.ToolCalls) > 0 {
-			return choice.Message.ToolCalls[0], true
-		}
-		if len(choice.Delta.ToolCalls) > 0 {
-			return choice.Delta.ToolCalls[0], true
-		}
-	}
-	return model.ToolCall{}, false
+	return calls[0], true
 }
 
 func firstToolResult(rsp *model.Response) (model.Message, bool) {
@@ -832,6 +870,8 @@ func progressFromToolResult(rsp *model.Response) progressUpdate {
 	update := progressUpdate{
 		stage:   gwproto.StreamProgressStageSummarizing,
 		summary: progressSummaryAnswering,
+		usage:   usageFromModelUsage(rsp.Usage),
+		model:   strings.TrimSpace(rsp.Model),
 	}
 	if rsp == nil || rsp.IsPartial {
 		return update
@@ -1755,6 +1795,8 @@ func sendProgressUpdate(
 		ToolCallID: update.toolCallID,
 		ToolStatus: update.toolStatus,
 		ElapsedMS:  time.Since(state.startedAt).Milliseconds(),
+		Usage:      update.usage,
+		Model:      update.model,
 	})
 }
 
@@ -1819,6 +1861,9 @@ func streamDeltaText(
 		}
 		return fullTextFromResponse(evt.Response)
 	default:
+		if evt.Object != "" && evt.Object != model.ObjectTypeToolResponse {
+			log.Debugf("gateway: unhandled event object type %q", evt.Object)
+		}
 		return ""
 	}
 }
@@ -1995,4 +2040,39 @@ func responseHasPublicContent(rsp *model.Response) bool {
 		}
 	}
 	return false
+}
+
+func reasoningSignatureFromEvent(evt *event.Event) string {
+	if evt == nil || evt.Response == nil || len(evt.Response.Choices) == 0 {
+		return ""
+	}
+	sig := strings.TrimSpace(evt.Response.Choices[0].Message.ReasoningSignature)
+	if sig != "" {
+		return sig
+	}
+	return strings.TrimSpace(evt.Response.Choices[0].Delta.ReasoningSignature)
+}
+
+func finishReasonFromEvent(evt *event.Event) string {
+	if evt == nil || evt.Response == nil || len(evt.Response.Choices) == 0 {
+		return ""
+	}
+	if evt.Response.Choices[0].FinishReason != nil {
+		return *evt.Response.Choices[0].FinishReason
+	}
+	return ""
+}
+
+func modelFromEvent(evt *event.Event) string {
+	if evt == nil || evt.Response == nil {
+		return ""
+	}
+	return strings.TrimSpace(evt.Response.Model)
+}
+
+func stepUsageFromEvent(evt *event.Event) *gwproto.Usage {
+	if evt == nil || evt.Response == nil || evt.Response.Usage == nil {
+		return nil
+	}
+	return usageFromModelUsage(evt.Response.Usage)
 }

@@ -119,6 +119,8 @@ const (
 	StreamEventTypeMessageCompleted StreamEventType = "message.completed"
 	// StreamEventTypeRunProgress carries a high-level run status update.
 	StreamEventTypeRunProgress StreamEventType = "run.progress"
+	// StreamEventTypeStateDelta carries opaque state changes from the runner.
+	StreamEventTypeStateDelta StreamEventType = "state.delta"
 	// StreamEventTypeRunCompleted marks successful stream completion.
 	StreamEventTypeRunCompleted StreamEventType = "run.completed"
 	// StreamEventTypeRunCanceled marks a request canceled by the client.
@@ -163,6 +165,22 @@ type StreamEvent struct {
 	Usage      *Usage              `json:"usage,omitempty"`
 	Ignored    bool                `json:"ignored,omitempty"`
 	Error      *APIError           `json:"error,omitempty"`
+
+	// Model is the LLM model name used for this event's response.
+	Model string `json:"model,omitempty"`
+
+	// FinishReason is the completion reason for the response
+	// (e.g. "stop", "length", "content_filter", "tool_calls").
+	FinishReason string `json:"finish_reason,omitempty"`
+
+	// ReasoningSignature carries the model-issued signature that verifies
+	// the reasoning content. Required for multi-turn conversations with
+	// providers like AWS Bedrock (Claude).
+	ReasoningSignature string `json:"reasoning_signature,omitempty"`
+
+	// StateDelta carries opaque key-value state changes from the runner.
+	// Used for graph node lifecycle, custom node events, and tool artifacts.
+	StateDelta map[string]json.RawMessage `json:"state_delta,omitempty"`
 }
 
 // ContentPartType is the type discriminator for ContentPart.
