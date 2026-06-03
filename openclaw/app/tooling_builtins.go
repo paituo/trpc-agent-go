@@ -331,7 +331,8 @@ type fileToolSetConfig struct {
 	EnableSearchFile    *bool `yaml:"enable_search_file,omitempty"`
 	EnableSearchContent *bool `yaml:"enable_search_content,omitempty"`
 
-	MaxFileSize int64 `yaml:"max_file_size,omitempty"`
+	MaxFileSize         int64 `yaml:"max_file_size,omitempty"`
+	MaxToolResultChars  int64 `yaml:"max_tool_result_chars,omitempty"`
 }
 
 func newFileToolSet(
@@ -390,6 +391,9 @@ func newFileToolSet(
 	}
 	if cfg.MaxFileSize > 0 {
 		opts = append(opts, file.WithMaxFileSize(cfg.MaxFileSize))
+	}
+	if cfg.MaxToolResultChars > 0 {
+		opts = append(opts, file.WithMaxToolResultChars(cfg.MaxToolResultChars))
 	}
 	if name := strings.TrimSpace(spec.Name); name != "" {
 		opts = append(opts, file.WithName(name))

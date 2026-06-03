@@ -185,14 +185,16 @@ func (f *fileToolSet) readFileFromRef(
 		rsp.Message = fmt.Sprintf(
 			"Successfully read %s from %s (truncated), start line: %d, "+
 				"end line: %d, total lines: %d, "+
-				"file size: %d bytes, max: %d bytes",
+				"file size: %d bytes, max: %d bytes. "+
+				"To read the rest, call read_file with start_line=%d.",
 			req.FileName,
 			source,
 			start,
 			end,
 			total,
 			len(content),
-			f.maxFileSize,
+			f.maxToolResultChars,
+			end+1,
 		)
 	} else {
 		rsp.Message = fmt.Sprintf(
@@ -286,13 +288,14 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 			"Successfully read %s (truncated), start line: %d, "+
 				"end line: %d, total lines: %d, "+
 				"file size: %d bytes, max: %d bytes. "+
-				"Use start_line/num_lines or max_chars to read specific sections.",
+				"To read the rest, call read_file with start_line=%d.",
 			req.FileName,
 			startLine,
 			endLine,
 			total,
 			stat.Size(),
-			f.maxFileSize,
+			f.maxToolResultChars,
+			endLine+1,
 		)
 	} else {
 		rsp.Message = fmt.Sprintf(
@@ -346,14 +349,16 @@ func (f *fileToolSet) readFileFromCache(
 			"Loaded %s from a prior skill_run output_files "+
 				"cache (truncated), start line: %d, end line: %d, "+
 				"total lines: %d, file size: %d bytes, "+
-				"max: %d bytes (mime: %s)",
+				"max: %d bytes (mime: %s). "+
+				"To read the rest, call read_file with start_line=%d.",
 			req.FileName,
 			start,
 			end,
 			total,
 			len(content),
-			f.maxFileSize,
+			f.maxToolResultChars,
 			mime,
+			end+1,
 		)
 	} else {
 		rsp.Message = fmt.Sprintf(
@@ -387,7 +392,7 @@ func (f *fileToolSet) sliceReadFile(
 		return "", 0, 0, 0, false, false, err
 	}
 
-	maxChars := f.maxFileSize
+	maxChars := f.maxToolResultChars
 	if req.MaxChars != nil && *req.MaxChars > 0 {
 		maxChars = int64(*req.MaxChars)
 	}
