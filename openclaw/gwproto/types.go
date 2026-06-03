@@ -156,6 +156,7 @@ type StreamEvent struct {
 	Summary    string              `json:"summary,omitempty"`
 	ToolName   string              `json:"tool_name,omitempty"`
 	ToolDetail string              `json:"tool_detail,omitempty"`
+	ToolResult string              `json:"tool_result,omitempty"`
 	ToolCallID string              `json:"tool_call_id,omitempty"`
 	ToolStatus StreamToolStatus    `json:"tool_status,omitempty"`
 	ElapsedMS  int64               `json:"elapsed_ms,omitempty"`
