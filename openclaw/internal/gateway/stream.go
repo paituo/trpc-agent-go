@@ -154,6 +154,7 @@ type progressState struct {
 	summary    string
 	toolName   string
 	toolDetail string
+	toolResult string
 	toolCallID string
 	toolStatus gwproto.StreamToolStatus
 }
@@ -740,6 +741,7 @@ type progressUpdate struct {
 	summary    string
 	toolName   string
 	toolDetail string
+	toolResult string
 	toolCallID string
 	toolStatus gwproto.StreamToolStatus
 }
@@ -843,6 +845,7 @@ func progressFromToolResult(rsp *model.Response) progressUpdate {
 	if update.toolName != "" || update.toolCallID != "" {
 		update.toolStatus = gwproto.StreamToolStatusCompleted
 	}
+	update.toolResult = sanitizeStreamToolDetail(truncateToolResult(msg.Content))
 	return update
 }
 
@@ -1557,6 +1560,21 @@ func sanitizeStreamToolDetail(detail string) string {
 	return safeDetailToken(detail)
 }
 
+const streamToolResultMaxRunes = 96
+
+// truncateToolResult truncates tool result content for safe display.
+func truncateToolResult(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	runes := []rune(content)
+	if len(runes) > streamToolResultMaxRunes {
+		return string(runes[:streamToolResultMaxRunes]) + "…"
+	}
+	return content
+}
+
 func isSafeToolDetailRune(char rune) bool {
 	switch {
 	case unicode.IsLetter(char), unicode.IsDigit(char):
@@ -1713,6 +1731,7 @@ func sendProgressUpdate(
 		state.summary == update.summary &&
 		state.toolName == update.toolName &&
 		state.toolDetail == update.toolDetail &&
+		state.toolResult == update.toolResult &&
 		state.toolCallID == update.toolCallID &&
 		state.toolStatus == update.toolStatus {
 		return true
@@ -1721,6 +1740,7 @@ func sendProgressUpdate(
 	state.summary = update.summary
 	state.toolName = update.toolName
 	state.toolDetail = update.toolDetail
+	state.toolResult = update.toolResult
 	state.toolCallID = update.toolCallID
 	state.toolStatus = update.toolStatus
 	return sendStreamEvent(ctx, out, gwproto.StreamEvent{
@@ -1731,6 +1751,7 @@ func sendProgressUpdate(
 		Summary:    update.summary,
 		ToolName:   update.toolName,
 		ToolDetail: update.toolDetail,
+		ToolResult: update.toolResult,
 		ToolCallID: update.toolCallID,
 		ToolStatus: update.toolStatus,
 		ElapsedMS:  time.Since(state.startedAt).Milliseconds(),
