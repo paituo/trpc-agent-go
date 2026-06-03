@@ -1093,6 +1093,20 @@ export function useAguiChat(config: AguiChatConfig) {
         activeReasoningIdsRef.current.add(thinkingId);
         upsertMessage(thinkingId, (msg) => {
           const prev = msg?.content ?? "";
+          // Fix: Server may send the complete accumulated text as a final flush delta
+          // right before REASONING_MESSAGE_END. If delta starts with prev and is longer,
+          // it's a final flush — replace content instead of appending to avoid duplication.
+          if (prev && delta.length > prev.length && delta.startsWith(prev)) {
+            return {
+              id: thinkingId,
+              role: "assistant",
+              kind: "thinking",
+              title: msg?.title ?? "Thinking",
+              content: delta,
+              status: "streaming",
+              timestamp: msg?.timestamp ?? timestamp,
+            };
+          }
           return {
             id: thinkingId,
             role: "assistant",
