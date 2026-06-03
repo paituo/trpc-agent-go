@@ -28,6 +28,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
+
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/admin"
 )
 
 const (
@@ -72,21 +74,21 @@ const (
 	flagMaxHistoryRuns                                = "max-history-runs"
 	flagPreloadMemory                                 = "preload-memory"
 
-	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
-	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
-	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
-	flagContextCompactionApproxRunesPerToken   = "context-compaction-approx-runes-per-token"
-	flagContextWindow                          = "context-window"
-	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
-	flagSkillsManagedRoot                      = "skills-managed-root"
-	flagPlannerType                            = "agent-planner-type"
-	flagPlannerConfig                          = "agent-planner-config"
+	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
+	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
+	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
+	flagContextCompactionApproxRunesPerToken = "context-compaction-approx-runes-per-token"
+	flagContextWindow                        = "context-window"
+	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
+	flagSkillsManagedRoot                    = "skills-managed-root"
+	flagPlannerType                          = "agent-planner-type"
+	flagPlannerConfig                        = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -164,23 +166,23 @@ type runOptions struct {
 	MaxHistoryRuns                                int
 	PreloadMemory                                 int
 
-	SessionSummaryInjectionMode                string
-	SyncSummaryIntraRun                        bool
-	ContextCompactionThresholdRatio            float64
-	ContextCompactionToolResultMaxTokens       int
-	ContextCompactionKeepRecentRequests        int
-	EnableDetailedContextMetrics               bool
-	ContextCompactionForceCleanToolNames       string
-	ContextCompactionKeepToolNames             string
-	ContextCompactionApproxRunesPerToken       float64
-	PlannerType                                string
-	PlannerConfig                              map[string]any
-	ModelContextWindow                         int
-	ModelTokenTailoringEnabled                 bool
-	ModelTokenTailoringStrategy                string
-	SkillsProjectAgentsRoot                    bool
-	SkillsPersonalAgentsRoot                   bool
-	SkillsManagedRoot                          bool
+	SessionSummaryInjectionMode          string
+	SyncSummaryIntraRun                  bool
+	ContextCompactionThresholdRatio      float64
+	ContextCompactionToolResultMaxTokens int
+	ContextCompactionKeepRecentRequests  int
+	EnableDetailedContextMetrics         bool
+	ContextCompactionForceCleanToolNames string
+	ContextCompactionKeepToolNames       string
+	ContextCompactionApproxRunesPerToken float64
+	PlannerType                          string
+	PlannerConfig                        map[string]any
+	ModelContextWindow                   int
+	ModelTokenTailoringEnabled           bool
+	ModelTokenTailoringStrategy          string
+	SkillsProjectAgentsRoot              bool
+	SkillsPersonalAgentsRoot             bool
+	SkillsManagedRoot                    bool
 
 	AgentInstruction       string
 	AgentInstructionFiles  string
@@ -229,6 +231,8 @@ type runOptions struct {
 	SkillsSkipFallback  bool
 	SkillsToolingGuide  *string
 	StateDir            string
+
+	AdminStaticMounts []admin.StaticMount
 
 	DebugRecorderEnabled bool
 	DebugRecorderDir     string
@@ -1070,6 +1074,8 @@ type adminConfig struct {
 	Enabled  *bool   `yaml:"enabled,omitempty"`
 	Addr     *string `yaml:"addr,omitempty"`
 	AutoPort *bool   `yaml:"auto_port,omitempty"`
+
+	StaticMounts []admin.StaticMount `yaml:"static_mounts,omitempty"`
 }
 
 type observabilityConfig struct {
@@ -1103,21 +1109,21 @@ type debugRecorderConfig struct {
 type agentRunConfig struct {
 	Type *string `yaml:"type,omitempty"`
 
-	AddSessionSummary                             *bool `yaml:"add_session_summary,omitempty"`
+	AddSessionSummary                             *bool    `yaml:"add_session_summary,omitempty"`
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
-	EnableContextCompaction                       *bool `yaml:"enable_context_compaction,omitempty"`
+	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
-	ContextCompactionOversizedToolResultMaxTokens *int  `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
-	MaxHistoryRuns                                *int  `yaml:"max_history_runs,omitempty"`
-	PreloadMemory                                 *int  `yaml:"preload_memory,omitempty"`
+	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
+	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
+	PreloadMemory                                 *int     `yaml:"preload_memory,omitempty"`
 
-	EnableDetailedContextMetrics             *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
-	ContextCompactionForceCleanToolNames     []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
-	ContextCompactionKeepToolNames           []string `yaml:"context_compaction_keep_tool_names,omitempty"`
-	ContextCompactionApproxRunesPerToken     *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
+	EnableDetailedContextMetrics         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	ContextCompactionForceCleanToolNames []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
+	ContextCompactionKeepToolNames       []string `yaml:"context_compaction_keep_tool_names,omitempty"`
+	ContextCompactionApproxRunesPerToken *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -1458,6 +1464,9 @@ func (cfg *fileConfig) apply(
 		if cfg.Admin.AutoPort != nil &&
 			!flagWasSet(set, flagAdminAutoPort) {
 			opts.AdminAutoPort = *cfg.Admin.AutoPort
+		}
+		if len(cfg.Admin.StaticMounts) > 0 {
+			opts.AdminStaticMounts = cfg.Admin.StaticMounts
 		}
 	}
 	if cfg.Observability != nil &&

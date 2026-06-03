@@ -179,6 +179,11 @@ type Config struct {
 
 	Cron *cron.Service
 	Exec *octool.Manager
+
+	// StaticMounts maps local file system directories to URL path prefixes.
+	// Each entry adds a http.FileServer handler to the admin mux.
+	// Useful for mounting frontend apps (e.g. tdesign-chat) without code changes.
+	StaticMounts []StaticMount
 }
 
 type BrowserConfig struct {
@@ -448,6 +453,7 @@ func (s *Service) Handler() http.Handler {
 	mux.HandleFunc(routeDebugSessionsJSON, s.handleDebugSessionsJSON)
 	mux.HandleFunc(routeDebugTracesJSON, s.handleDebugTracesJSON)
 	mux.HandleFunc(routeDebugFile, s.handleDebugFile)
+	registerStaticMounts(mux, s.cfg.StaticMounts)
 	return mux
 }
 
