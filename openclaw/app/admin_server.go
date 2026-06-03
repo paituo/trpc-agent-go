@@ -179,6 +179,7 @@ func buildAdminConfig(
 		),
 		Cron: cronSvc,
 		Exec: execMgr,
+		StaticMounts: opts.AdminStaticMounts,
 	}
 }
 
