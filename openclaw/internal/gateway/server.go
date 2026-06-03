@@ -666,10 +666,12 @@ func (s *Server) runOptions(
 }
 
 type replyAccumulator struct {
-	Text      string
-	RequestID string
-	Error     error
-	Usage     *gwproto.Usage
+	Text         string
+	RequestID    string
+	Error        error
+	Usage        *gwproto.Usage
+	FinishReason string
+	Model        string
 
 	seenFull bool
 	builder  strings.Builder
@@ -722,6 +724,8 @@ func (a *replyAccumulator) consumeFull(rsp *model.Response) {
 	}
 	a.Text = content
 	a.seenFull = true
+	a.captureFinishReason(rsp)
+	a.captureModel(rsp)
 }
 
 func (a *replyAccumulator) consumeDelta(rsp *model.Response) {
@@ -743,6 +747,27 @@ func (a *replyAccumulator) consumeDelta(rsp *model.Response) {
 		a.builder.WriteString(choice.Delta.Content)
 	}
 	a.Text = a.builder.String()
+	a.captureFinishReason(rsp)
+	a.captureModel(rsp)
+}
+
+func (a *replyAccumulator) captureFinishReason(rsp *model.Response) {
+	if rsp == nil || len(rsp.Choices) == 0 || rsp.Choices[0].FinishReason == nil {
+		return
+	}
+	reason := *rsp.Choices[0].FinishReason
+	if reason != "" {
+		a.FinishReason = reason
+	}
+}
+
+func (a *replyAccumulator) captureModel(rsp *model.Response) {
+	if rsp == nil {
+		return
+	}
+	if m := strings.TrimSpace(rsp.Model); m != "" {
+		a.Model = m
+	}
 }
 
 func (a *replyAccumulator) captureUsage(rsp *model.Response) {
