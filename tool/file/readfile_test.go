@@ -430,7 +430,7 @@ func TestFileTool_ReadFile_DirTraversal(t *testing.T) {
 
 func TestFileTool_ReadFile_ExceedMaxFileSize(t *testing.T) {
 	tempDir := t.TempDir()
-	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxFileSize(1))
+	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxToolResultChars(1))
 	assert.NoError(t, err)
 	fileToolSet, ok := toolSet.(*fileToolSet)
 	assert.True(t, ok)
@@ -447,12 +447,12 @@ func TestFileTool_ReadFile_ExceedMaxFileSize(t *testing.T) {
 	assert.NotEmpty(t, rsp.Contents)
 	assert.Equal(t, int64(len(testContent)), rsp.FileSizeBytes)
 	assert.Contains(t, rsp.Message, "truncated")
-	assert.Contains(t, rsp.Message, "start_line/num_lines")
+	assert.Contains(t, rsp.Message, "start_line=")
 }
 
 func TestFileTool_ReadFile_FromRef_TooLarge(t *testing.T) {
 	tempDir := t.TempDir()
-	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxFileSize(1))
+	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxToolResultChars(1))
 	assert.NoError(t, err)
 	fileToolSet := toolSet.(*fileToolSet)
 
@@ -737,6 +737,68 @@ func TestFileTool_ReadFile_FromSkillRunCache(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	assert.Equal(t, "hi", rsp.Contents)
+}
+
+func TestFileTool_ReadFile_MaxToolResultChars_Truncation(t *testing.T) {
+	tempDir := t.TempDir()
+	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxToolResultChars(10))
+	assert.NoError(t, err)
+	fileToolSet, ok := toolSet.(*fileToolSet)
+	assert.True(t, ok)
+
+	// Create a file with content exceeding maxToolResultChars.
+	testContent := "line1\nline2\nline3\nline4\nline5"
+	testFile := filepath.Join(tempDir, "large.txt")
+	err = os.WriteFile(testFile, []byte(testContent), 0644)
+	assert.NoError(t, err)
+
+	req := &readFileRequest{FileName: "large.txt"}
+	rsp, err := fileToolSet.readFile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	assert.LessOrEqual(t, len(rsp.Contents), 10)
+	assert.Contains(t, rsp.Message, "truncated")
+	assert.Contains(t, rsp.Message, "start_line=")
+}
+
+func TestFileTool_ReadFile_MaxToolResultChars_SuggestsNextStartLine(t *testing.T) {
+	tempDir := t.TempDir()
+	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxToolResultChars(12))
+	assert.NoError(t, err)
+	fileToolSet, ok := toolSet.(*fileToolSet)
+	assert.True(t, ok)
+
+	// Create a file where truncation occurs.
+	testContent := "line1\nline2\nline3\nline4"
+	testFile := filepath.Join(tempDir, "multi.txt")
+	err = os.WriteFile(testFile, []byte(testContent), 0644)
+	assert.NoError(t, err)
+
+	req := &readFileRequest{FileName: "multi.txt"}
+	rsp, err := fileToolSet.readFile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.True(t, rsp.Truncated)
+	// Message should suggest the next start_line after the truncated end.
+	assert.Contains(t, rsp.Message, "start_line=")
+}
+
+func TestFileTool_ReadFile_MaxToolResultChars_NotTruncatedWhenSmall(t *testing.T) {
+	tempDir := t.TempDir()
+	toolSet, err := NewToolSet(WithBaseDir(tempDir), WithMaxToolResultChars(1024))
+	assert.NoError(t, err)
+	fileToolSet, ok := toolSet.(*fileToolSet)
+	assert.True(t, ok)
+
+	testContent := "small content"
+	testFile := filepath.Join(tempDir, "small.txt")
+	err = os.WriteFile(testFile, []byte(testContent), 0644)
+	assert.NoError(t, err)
+
+	req := &readFileRequest{FileName: "small.txt"}
+	rsp, err := fileToolSet.readFile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.False(t, rsp.Truncated)
+	assert.Equal(t, testContent, rsp.Contents)
 }
 
 func TestFileTool_ReadFile_ArtifactRef(t *testing.T) {
