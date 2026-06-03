@@ -341,6 +341,7 @@ func (r *Runtime) RunProgram(
 
 	// Ensure cwd exists.
 	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return codeexecutor.RunResult{}, err
 	}
 
@@ -353,6 +354,7 @@ func (r *Runtime) RunProgram(
 
 	env, err := r.buildProgramEnv(ws, spec)
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		return codeexecutor.RunResult{}, err
 	}
 	cmd := newLocalProgramCommand(tctx, cwd, spec, env)
