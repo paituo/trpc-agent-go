@@ -988,11 +988,9 @@ func (s *sessionSummarizer) generateSummary(
 	defer func() {
 		s.recordReportUsage(ctx, finalResp, err)
 		s.emitReport(ctx, err)
-		if finalResp == nil {
-			return
+		if finalResp != nil {
+			ensureTimingInfo(finalResp)
 		}
-		ensureTimingInfo(finalResp)
-
 		itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
 			Invocation:       invocation,
 			Request:          request,
