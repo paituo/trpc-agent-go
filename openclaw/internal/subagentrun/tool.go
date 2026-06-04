@@ -40,6 +40,8 @@ const (
 	argMode           = "mode"
 	argIsolation      = "isolation"
 	argTask           = "task"
+	argTitle          = "title"
+	argRef            = "ref"
 	argTimeoutSeconds = "timeout_seconds"
 	argWaitSeconds    = "wait_timeout_seconds"
 
@@ -151,11 +153,13 @@ type waitTool struct {
 }
 
 type spawnInput struct {
-	Task               string `json:"task"`
-	Mode               string `json:"mode"`
-	Isolation          string `json:"isolation"`
-	TimeoutSeconds     int    `json:"timeout_seconds"`
-	WaitTimeoutSeconds int    `json:"wait_timeout_seconds"`
+	Title             string `json:"title"`
+	Ref               string `json:"ref"`
+	Task              string `json:"task"`
+	Mode              string `json:"mode"`
+	Isolation         string `json:"isolation"`
+	TimeoutSeconds    int    `json:"timeout_seconds"`
+	WaitTimeoutSeconds int   `json:"wait_timeout_seconds"`
 }
 
 type runIDInput struct {
@@ -206,6 +210,18 @@ func (t *spawnTool) Declaration() *tool.Declaration {
 			Type:     schemaTypeObject,
 			Required: []string{argTask},
 			Properties: map[string]*tool.Schema{
+				argTitle: {
+					Type: schemaTypeString,
+					Description: "Optional short title for the " +
+						"subagent run. If not specified, it is " +
+						"auto-generated from the task description.",
+				},
+				argRef: {
+					Type: schemaTypeString,
+					Description: "Optional business reference ID " +
+						"for the subagent run, useful for " +
+						"identification in logs and UI.",
+				},
 				argTask: {
 					Type: schemaTypeString,
 					Description: "Delegated task for the " +
@@ -282,6 +298,8 @@ func (t *spawnTool) Call(
 	run, err := t.svc.Spawn(ctx, SpawnRequest{
 		OwnerUserID:                    userID,
 		ParentSessionID:                sess.ID,
+		Title:                          deriveTitle(in.Title, in.Task),
+		Ref:                            strings.TrimSpace(in.Ref),
 		Task:                           in.Task,
 		TimeoutSeconds:                 in.TimeoutSeconds,
 		Isolation:                      in.Isolation,
