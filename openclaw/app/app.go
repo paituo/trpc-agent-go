@@ -3772,13 +3772,11 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 		opts = append(
 			opts, openai.WithEnableTokenTailoring(true),
 		)
-		if spec.TailoringStrategy != "" {
-			strategy := resolveTailoringStrategy(spec.TailoringStrategy)
-			if strategy != nil {
-				opts = append(
-					opts, openai.WithTailoringStrategy(strategy),
-				)
-			}
+		strategy := resolveTailoringStrategy(spec.TailoringStrategy, name)
+		if strategy != nil {
+			opts = append(
+				opts, openai.WithTailoringStrategy(strategy),
+			)
 		}
 	}
 	return openai.New(name, opts...), nil
@@ -3971,10 +3969,10 @@ func parseOpenAIVariant(
 	}
 }
 
-func resolveTailoringStrategy(name string) model.TailoringStrategy {
+func resolveTailoringStrategy(name string, modelName string) model.TailoringStrategy {
 	switch strings.ToLower(name) {
 	case "middle_out":
-		return model.NewMiddleOutStrategy(model.NewSimpleTokenCounter())
+		return model.NewMiddleOutStrategy(model.NewTokenCounter(modelName))
 	default:
 		return nil
 	}
