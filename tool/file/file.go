@@ -9,8 +9,8 @@
 //
 
 // Package file provides file operation tools for AI agents.
-// This tool provides capabilities for saving file, reading file,
-// listing file, searching file, and searching content in a specified
+// This tool provides capabilities for saving, reading, listing, searching,
+// replacing content, moving, copying, and deleting files in a specified
 // base directory.
 package file
 
@@ -136,6 +136,30 @@ func WithReplaceContentEnabled(e bool) Option {
 	}
 }
 
+// WithMoveFilesEnabled enables or disables the move files functionality,
+// default is true.
+func WithMoveFilesEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.moveFilesEnabled = e
+	}
+}
+
+// WithCopyFilesEnabled enables or disables the copy files functionality,
+// default is true.
+func WithCopyFilesEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.copyFilesEnabled = e
+	}
+}
+
+// WithDeleteFilesEnabled enables or disables the delete files functionality,
+// default is true.
+func WithDeleteFilesEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.deleteFilesEnabled = e
+	}
+}
+
 // WithCreateDirMode sets the permission mode for creating directory,
 // default is 0755 (rwxr-xr-x).
 func WithCreateDirMode(m os.FileMode) Option {
@@ -196,6 +220,9 @@ type fileToolSet struct {
 	searchFileEnabled        bool
 	searchContentEnabled     bool
 	replaceContentEnabled    bool
+	moveFilesEnabled         bool
+	copyFilesEnabled         bool
+	deleteFilesEnabled       bool
 	createDirMode            os.FileMode
 	createFileMode           os.FileMode
 	maxFileSize              int64
@@ -233,6 +260,9 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 		searchFileEnabled:        true,
 		searchContentEnabled:     true,
 		replaceContentEnabled:    true,
+		moveFilesEnabled:         true,
+		copyFilesEnabled:         true,
+		deleteFilesEnabled:       true,
 		createDirMode:            defaultCreateDirMode,
 		createFileMode:           defaultCreateFileMode,
 		maxFileSize:              defaultMaxFileSize,
@@ -300,6 +330,15 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	}
 	if fileToolSet.replaceContentEnabled {
 		tools = append(tools, fileToolSet.replaceContentTool())
+	}
+	if fileToolSet.moveFilesEnabled {
+		tools = append(tools, fileToolSet.moveFilesTool())
+	}
+	if fileToolSet.copyFilesEnabled {
+		tools = append(tools, fileToolSet.copyFilesTool())
+	}
+	if fileToolSet.deleteFilesEnabled {
+		tools = append(tools, fileToolSet.deleteFilesTool())
 	}
 	fileToolSet.tools = tools
 	return fileToolSet, nil
