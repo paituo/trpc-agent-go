@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/codes"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/internal/flow"
@@ -1325,4 +1326,72 @@ func TestCloneRequestForContextCompaction_DeepCopiesMutableFields(t *testing.T) 
 	_, ok := fallbackCloned["bad"].(chan int)
 	require.True(t, ok)
 	require.Nil(t, cloneJSONMapForContextCompaction(nil))
+}
+
+// TestRunOneStep_SpanRecordsIOAttributesWhenCallLLMFails verifies that when
+// callLLM returns an error, the span still records I/O attributes via TraceChat.
+// Previously, the early return at line 635 of llmflow.go skipped
+// processStreamingResponses, which was the only place TraceChat was called,
+// resulting in spans with no I/O attributes when LLM calls failed.
+//
+// After the fix, TraceChat is called in the error path with request attributes,
+// and the span status is set to Error with the error recorded.
+func TestRunOneStep_SpanRecordsIOAttributesWhenCallLLMFails(t *testing.T) {
+	recorder := useSpanRecorder(t)
+
+	f := New(
+		[]flow.RequestProcessor{
+			&seedMessagesRequestProcessor{
+				messages: []model.Message{model.NewUserMessage("test input")},
+			},
+		},
+		nil,
+		Options{},
+	)
+
+	inv := agent.NewInvocation(
+		agent.WithInvocationAgent(&minimalAgent{}),
+		agent.WithInvocationModel(&mockModel{ShouldError: true}),
+	)
+	inv.AgentName = "test-agent"
+
+	eventChan := make(chan *event.Event, 8)
+	lastEvent, err := f.runOneStep(context.Background(), inv, eventChan)
+	require.Error(t, err)
+	require.Nil(t, lastEvent)
+
+	// The span should have been created and ended.
+	spans := recorder.Ended()
+	require.NotEmpty(t, spans, "expected at least one span to be recorded")
+
+	span := spans[len(spans)-1]
+
+	// After the fix, TraceChat IS called in the error path, so the span
+	// should have the gen_ai.system and gen_ai.operation.name attributes.
+	hasGenAISystem := false
+	hasGenAIOperationName := false
+	for _, attr := range span.Attributes() {
+		switch string(attr.Key) {
+		case "gen_ai.system":
+			hasGenAISystem = true
+		case "gen_ai.operation.name":
+			hasGenAIOperationName = true
+		}
+	}
+
+	require.True(t, hasGenAISystem,
+		"span should have gen_ai.system attribute when callLLM fails "+
+			"(TraceChat is now called in the error path)")
+	require.True(t, hasGenAIOperationName,
+		"span should have gen_ai.operation.name attribute when callLLM fails "+
+			"(TraceChat is now called in the error path)")
+
+	// Verify the span status is set to Error.
+	require.Equal(t, codes.Error, span.Status().Code,
+		"span status should be Error when callLLM fails")
+
+	t.Logf("FIX: When callLLM fails, the span (name=%q) now records I/O attributes. "+
+		"TraceChat is called in the error path with request attributes, "+
+		"and the span status is set to Error with the error recorded.",
+		span.Name())
 }

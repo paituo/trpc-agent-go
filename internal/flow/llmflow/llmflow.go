@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	atrace "trpc.group/trpc-go/trpc-agent-go/agent/trace"
@@ -631,6 +632,14 @@ func (f *Flow) runOneStep(
 	// 2. Call LLM (get response sequence).
 	ctx, responseSeq, err := f.callLLM(ctx, invocation, llmRequest, callModel)
 	if err != nil {
+		if startedSpan {
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation: observabilityInvocation,
+				Request:    llmRequest,
+			})
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		}
 		agent.FinishExecutionTraceStep(invocation, stepID, nil, err)
 		return nil, err
 	}
