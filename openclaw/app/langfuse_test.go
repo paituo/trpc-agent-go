@@ -472,6 +472,23 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 		"custom-app request",
 		buildLangfuseTraceName("custom-app", gateway.RunOptionInput{}),
 	)
+	require.Equal(
+		t,
+		"wecom user-abc req-1",
+		buildLangfuseTraceName("", gateway.RunOptionInput{
+			Inbound:   gateway.InboundMessage{Channel: "wecom"},
+			UserID:    "user-abc",
+			RequestID: "req-1",
+		}),
+	)
+	require.Equal(
+		t,
+		"wecom user-abc request",
+		buildLangfuseTraceName("", gateway.RunOptionInput{
+			Inbound: gateway.InboundMessage{Channel: "wecom"},
+			UserID:  "user-abc",
+		}),
+	)
 }
 
 func TestSetLangfuseBaggageMember_IgnoresEmptyInput(t *testing.T) {
