@@ -73,6 +73,8 @@ type Run struct {
 	ChildSessionID  string            `json:"child_session_id,omitempty"`
 	RequestID       string            `json:"request_id,omitempty"`
 	AgentName       string            `json:"agent_name,omitempty"`
+	Title           string            `json:"title,omitempty"`
+	Ref             string            `json:"ref,omitempty"`
 	Task            string            `json:"task,omitempty"`
 	Status          Status            `json:"status,omitempty"`
 	Summary         string            `json:"summary,omitempty"`
@@ -128,6 +130,8 @@ type SpawnRequest struct {
 	ChildSessionID  string
 	RequestID       string
 	AgentName       string
+	Title           string
+	Ref             string
 	Task            string
 	Timeout         time.Duration
 	// RuntimeState is local runner state for implementations that call

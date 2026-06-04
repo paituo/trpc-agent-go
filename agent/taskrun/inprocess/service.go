@@ -205,6 +205,8 @@ func (s *Service) Spawn(
 		ParentAppName:   strings.TrimSpace(req.ParentAppName),
 		AppName:         appNameForSpawn(req),
 		AgentName:       strings.TrimSpace(req.AgentName),
+		Title:           strings.TrimSpace(req.Title),
+		Ref:             strings.TrimSpace(req.Ref),
 		Task:            strings.TrimSpace(req.Task),
 		Status:          StatusQueued,
 		Metadata:        cloneMetadata(req.Metadata),
