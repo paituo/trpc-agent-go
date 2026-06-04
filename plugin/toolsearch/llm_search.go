@@ -110,6 +110,21 @@ func searchTools(ctx context.Context, m model.Model, req *model.Request, tools m
 	tracker := itelemetry.NewChatMetricsTracker(ctx, invocation, req, timingInfo, nil, &err)
 	defer tracker.RecordMetrics()()
 
+	// Ensure TraceChat is called on every exit path so the span is not
+	// left without gen_ai.operation.name when the LLM call fails.
+	var traceChatCalled bool
+	if startedSpan {
+		defer func() {
+			if traceChatCalled {
+				return
+			}
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation: invocation,
+				Request:    req,
+			})
+		}()
+	}
+
 	final, err := generateFinalResponse(ctx, m, req)
 	if err != nil {
 		return originalCtx, nil, err
@@ -119,6 +134,7 @@ func searchTools(ctx context.Context, m model.Model, req *model.Request, tools m
 		return originalCtx, nil, err
 	}
 	ctx = trackAndTraceToolSearch(originalCtx, span, tracker, invocation, req, final, timingInfo, startedSpan)
+	traceChatCalled = true
 	parsed, err := parseSearchToolResponse(content)
 	if err != nil {
 		return ctx, nil, err

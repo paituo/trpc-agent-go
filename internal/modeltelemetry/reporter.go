@@ -25,15 +25,16 @@ import (
 
 // Reporter records chat trace and metrics for one direct model call.
 type Reporter struct {
-	ctx          context.Context
-	invocation   *agent.Invocation
-	request      *model.Request
-	span         oteltrace.Span
-	startedSpan  bool
-	tracker      *itelemetry.ChatMetricsTracker
-	recordMetric func()
-	ended        bool
-	err          error
+	ctx            context.Context
+	invocation     *agent.Invocation
+	request        *model.Request
+	span           oteltrace.Span
+	startedSpan    bool
+	tracker        *itelemetry.ChatMetricsTracker
+	recordMetric   func()
+	ended          bool
+	err            error
+	traceChatCalled bool
 }
 
 // StartChat starts opt-in chat telemetry for direct model usage.
@@ -112,6 +113,7 @@ func (r *Reporter) TrackResponse(response *model.Response) {
 			Response:         response,
 			TimeToFirstToken: ttfb,
 		})
+		r.traceChatCalled = true
 	}
 }
 
@@ -123,6 +125,14 @@ func (r *Reporter) End() {
 	r.ended = true
 	if r.err == nil && r.ctx != nil {
 		r.err = r.ctx.Err()
+	}
+	// Ensure TraceChat is called on every exit path so the span is not
+	// left without gen_ai.operation.name when TrackResponse was never called.
+	if r.startedSpan && !r.traceChatCalled {
+		itelemetry.TraceChat(r.span, &itelemetry.TraceChatAttributes{
+			Invocation: r.invocation,
+			Request:    r.request,
+		})
 	}
 	if r.recordMetric != nil {
 		r.recordMetric()

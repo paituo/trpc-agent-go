@@ -710,11 +710,9 @@ func (s *sessionSummarizer) generateSummary(
 
 	var finalResp *model.Response
 	defer func() {
-		if finalResp == nil {
-			return
+		if finalResp != nil {
+			ensureTimingInfo(finalResp)
 		}
-		ensureTimingInfo(finalResp)
-
 		itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
 			Invocation:       invocation,
 			Request:          request,

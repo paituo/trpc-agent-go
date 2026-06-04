@@ -631,6 +631,15 @@ func (f *Flow) runOneStep(
 	// 2. Call LLM (get response sequence).
 	ctx, responseSeq, err := f.callLLM(ctx, invocation, llmRequest, callModel)
 	if err != nil {
+		if startedSpan {
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation: observabilityInvocation,
+				Request:    llmRequest,
+				Response: &model.Response{
+					Error: &model.ResponseError{Message: err.Error()},
+				},
+			})
+		}
 		agent.FinishExecutionTraceStep(invocation, stepID, nil, err)
 		return nil, err
 	}
@@ -684,6 +693,29 @@ func (f *Flow) processStreamingResponses(
 			&err,
 		)
 		defer tracker.RecordMetrics()()
+	}
+
+	// Track whether TraceChat has been called so we can ensure it runs on
+	// every exit path. When the streaming callback returns false early
+	// (error, context cancellation, etc.), TraceChat would otherwise be
+	// skipped, leaving the span without gen_ai.operation.name and causing
+	// Langfuse to display a bare SPAN with no I/O.
+	var traceChatCalled bool
+	if startedSpan {
+		defer func() {
+			if traceChatCalled {
+				return
+			}
+			var contextMetrics *itelemetry.TraceChatContextMetrics
+			if ct := itelemetry.ContextMetricsTrackerFromContext(ctx); ct != nil {
+				contextMetrics = ct.ToTraceChatContextMetrics()
+			}
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation:     observabilityInvocation,
+				Request:        llmRequest,
+				ContextMetrics: contextMetrics,
+			})
+		}()
 	}
 
 	responseSeq(func(response *model.Response) bool {
@@ -818,6 +850,7 @@ func (f *Flow) processStreamingResponses(
 				TimeToFirstToken: ttfb,
 				ContextMetrics:   contextMetrics,
 			})
+			traceChatCalled = true
 		}
 		return true
 	})

@@ -733,15 +733,21 @@ func (r *A2AAgent) wrapEventChannelWithTelemetry(
 					)
 				}
 			}
-			if startedSpan && fullRespEvent != nil {
-				log.DebugContext(ctx, "fullRespEvent is not ni")
-				itelemetry.TraceAfterInvokeAgent(
-					span,
-					fullRespEvent,
-					tokenUsage,
-					tracker.FirstTokenTimeDuration(),
-					model.ErrorTypeRunError,
-				)
+			if startedSpan {
+				if fullRespEvent != nil {
+					itelemetry.TraceAfterInvokeAgent(
+						span,
+						fullRespEvent,
+						tokenUsage,
+						tracker.FirstTokenTimeDuration(),
+						model.ErrorTypeRunError,
+					)
+				} else if responseErrorType != "" {
+					// No response event was produced, but an error occurred.
+					// Set error status on the span so the observation is not
+					// left without output in Langfuse.
+					span.SetStatus(codes.Error, responseErrorType)
+				}
 			}
 			tracker.SetResponseErrorType(responseErrorType)
 			tracker.RecordMetrics()()

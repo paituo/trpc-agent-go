@@ -206,14 +206,21 @@ func (ga *GraphAgent) runWithBarrier(ctx context.Context, invocation *agent.Invo
 	var fullRespEvent *event.Event
 	var operationErrorType string
 	defer func() {
-		if tracingEnabled && fullRespEvent != nil {
-			itelemetry.TraceAfterInvokeAgent(
-				span,
-				fullRespEvent,
-				tokenUsage,
-				tracker.FirstTokenTimeDuration(),
-				model.ErrorTypeFlowError,
-			)
+		if tracingEnabled {
+			if fullRespEvent != nil {
+				itelemetry.TraceAfterInvokeAgent(
+					span,
+					fullRespEvent,
+					tokenUsage,
+					tracker.FirstTokenTimeDuration(),
+					model.ErrorTypeFlowError,
+				)
+			} else if operationErrorType != "" {
+				// No response event was produced, but an error occurred.
+				// Set error status on the span so the observation is not
+				// left without output in Langfuse.
+				span.SetStatus(codes.Error, operationErrorType)
+			}
 		}
 		tracker.SetResponseErrorType(resolveGraphAgentErrorType(fullRespEvent, operationErrorType))
 		tracker.RecordMetrics()()

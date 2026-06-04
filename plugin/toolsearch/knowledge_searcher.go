@@ -89,6 +89,22 @@ func (s *knowledgeSearcher) rewriteQuery(ctx context.Context, query string) (con
 	timingInfo := invocation.GetOrCreateTimingInfo()
 	tracker := itelemetry.NewChatMetricsTracker(ctx, invocation, req, timingInfo, nil, &err)
 	defer tracker.RecordMetrics()()
+
+	// Ensure TraceChat is called on every exit path so the span is not
+	// left without gen_ai.operation.name when the LLM call fails.
+	var traceChatCalled bool
+	if startedSpan {
+		defer func() {
+			if traceChatCalled {
+				return
+			}
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation: invocation,
+				Request:    req,
+			})
+		}()
+	}
+
 	respCh, err := s.model.GenerateContent(ctx, req)
 	if err != nil {
 		return originalCtx, "", nil, fmt.Errorf("rewriting query: selection model call failed: %w", err)
@@ -130,6 +146,7 @@ func (s *knowledgeSearcher) rewriteQuery(ctx context.Context, query string) (con
 			EventID:          "",
 			TimeToFirstToken: tracker.FirstTokenTimeDuration(),
 		})
+		traceChatCalled = true
 	}
 	return SetToolSearchUsage(originalCtx, final.Usage), content, final.Usage, nil
 }

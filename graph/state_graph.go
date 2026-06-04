@@ -5100,6 +5100,15 @@ func executeModelAndProcessResponsesWithContext(
 		wrappedErr := fmt.Errorf("failed to run model: %w", err)
 		config.Span.RecordError(wrappedErr)
 		config.Span.SetStatus(codes.Error, wrappedErr.Error())
+		// Ensure TraceChat is called so the span gets gen_ai.operation.name
+		// and is classified as GENERATION in Langfuse rather than a bare SPAN.
+		itelemetry.TraceChat(config.Span, &itelemetry.TraceChatAttributes{
+			Invocation: invocation,
+			Request:    config.Request,
+			Response: &model.Response{
+				Error: &model.ResponseError{Message: wrappedErr.Error()},
+			},
+		})
 		return ctx, invocation, nil, wrappedErr
 	}
 	invocation = invocationFromContextOrDefault(ctx, invocation)
