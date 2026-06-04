@@ -324,7 +324,15 @@ func (t *spawnTool) Call(
 		return t.svc.GetForUser(userID, run.ID)
 	}
 	if err != nil {
-		return nil, err
+		// Enhance context cancellation errors with diagnostic information
+		return nil, enhanceWaitError(
+			ctx,
+			err,
+			run.ID,
+			mode,
+			in.TimeoutSeconds,
+			in.WaitTimeoutSeconds,
+		)
 	}
 	if mode == spawnModeReview {
 		if err := markAwaitingReview(ctx); err != nil {
@@ -610,4 +618,85 @@ func isNestedSubagent(ctx context.Context) bool {
 		openclawsubagent.RuntimeStateKeyRun,
 	)
 	return ok && nested
+}
+
+// enhanceWaitError enhances context cancellation errors with detailed
+// diagnostic information to help developers troubleshoot subagent wait failures.
+func enhanceWaitError(
+	ctx context.Context,
+	err error,
+	runID string,
+	mode string,
+	timeoutSeconds int,
+	waitTimeoutSeconds int,
+) error {
+	if err == nil {
+		return nil
+	}
+
+	// Only enhance context cancellation errors
+	if !errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+
+	var builder strings.Builder
+	builder.WriteString("subagent wait failed: ")
+
+	// Determine the root cause
+	if errors.Is(err, context.DeadlineExceeded) {
+		builder.WriteString("timeout exceeded")
+	} else {
+		builder.WriteString("context canceled")
+	}
+
+	// Add diagnostic information
+	builder.WriteString("\n  - subagent run ID: ")
+	builder.WriteString(runID)
+
+	builder.WriteString("\n  - spawn mode: ")
+	builder.WriteString(mode)
+
+	// Add timeout configuration
+	if timeoutSeconds > 0 {
+		builder.WriteString("\n  - subagent timeout: ")
+		builder.WriteString(fmt.Sprintf("%ds", timeoutSeconds))
+	} else {
+		builder.WriteString("\n  - subagent timeout: default (unlimited)")
+	}
+
+	if waitTimeoutSeconds > 0 {
+		builder.WriteString("\n  - wait timeout: ")
+		builder.WriteString(fmt.Sprintf("%ds", waitTimeoutSeconds))
+	} else {
+		builder.WriteString("\n  - wait timeout: inherited from parent context")
+	}
+
+	// Check parent context state
+	if parentErr := ctx.Err(); parentErr != nil {
+		builder.WriteString("\n  - parent context status: ")
+		if errors.Is(parentErr, context.Canceled) {
+			builder.WriteString("canceled")
+		} else if errors.Is(parentErr, context.DeadlineExceeded) {
+			builder.WriteString("deadline exceeded")
+		} else {
+			builder.WriteString(parentErr.Error())
+		}
+	} else {
+		builder.WriteString("\n  - parent context status: active")
+	}
+
+	// Add suggestions
+	builder.WriteString("\n  - suggestions:")
+	if waitTimeoutSeconds <= 0 {
+		builder.WriteString("\n    • set wait_timeout_seconds to create an independent timeout context")
+	}
+	if timeoutSeconds > 0 && waitTimeoutSeconds > 0 && waitTimeoutSeconds <= timeoutSeconds {
+		builder.WriteString("\n    • consider setting wait_timeout_seconds > timeout_seconds")
+	}
+	builder.WriteString("\n    • check Runner timeout configuration (default: 2h)")
+	builder.WriteString("\n    • check for user-initiated cancellation or network issues")
+
+	// Wrap the original error to preserve error chain
+	return fmt.Errorf("%s: %w", builder.String(), err)
 }
