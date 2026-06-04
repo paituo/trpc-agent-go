@@ -55,6 +55,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
@@ -109,7 +110,14 @@ func (s Status) IsValid() bool {
 //     ("Run tests", "Fix auth bug").
 //   - ActiveForm is the present-continuous form, intended for UI spinners
 //     or status lines ("Running tests", "Fixing auth bug").
+//   - ID is a unique identifier. If empty, the tool auto-generates a GUID.
+//     Used by AG-UI step events to pair step.started with step.finished
+//     and to support nested hierarchies.
+//   - ParentID references the parent item's ID. When non-empty,
+//     this item is a sub-task of the referenced parent.
 type Item struct {
+	ID         string `json:"id"          description:"Unique identifier for this task item. Auto-generated GUID if empty."`
+	ParentID   string `json:"parentId,omitempty" description:"ID of the parent task item. Empty for top-level items."`
 	Content    string `json:"content"    description:"Imperative description of the task, e.g. 'Run tests'"`
 	ActiveForm string `json:"activeForm" description:"Present-continuous form shown while the task is running, e.g. 'Running tests'"`
 	Status     Status `json:"status"     jsonschema:"enum=pending,enum=in_progress,enum=completed" description:"One of: pending | in_progress | completed"`
@@ -192,6 +200,14 @@ func (t *Tool) Declaration() *tool.Declaration {
 	itemSchema := &tool.Schema{
 		Type: "object",
 		Properties: map[string]*tool.Schema{
+			"id": {
+				Type:        "string",
+				Description: "Unique identifier for this task item. Auto-generated GUID if empty.",
+			},
+			"parentId": {
+				Type:        "string",
+				Description: "ID of the parent task item. Empty for top-level items.",
+			},
 			"content": {
 				Type:        "string",
 				Description: "Imperative description of the task, e.g. 'Run tests'.",
@@ -288,6 +304,12 @@ func (t *Tool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	// the marshalled Output.Todos and the persisted state both emit
 	// `[]` rather than `null`, matching the declared output schema.
 	newTodos := in.Todos
+	// Auto-generate GUID for items without an ID.
+	for i := range newTodos {
+		if newTodos[i].ID == "" {
+			newTodos[i].ID = uuid.New().String()
+		}
+	}
 	if t.opts.clearOnAllDone && allCompleted(newTodos) {
 		newTodos = []Item{}
 	}
