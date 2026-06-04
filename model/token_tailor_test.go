@@ -12,7 +12,9 @@ package model
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2026,6 +2028,156 @@ func TestNewTokenCounter_ChineseTokenAccuracy(t *testing.T) {
 	assert.Greater(t, qwenTokens, defaultTokens, "qwen should estimate more tokens than default for Chinese")
 	assert.Greater(t, deepseekTokens, defaultTokens, "deepseek should estimate more tokens than default for Chinese")
 	assert.Greater(t, glmTokens, defaultTokens, "glm should estimate more tokens than default for Chinese")
+}
+
+// TestTokenCounterMismatch_DefaultVsDeepSeek verifies the token counter mismatch
+// between NewSimpleTokenCounter() (4.0 runes/token, the default) and
+// NewSimpleTokenCounter(WithApproxRunesPerToken(1.7)) (DeepSeek ratio).
+// For Chinese text, the default counter significantly underestimates token count,
+// causing MiddleOutStrategy to think the context is much smaller than it actually is.
+func TestTokenCounterMismatch_DefaultVsDeepSeek(t *testing.T) {
+	// Simulate a Chinese message similar to those in the OpenClaw incident.
+	chineseText := "这是一个关于人工智能的讨论，涵盖了机器学习、深度学习、自然语言处理等多个领域的内容。" +
+		"我们需要仔细分析每一个技术细节，确保系统的稳定性和可靠性。" +
+		"在实际应用中，这些技术已经广泛应用于搜索引擎、推荐系统、智能客服等场景。"
+	msg := NewUserMessage(chineseText)
+	ctx := context.Background()
+
+	defaultCounter := NewSimpleTokenCounter()                              // 4.0 runes/token
+	deepseekCounter := NewSimpleTokenCounter(WithApproxRunesPerToken(1.7)) // DeepSeek ratio
+
+	defaultTokens, err := defaultCounter.CountTokens(ctx, msg)
+	require.NoError(t, err)
+
+	deepseekTokens, err := deepseekCounter.CountTokens(ctx, msg)
+	require.NoError(t, err)
+
+	t.Logf("Chinese text runes: %d", utf8.RuneCountInString(chineseText))
+	t.Logf("Default counter (4.0 runes/token): %d tokens", defaultTokens)
+	t.Logf("DeepSeek counter (1.7 runes/token): %d tokens", deepseekTokens)
+
+	// DeepSeek counter should estimate significantly more tokens than default.
+	assert.Greater(t, deepseekTokens, defaultTokens,
+		"DeepSeek counter should estimate more tokens for Chinese text")
+
+	// The underestimation factor should be approximately 4.0/1.7 ≈ 2.35x.
+	underestimationFactor := float64(deepseekTokens) / float64(defaultTokens)
+	t.Logf("Underestimation factor: %.2f (expected ~%.2f)", underestimationFactor, 4.0/1.7)
+
+	// Allow some tolerance due to integer rounding.
+	assert.InDelta(t, 4.0/1.7, underestimationFactor, 0.3,
+		"Default counter underestimates by ~2.35x for Chinese text")
+
+	// This means the MiddleOutStrategy with the default counter will think
+	// the context is much smaller than it actually is for DeepSeek models.
+	t.Logf("BUG: MiddleOutStrategy with default counter thinks context is %d tokens, "+
+		"but DeepSeek actually uses ~%d tokens (%.1fx underestimation)",
+		defaultTokens, deepseekTokens, underestimationFactor)
+}
+
+// TestMiddleOutStrategy_WrongCounterFailsToTrimEnough verifies that when
+// MiddleOutStrategy uses the default token counter (4.0 runes/token) instead of
+// the correct DeepSeek counter (1.7 runes/token), it fails to trim enough
+// messages because it underestimates the actual token count.
+//
+// This reproduces the incident where ~95K actual tokens of Chinese content
+// was not trimmed because the default counter estimated it as only ~40K tokens,
+// well within the 112640 token limit (128K * 0.88 context window).
+func TestMiddleOutStrategy_WrongCounterFailsToTrimEnough(t *testing.T) {
+	// maxInputTokens for a 128K context window with typical safety margins:
+	// 128K * 0.88 ≈ 112640 tokens
+	const maxInputTokens = 112640
+
+	// Create messages with Chinese content that would total ~95K tokens
+	// when counted with the DeepSeek ratio (1.7 runes/token).
+	// With the default ratio (4.0 runes/token), the same content would be
+	// estimated at ~95K * 1.7/4.0 ≈ ~40K tokens.
+	//
+	// To get ~95K tokens at 1.7 runes/token, we need ~95K * 1.7 = ~161500 runes.
+	// We'll create multiple messages to simulate a real conversation.
+	chineseParagraph := "这是一个关于人工智能技术讨论的详细内容，涵盖了机器学习算法的优化、" +
+		"深度学习模型的训练策略、自然语言处理中的注意力机制、以及大规模语言模型的推理加速等多个重要研究方向。" +
+		"在实际的生产环境中，我们需要综合考虑计算资源、延迟要求、模型精度等多个维度的约束，" +
+		"设计出既高效又可靠的系统架构。"
+
+	// Each paragraph is ~120 runes. At 1.7 runes/token ≈ 71 tokens each.
+	// At 4.0 runes/token ≈ 30 tokens each.
+	// We need ~161500 runes total → ~1346 paragraphs.
+	// But that's too many messages. Instead, create larger messages.
+	// Let's create messages with ~1600 runes each (≈941 tokens at 1.7, ≈400 tokens at 4.0).
+	// Need ~161500/1600 ≈ 101 such messages.
+
+	var msgs []Message
+	msgs = append(msgs, NewSystemMessage("你是一个有用的AI助手。"))
+
+	// Build messages: each with ~1600 Chinese runes.
+	chunk := repeatChinese(chineseParagraph, 13) // ~1560 runes per chunk
+	for i := 0; i < 108; i++ {
+		msgs = append(msgs, NewUserMessage(chunk))
+	}
+	msgs = append(msgs, NewUserMessage("请总结以上讨论。"))
+
+	ctx := context.Background()
+
+	// Count with default counter (4.0 runes/token) — simulates the current bug.
+	defaultCounter := NewSimpleTokenCounter()
+	defaultTotal, err := defaultCounter.CountTokensRange(ctx, msgs, 0, len(msgs))
+	require.NoError(t, err)
+
+	// Count with correct DeepSeek counter (1.7 runes/token) — simulates the fix.
+	deepseekCounter := NewSimpleTokenCounter(WithApproxRunesPerToken(1.7))
+	deepseekTotal, err := deepseekCounter.CountTokensRange(ctx, msgs, 0, len(msgs))
+	require.NoError(t, err)
+
+	t.Logf("Total messages: %d", len(msgs))
+	t.Logf("Default counter (4.0) total: %d tokens", defaultTotal)
+	t.Logf("DeepSeek counter (1.7) total: %d tokens", deepseekTotal)
+	t.Logf("maxInputTokens: %d", maxInputTokens)
+
+	// The default counter should think the context fits within the limit.
+	assert.LessOrEqual(t, defaultTotal, maxInputTokens,
+		"BUG: Default counter thinks context fits within %d tokens, but it actually exceeds", maxInputTokens)
+
+	// The correct DeepSeek counter should show the context exceeds the limit.
+	assert.Greater(t, deepseekTotal, maxInputTokens,
+		"DeepSeek counter correctly identifies context exceeds %d tokens", maxInputTokens)
+
+	// Now test MiddleOutStrategy behavior with both counters.
+	// With default counter: strategy thinks context fits, returns messages as-is.
+	buggyStrategy := NewMiddleOutStrategy(defaultCounter)
+	buggyResult, buggyErr := buggyStrategy.TailorMessages(ctx, msgs, maxInputTokens)
+	require.NoError(t, buggyErr, "Buggy strategy should not error (it thinks context fits)")
+
+	// The buggy strategy should return all or most messages (no trimming needed).
+	buggyResultTokens, _ := deepseekCounter.CountTokensRange(ctx, buggyResult, 0, len(buggyResult))
+	t.Logf("Buggy strategy result: %d messages, %d tokens (by DeepSeek counter)",
+		len(buggyResult), buggyResultTokens)
+
+	// With correct counter: strategy correctly identifies overflow and trims.
+	correctStrategy := NewMiddleOutStrategy(deepseekCounter)
+	correctResult, correctErr := correctStrategy.TailorMessages(ctx, msgs, maxInputTokens)
+
+	correctResultTokens, _ := deepseekCounter.CountTokensRange(ctx, correctResult, 0, len(correctResult))
+	t.Logf("Correct strategy result: %d messages, %d tokens (by DeepSeek counter), err=%v",
+		len(correctResult), correctResultTokens, correctErr)
+
+	// The correct strategy should trim significantly more than the buggy one.
+	assert.Less(t, len(correctResult), len(buggyResult),
+		"Correct strategy should trim more messages than buggy strategy")
+
+	// The correct strategy's result should have fewer actual tokens.
+	assert.Less(t, correctResultTokens, buggyResultTokens,
+		"Correct strategy result should have fewer actual tokens than buggy result")
+}
+
+// repeatChinese repeats a string n times to build larger Chinese text blocks.
+func repeatChinese(s string, n int) string {
+	var b strings.Builder
+	b.Grow(len(s) * n)
+	for i := 0; i < n; i++ {
+		b.WriteString(s)
+	}
+	return b.String()
 }
 
 func TestSetTokenCounterFromModel(t *testing.T) {

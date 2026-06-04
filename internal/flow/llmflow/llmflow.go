@@ -731,6 +731,14 @@ func (f *Flow) runOneStep(
 	// 2. Call LLM (get response sequence).
 	ctx, responseSeq, modelCalled, err := f.callLLM(ctx, invocation, llmRequest, callModel)
 	if err != nil {
+		if startedSpan {
+			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
+				Invocation: observabilityInvocation,
+				Request:    llmRequest,
+			})
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		}
 		return nil, err
 	}
 	var lastCompleteUsage *model.Usage
