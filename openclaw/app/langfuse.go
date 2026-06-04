@@ -294,13 +294,18 @@ func buildLangfuseTraceName(
 	if channel == "" {
 		channel = appName
 	}
+	userID := strings.TrimSpace(input.UserID)
+	prefix := channel
+	if userID != "" {
+		prefix = channel + " " + userID
+	}
 	if messageID := strings.TrimSpace(
 		input.Inbound.MessageID,
 	); messageID != "" {
-		return channel + " " + messageID
+		return prefix + " " + messageID
 	}
 	if requestID := strings.TrimSpace(input.RequestID); requestID != "" {
-		return channel + " " + requestID
+		return prefix + " " + requestID
 	}
-	return channel + " " + langfuseTraceDefaultName
+	return prefix + " " + langfuseTraceDefaultName
 }
