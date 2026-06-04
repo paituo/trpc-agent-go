@@ -601,7 +601,7 @@ func TestProcessStreamingResponses_RepairsToolCallArgumentsWhenEnabled(t *testin
 	ctx, span := tracer.Start(context.Background(), "s")
 	defer span.End()
 
-	lastEvent, err := f.processStreamingResponses(ctx, inv, nil, req, responseSeq, eventChan, span, true, nil)
+	lastEvent, err := f.processStreamingResponses(ctx, inv, nil, req, responseSeq, eventChan, span, true)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
 	require.Equal(t, "{\"a\":2}", string(response.Choices[0].Message.ToolCalls[0].Function.Arguments))
@@ -973,7 +973,6 @@ func TestProcessStreamingResponses_UsesInvocationFromContextForResponseOptions(t
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1051,7 +1050,6 @@ func TestProcessStreamingResponses_DisableResponseUsageTrackingStillRecordsMetri
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1138,7 +1136,6 @@ func TestProcessStreamingResponses_UsesStableInvocationForMetricsMetadata(t *tes
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1230,7 +1227,6 @@ func TestProcessStreamingResponses_UsesUpdatedInvocationForMetricsMetadataWhenBa
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1324,7 +1320,6 @@ func TestProcessStreamingResponses_UsesUpdatedInvocationForMetricsMetadataAfterC
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1393,7 +1388,6 @@ func TestProcessStreamingResponses_UsesUpdatedInvocationForResponseUsageTiming(t
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1559,7 +1553,6 @@ func TestProcessStreamingResponses_AttachesTimingInfoBeforeAfterModelCallbacks(t
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1611,7 +1604,6 @@ func TestProcessStreamingResponses_UsesUpdatedInvocationForResponseUsageTimingOn
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1680,7 +1672,6 @@ func TestProcessStreamingResponses_PreservesTimingInfoWhenInvocationChanges(t *t
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1763,7 +1754,6 @@ func TestProcessStreamingResponses_PreservesReasoningTimingWhenInvocationChanges
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1840,7 +1830,6 @@ func TestProcessStreamingResponses_PreservesReasoningTimingWhenTrackingDisabledM
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1901,7 +1890,6 @@ func TestProcessStreamingResponses_PreservesOriginalInvocationEventMetadata(t *t
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -1954,7 +1942,6 @@ func TestProcessStreamingResponses_PostprocessUsesOriginalInvocation(t *testing.
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -2020,7 +2007,6 @@ func TestProcessStreamingResponses_AfterModelErrorKeepsOriginalInvocationEventMe
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.Error(t, err)
 	require.Nil(t, lastEvent)
@@ -2081,7 +2067,6 @@ func TestProcessStreamingResponses_UsesStableInvocationForTraceMetadata(t *testi
 		eventChan,
 		span,
 		true,
-		nil,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, lastEvent)
@@ -3153,7 +3138,7 @@ func TestProcessStreamingResponses_ContextCancelledAfterPostprocess(t *testing.T
 	_, span := tracer.Start(ctx, "s")
 	defer span.End()
 
-	_, err := f.processStreamingResponses(ctx, inv, nil, req, responseSeq, eventChan, span, true, nil)
+	_, err := f.processStreamingResponses(ctx, inv, nil, req, responseSeq, eventChan, span, true)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
