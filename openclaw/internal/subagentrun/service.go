@@ -194,6 +194,8 @@ func (s *Service) Spawn(
 		ParentSessionID:         req.ParentSessionID,
 		ChildSessionID:          runID,
 		RequestID:               runID,
+		Title:                   req.Title,
+		Ref:                     req.Ref,
 		Task:                    req.Task,
 		Timeout:                 timeoutDuration(req.TimeoutSeconds),
 		RuntimeState:            runtimeState,

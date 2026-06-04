@@ -68,6 +68,8 @@ type deliveryTarget struct {
 type SpawnRequest struct {
 	OwnerUserID                    string
 	ParentSessionID                string
+	Title                          string
+	Ref                            string
 	Task                           string
 	TimeoutSeconds                 int
 	Isolation                      string
@@ -190,6 +192,8 @@ func projectRun(run coretaskrun.Run) openclawsubagent.Run {
 		ID:              run.ID,
 		ParentSessionID: run.ParentSessionID,
 		ChildSessionID:  run.ChildSessionID,
+		Title:           run.Title,
+		Ref:             run.Ref,
 		Task:            run.Task,
 		Status:          openclawsubagent.Status(run.Status),
 		Summary:         run.Summary,
@@ -244,4 +248,38 @@ func cloneTimePtr(value *time.Time) *time.Time {
 	}
 	copied := *value
 	return &copied
+}
+
+const (
+	// defaultTitleMaxLen is the maximum length for auto-generated titles.
+	defaultTitleMaxLen = 80
+)
+
+// deriveTitle returns the title if specified, otherwise generates one from
+// the task description by truncating to a reasonable length.
+func deriveTitle(title, task string) string {
+	title = strings.TrimSpace(title)
+	if title != "" {
+		return title
+	}
+	task = strings.TrimSpace(task)
+	if task == "" {
+		return ""
+	}
+	// Try to find a natural break point (sentence end or newline).
+	if idx := strings.IndexAny(task, ".\n"); idx > 0 && idx <= defaultTitleMaxLen {
+		return task[:idx]
+	}
+	// Otherwise, truncate to max length.
+	if len(task) <= defaultTitleMaxLen {
+		return task
+	}
+	// Find a word boundary near the max length.
+	truncated := task[:defaultTitleMaxLen]
+	if lastSpace := strings.LastIndexFunc(truncated, func(r rune) bool {
+		return r == ' ' || r == '\t'
+	}); lastSpace > defaultTitleMaxLen/2 {
+		truncated = truncated[:lastSpace]
+	}
+	return truncated + "..."
 }
