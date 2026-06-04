@@ -309,14 +309,16 @@ type runOptions struct {
 	MemoryAutoMessageThreshold int
 	MemoryAutoTimeInterval     time.Duration
 
-	SessionSummaryEnabled             bool
-	SessionSummaryMode                string
-	SessionSummaryPolicy              string
-	SessionSummaryEventCount          int
-	SessionSummaryTokenCount          int
-	SessionSummaryIdleThreshold       time.Duration
-	SessionSummaryMaxWords            int
-	SessionSummaryApproxRunesPerToken float64
+	SessionSummaryEnabled                 bool
+	SessionSummaryMode                    string
+	SessionSummaryPolicy                  string
+	SessionSummaryEventCount              int
+	SessionSummaryTokenCount              int
+	SessionSummaryIdleThreshold           time.Duration
+	SessionSummaryMaxWords                int
+	SessionSummaryApproxRunesPerToken     float64
+	SessionSummaryContextThresholdRatio   float64
+	SessionSummaryContextThresholdMinTokens int
 
 	EnableLocalExec                    bool
 	CodeExecutor                       codeExecutorOptions
@@ -1013,6 +1015,20 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Approximate runes per token for summary token estimation "+
 			"(0 uses framework default 4.0; set ~2.0 for Chinese-heavy content)",
 	)
+	fs.Float64Var(
+		&opts.SessionSummaryContextThresholdRatio,
+		"session-summary-context-threshold-ratio",
+		0,
+		"Context window ratio for triggering summarization "+
+			"(0 uses mode-specific default; auto mode: 0.5, manual mode: 0 disables)",
+	)
+	fs.IntVar(
+		&opts.SessionSummaryContextThresholdMinTokens,
+		"session-summary-context-threshold-min-tokens",
+		0,
+		"Minimum token floor for context-aware summarization "+
+			"(0 uses framework default 2000; applied in both auto and manual modes)",
+	)
 	fs.BoolVar(
 		&opts.EnableLocalExec,
 		"enable-local-exec",
@@ -1580,14 +1596,16 @@ type redisConfig struct {
 }
 
 type summaryConfig struct {
-	Enabled             *bool    `yaml:"enabled,omitempty"`
-	Mode                *string  `yaml:"mode,omitempty"`
-	Policy              *string  `yaml:"policy,omitempty"`
-	EventThreshold      *int     `yaml:"event_threshold,omitempty"`
-	TokenThreshold      *int     `yaml:"token_threshold,omitempty"`
-	IdleThreshold       *string  `yaml:"idle_threshold,omitempty"`
-	MaxWords            *int     `yaml:"max_words,omitempty"`
-	ApproxRunesPerToken *float64 `yaml:"approx_runes_per_token,omitempty"`
+	Enabled                 *bool    `yaml:"enabled,omitempty"`
+	Mode                    *string  `yaml:"mode,omitempty"`
+	Policy                  *string  `yaml:"policy,omitempty"`
+	EventThreshold          *int     `yaml:"event_threshold,omitempty"`
+	TokenThreshold          *int     `yaml:"token_threshold,omitempty"`
+	IdleThreshold           *string  `yaml:"idle_threshold,omitempty"`
+	MaxWords                *int     `yaml:"max_words,omitempty"`
+	ApproxRunesPerToken     *float64 `yaml:"approx_runes_per_token,omitempty"`
+	ContextThresholdRatio   *float64 `yaml:"context_threshold_ratio,omitempty"`
+	ContextThresholdMinTokens *int    `yaml:"context_threshold_min_tokens,omitempty"`
 }
 
 type memoryAuto struct {
@@ -2845,6 +2863,14 @@ func applySessionSummary(
 	if cfg.ApproxRunesPerToken != nil &&
 		!flagWasSet(set, "session-summary-approx-runes-per-token") {
 		opts.SessionSummaryApproxRunesPerToken = *cfg.ApproxRunesPerToken
+	}
+	if cfg.ContextThresholdRatio != nil &&
+		!flagWasSet(set, "session-summary-context-threshold-ratio") {
+		opts.SessionSummaryContextThresholdRatio = *cfg.ContextThresholdRatio
+	}
+	if cfg.ContextThresholdMinTokens != nil &&
+		!flagWasSet(set, "session-summary-context-threshold-min-tokens") {
+		opts.SessionSummaryContextThresholdMinTokens = *cfg.ContextThresholdMinTokens
 	}
 	return nil
 }

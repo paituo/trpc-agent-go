@@ -11,6 +11,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -307,10 +308,21 @@ func newSessionSummarizer(
 		// Context-window aware: dynamically resolve the model's context
 		// window at evaluation time, trigger when delta tokens exceed a
 		// fraction of it (default 50%). Zero-configuration.
-		options = append(options, summary.WithContextThreshold())
+		var cto []summary.ContextThresholdOption
+		if opts.SessionSummaryContextThresholdRatio > 0 {
+			cto = append(cto, summary.WithContextThresholdRatio(
+				opts.SessionSummaryContextThresholdRatio,
+			))
+		}
+		if opts.SessionSummaryContextThresholdMinTokens > 0 {
+			cto = append(cto, summary.WithContextThresholdMinTokens(
+				opts.SessionSummaryContextThresholdMinTokens,
+			))
+		}
+		options = append(options, summary.WithContextThreshold(cto...))
 	case summaryModeManual, "":
 		// Manual thresholds (original behavior).
-		checks := make([]summary.Checker, 0, 3)
+		checks := make([]summary.Checker, 0, 4)
 		if opts.SessionSummaryEventCount > 0 {
 			checks = append(
 				checks,
@@ -335,6 +347,32 @@ func newSessionSummarizer(
 				),
 			)
 		}
+
+		// Add context-threshold check when ratio or min-tokens is configured.
+		var hasContextCheck bool
+		var cto []summary.ContextThresholdOption
+		if opts.SessionSummaryContextThresholdRatio > 0 {
+			cto = append(cto, summary.WithContextThresholdRatio(
+				opts.SessionSummaryContextThresholdRatio,
+			))
+			hasContextCheck = true
+		}
+		if opts.SessionSummaryContextThresholdMinTokens > 0 {
+			cto = append(cto, summary.WithContextThresholdMinTokens(
+				opts.SessionSummaryContextThresholdMinTokens,
+			))
+			hasContextCheck = true
+		}
+		if hasContextCheck {
+			cc := summary.CheckContextThreshold(cto...)
+			checks = append(
+				checks,
+				func(sess *session.Session) bool {
+					return cc(context.Background(), sess)
+				},
+			)
+		}
+
 		if len(checks) == 0 {
 			checks = append(
 				checks,
