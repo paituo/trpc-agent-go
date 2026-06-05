@@ -77,13 +77,25 @@ func echoTool(name string) tool.Tool {
 	)
 }
 
+// extDummyModel is a minimal model for extension wiring tests that don't
+// actually call GenerateContent but need a non-nil model to satisfy
+// TokenCounterForModel.
+type extDummyModel struct{}
+
+func (m *extDummyModel) Info() model.Info { return model.NewTestInfo("ext-dummy") }
+func (m *extDummyModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
+
 // TestWithExtensions_Absent_NoEffect is the regression baseline:
 // constructing without WithExtensions must behave exactly as it
 // did before this feature existed — no auto-tools, no synthesised
 // callbacks.
 func TestWithExtensions_Absent_NoEffect(t *testing.T) {
 	user := echoTool("user")
-	a := New("a", WithTools([]tool.Tool{user}))
+	a := New("a", WithModel(&extDummyModel{}), WithTools([]tool.Tool{user}))
 
 	tools := a.Tools()
 	require.Len(t, tools, 1)
@@ -102,7 +114,7 @@ func TestWithExtensions_Tools_AppendedAsFramework(t *testing.T) {
 	extT := echoTool("from_extension")
 	e := &fakeExt{name: "e", tools: []tool.Tool{extT}}
 
-	a := New("a", WithTools([]tool.Tool{user}), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithTools([]tool.Tool{user}), WithExtensions(e))
 
 	assert.ElementsMatch(t,
 		[]string{"user", "from_extension"},
@@ -123,7 +135,7 @@ func TestWithExtensions_Tools_NameCollisionDropsExtension(t *testing.T) {
 	extDup := echoTool("shared")
 	e := &fakeExt{name: "e", tools: []tool.Tool{extDup}}
 
-	a := New("a", WithTools([]tool.Tool{user}), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithTools([]tool.Tool{user}), WithExtensions(e))
 
 	tools := a.Tools()
 	require.Len(t, tools, 1)
@@ -140,6 +152,7 @@ func TestWithExtensions_Tools_DedupAgainstLaterFrameworkTools(t *testing.T) {
 	}
 
 	a := New("a",
+		WithModel(&extDummyModel{}),
 		WithAwaitUserReplyTool(true),
 		WithSubAgents([]agent.Agent{&mockAgent{name: "sub"}}),
 		WithExtensions(e),
@@ -187,7 +200,7 @@ func TestWithExtensions_ModelCallbacks_OrderIsUserThenExtension(t *testing.T) {
 		},
 	}
 
-	a := New("a", WithModelCallbacks(usercb), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithModelCallbacks(usercb), WithExtensions(e))
 	require.NotNil(t, a.option.ModelCallbacks)
 	_, err := a.option.ModelCallbacks.RunBeforeModel(
 		context.Background(),
@@ -226,7 +239,7 @@ func TestWithExtensions_AgentCallbacks_OrderIsUserThenExtension(t *testing.T) {
 		},
 	}
 
-	a := New("a", WithAgentCallbacks(usercb), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithAgentCallbacks(usercb), WithExtensions(e))
 	require.NotNil(t, a.option.AgentCallbacks)
 	_, err := a.option.AgentCallbacks.RunBeforeAgent(
 		context.Background(), &agent.BeforeAgentArgs{},
@@ -271,7 +284,7 @@ func TestWithExtensions_ToolCallbacks_OrderAndConverterPreserved(t *testing.T) {
 		},
 	}
 
-	a := New("a", WithToolCallbacks(usercb), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithToolCallbacks(usercb), WithExtensions(e))
 	require.NotNil(t, a.option.ToolCallbacks)
 	_, err := a.option.ToolCallbacks.RunBeforeTool(
 		context.Background(), &tool.BeforeToolArgs{ToolName: "x"},
@@ -307,7 +320,7 @@ func TestWithExtensions_MultipleExtensions_OrderPreserved(t *testing.T) {
 		beforeM: []model.BeforeModelCallbackStructured{mk("e2")},
 	}
 
-	a := New("a", WithExtensions(e1, e2))
+	a := New("a", WithModel(&extDummyModel{}), WithExtensions(e1, e2))
 
 	assert.Equal(t, []string{"t1", "t2"}, toolNames(a.Tools()),
 		"extension tools must keep WithExtensions call order")
@@ -335,7 +348,7 @@ func TestWithExtensions_DuplicateName_Panics(t *testing.T) {
 		assert.True(t, strings.Contains(err.Error(), "duplicate name"),
 			"panic message should mention duplicate name: %v", err)
 	}()
-	_ = New("a", WithExtensions(&fakeExt{name: "dup"}, &fakeExt{name: "dup"}))
+	_ = New("a", WithModel(&extDummyModel{}), WithExtensions(&fakeExt{name: "dup"}, &fakeExt{name: "dup"}))
 }
 
 // TestWithExtensions_NilExtensionEntries_Skipped confirms that
@@ -345,7 +358,7 @@ func TestWithExtensions_DuplicateName_Panics(t *testing.T) {
 // swallow nils; New() itself rejects the duplicate-name case
 // loudly.
 func TestWithExtensions_NilExtensionEntries_Skipped(t *testing.T) {
-	a := New("a", WithExtensions(nil, nil))
+	a := New("a", WithModel(&extDummyModel{}), WithExtensions(nil, nil))
 	assert.Nil(t, a.option.AgentCallbacks)
 	assert.Nil(t, a.option.ModelCallbacks)
 	assert.Nil(t, a.option.ToolCallbacks)
@@ -358,7 +371,7 @@ func TestWithExtensions_NilExtensionEntries_Skipped(t *testing.T) {
 // wired but contributes no tools — and therefore stays compatible
 // with WithOutputSchema (see OutputSchema guard regression test).
 func TestWithExtensions_HookOnlyExtension_NoToolsContributed(t *testing.T) {
-	a := New("a", WithExtensions(&hookOnlyExt{name: "h"}))
+	a := New("a", WithModel(&extDummyModel{}), WithExtensions(&hookOnlyExt{name: "h"}))
 	assert.Empty(t, a.option.extensionContributedTools)
 }
 
@@ -385,7 +398,7 @@ func TestWithExtensions_Tools_AppearInInvocationToolSurface(t *testing.T) {
 	extBeta := echoTool("ext_beta")
 	e := &fakeExt{name: "e", tools: []tool.Tool{extAlpha, extBeta}}
 
-	a := New("a", WithTools([]tool.Tool{user}), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithTools([]tool.Tool{user}), WithExtensions(e))
 
 	tools, userToolNames := a.InvocationToolSurface(
 		context.Background(),
@@ -420,7 +433,7 @@ func TestWithExtensions_Tools_InvocationSurfaceDedupAgainstUser(t *testing.T) {
 	extDup := echoTool("shared")
 	e := &fakeExt{name: "e", tools: []tool.Tool{extDup}}
 
-	a := New("a", WithTools([]tool.Tool{user}), WithExtensions(e))
+	a := New("a", WithModel(&extDummyModel{}), WithTools([]tool.Tool{user}), WithExtensions(e))
 
 	tools, _ := a.InvocationToolSurface(
 		context.Background(),
@@ -439,6 +452,7 @@ func TestWithExtensions_Tools_InvocationSurfaceDedupAgainstLaterFrameworkTool(t 
 	e := &fakeExt{name: "e", tools: []tool.Tool{extWorkspaceExec}}
 
 	a := New("a",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(&stubExec{}),
 		WithExtensions(e),
 	)
@@ -465,6 +479,7 @@ func TestWithExtensions_Tools_InvocationSurfaceDedupAgainstTransferTool(t *testi
 	e := &fakeExt{name: "e", tools: []tool.Tool{extTransfer}}
 
 	a := New("a",
+		WithModel(&extDummyModel{}),
 		WithSubAgents([]agent.Agent{&mockAgent{name: "sub"}}),
 		WithExtensions(e),
 	)

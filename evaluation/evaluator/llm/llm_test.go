@@ -102,7 +102,7 @@ func (f *fakeModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan
 }
 
 func (f *fakeModel) Info() model.Info {
-	return model.Info{Name: "fake"}
+	return model.NewTestInfo("fake")
 }
 
 type fakeJudgeRunner struct {

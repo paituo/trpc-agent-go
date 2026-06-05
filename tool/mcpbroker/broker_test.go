@@ -28,10 +28,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	agenttool "trpc.group/trpc-go/trpc-agent-go/tool"
 	legacymcp "trpc.group/trpc-go/trpc-agent-go/tool/mcp"
 	tmcp "trpc.group/trpc-go/trpc-mcp-go"
 )
+
+type brokerTestDummyModel struct{}
+
+func (m *brokerTestDummyModel) Info() model.Info { return model.NewTestInfo("broker-test-dummy") }
+func (m *brokerTestDummyModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
 
 type brokerHTTPServer struct {
 	URL string
@@ -1087,6 +1097,7 @@ func TestBrokerTools_CoexistWithLegacyMCPToolSet(t *testing.T) {
 	broker := New()
 	agent := llmagent.New(
 		"broker-agent",
+		llmagent.WithModel(&brokerTestDummyModel{}),
 		llmagent.WithTools(broker.Tools()),
 		llmagent.WithToolSets([]agenttool.ToolSet{legacyToolSet}),
 	)

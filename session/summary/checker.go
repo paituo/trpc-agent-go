@@ -36,7 +36,7 @@ type ContextChecker func(context.Context, *session.Session) bool
 
 var (
 	defaultTokenCounterMu sync.RWMutex
-	defaultTokenCounter   model.TokenCounter = model.NewSimpleTokenCounter()
+	defaultTokenCounter   model.TokenCounter = model.NewTokenCounter("")
 )
 
 const tokenThresholdConversationTextStateKey = session.StateTempPrefix +
@@ -50,7 +50,7 @@ func getTokenCounter() model.TokenCounter {
 	defaultTokenCounterMu.RUnlock()
 
 	if counter == nil {
-		return model.NewSimpleTokenCounter()
+		return model.NewTokenCounter("")
 	}
 	return counter
 }
@@ -59,7 +59,7 @@ func getTokenCounter() model.TokenCounter {
 // This affects all future CheckTokenThreshold evaluations in this process.
 func SetTokenCounter(counter model.TokenCounter) {
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.NewTokenCounter("")
 	}
 
 	defaultTokenCounterMu.Lock()

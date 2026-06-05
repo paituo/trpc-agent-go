@@ -194,7 +194,7 @@ func (m *captureRequestModel) GenerateContent(
 }
 
 func (m *captureRequestModel) Info() model.Info {
-	return model.Info{Name: "capture"}
+	return model.NewTestInfo("capture")
 }
 
 func createAppTestSkill(t *testing.T) string {

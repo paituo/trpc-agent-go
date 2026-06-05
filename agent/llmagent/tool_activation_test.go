@@ -56,6 +56,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "dup"},
 				activationToolSet{name: "dup"},
@@ -65,6 +66,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "github"},
 			}),
@@ -74,6 +76,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "github"},
 			}),
@@ -83,6 +86,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "github"},
 			}),
@@ -92,6 +96,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "github"},
 			}),
@@ -105,6 +110,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 	require.Panics(t, func() {
 		New(
 			"agent",
+			WithModel(&extDummyModel{}),
 			WithActivatableToolSets([]tool.ToolSet{
 				activationToolSet{name: "github"},
 			}),
@@ -120,6 +126,7 @@ func TestToolActivationOptionsValidateToolSets(t *testing.T) {
 func TestToolActivationPostToolResultWritesRecords(t *testing.T) {
 	agt := New(
 		"agent",
+		WithModel(&extDummyModel{}),
 		WithActivatableToolSets([]tool.ToolSet{
 			activationToolSet{
 				name:  "github",
@@ -179,6 +186,7 @@ func TestToolActivationPostToolResultWritesRecords(t *testing.T) {
 func TestToolActivationPostToolResultIgnoresUnmatchedSkill(t *testing.T) {
 	agt := New(
 		"agent",
+		WithModel(&extDummyModel{}),
 		WithActivatableToolSets([]tool.ToolSet{
 			activationToolSet{name: "github"},
 		}),
@@ -903,7 +911,7 @@ func (m *activationSequenceModel) GenerateContent(
 }
 
 func (m *activationSequenceModel) Info() model.Info {
-	return model.Info{Name: "activation-sequence-model"}
+	return model.NewTestInfo("activation-sequence-model")
 }
 
 func (m *activationSequenceModel) Requests() []*model.Request {

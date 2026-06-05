@@ -95,6 +95,9 @@ func New(name string, opts ...Option) *Model {
 	clientOpts = append(clientOpts, o.anthropicClientOptions...)
 	client := anthropic.NewClient(clientOpts...)
 
+	if o.tokenCounter == nil {
+		o.tokenCounter = model.NewTokenCounter(name)
+	}
 	if o.tailoringStrategy == nil {
 		o.tailoringStrategy = model.NewMiddleOutStrategy(o.tokenCounter)
 	}
@@ -133,6 +136,7 @@ func (m *Model) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
+		TokenCounter:  m.tokenCounter,
 	}
 }
 

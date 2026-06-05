@@ -69,7 +69,17 @@ func (m *fakeModel) GenerateContent(ctx context.Context, req *model.Request) (<-
 	return ch, nil
 }
 
-func (m *fakeModel) Info() model.Info { return m.info }
+func (m *fakeModel) Info() model.Info {
+	info := m.info
+	if info.TokenCounter == nil {
+		name := info.Name
+		if name == "" {
+			name = "fake"
+		}
+		info.TokenCounter = model.NewTokenCounter(name)
+	}
+	return info
+}
 
 func respCh(resps ...*model.Response) <-chan *model.Response {
 	ch := make(chan *model.Response, len(resps))

@@ -98,8 +98,8 @@ func TestRegisterTools_Combinations(t *testing.T) {
 }
 
 func TestLLMAgent_Tools_IncludesTransferWhenSubAgents(t *testing.T) {
-	sub1 := New("sub-1")
-	agt := New("main", WithSubAgents([]agent.Agent{sub1}))
+	sub1 := New("sub-1", WithModel(&extDummyModel{}))
+	agt := New("main", WithModel(&extDummyModel{}), WithSubAgents([]agent.Agent{sub1}))
 
 	ts := agt.Tools()
 	foundTransfer := false
@@ -115,7 +115,7 @@ func TestLLMAgent_Tools_IncludesTransferWhenSubAgents(t *testing.T) {
 }
 
 func TestLLMAgent_Tools_IncludesAwaitUserReplyWhenEnabled(t *testing.T) {
-	agt := New("main", WithAwaitUserReplyTool(true))
+	agt := New("main", WithModel(&extDummyModel{}), WithAwaitUserReplyTool(true))
 
 	ts := agt.Tools()
 	found := false
@@ -133,6 +133,7 @@ func TestLLMAgent_Tools_IncludesAwaitUserReplyWhenEnabled(t *testing.T) {
 func TestLLMAgent_FilterTools_PreservesAwaitUserReply(t *testing.T) {
 	agt := New(
 		"main",
+		WithModel(&extDummyModel{}),
 		WithAwaitUserReplyTool(true),
 		WithToolFilter(func(context.Context, tool.Tool) bool {
 			return false
@@ -161,9 +162,10 @@ func TestLLMAgent_UserTools(t *testing.T) {
 	}
 	toolSet := dummyToolSet{name: "test_toolset"}
 	kb := &minimalKnowledge{}
-	subAgent := New("sub-agent")
+	subAgent := New("sub-agent", WithModel(&extDummyModel{}))
 
 	agent := New("test-agent",
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{userTool1, userTool2}),
 		WithToolSets([]tool.ToolSet{toolSet}),
 		WithKnowledge(kb),
@@ -220,9 +222,10 @@ func TestLLMAgent_UserTools(t *testing.T) {
 func TestLLMAgent_UserTools_EmptyCase(t *testing.T) {
 	// Agent with no user tools, only framework tools
 	kb := &minimalKnowledge{}
-	subAgent := New("sub-agent")
+	subAgent := New("sub-agent", WithModel(&extDummyModel{}))
 
 	agent := New("test-agent",
+		WithModel(&extDummyModel{}),
 		WithKnowledge(kb),
 		WithSubAgents([]agent.Agent{subAgent}),
 		WithAwaitUserReplyTool(true),
@@ -314,6 +317,7 @@ func TestLLMAgent_RefreshToolSetsOnRun(t *testing.T) {
 
 	agent := New(
 		"dynamic-agent",
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{staticTool}),
 		WithToolSets([]tool.ToolSet{dyn}),
 		WithRefreshToolSetsOnRun(true),
@@ -385,6 +389,7 @@ func TestLLMAgent_FilterTools_PassesContextToToolSets(t *testing.T) {
 
 	agt := New(
 		"ctx-agent",
+		WithModel(&extDummyModel{}),
 		WithToolSets([]tool.ToolSet{toolSet}),
 		WithRefreshToolSetsOnRun(true),
 	)
@@ -440,6 +445,7 @@ func TestLLMAgent_AddToolSet_DynamicTools(t *testing.T) {
 		decl: &tool.Declaration{Name: testUserToolNameOne},
 	}
 	agent := New("dynamic-agent",
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{baseTool}),
 	)
 
@@ -492,6 +498,7 @@ func TestLLMAgent_RemoveToolSet_ByName(t *testing.T) {
 	toolSetTwo := dummyToolSet{name: testSecondToolSetName}
 
 	agent := New("remove-agent",
+		WithModel(&extDummyModel{}),
 		WithToolSets([]tool.ToolSet{toolSetOne, toolSetTwo}),
 	)
 
@@ -551,6 +558,7 @@ func TestLLMAgent_SetToolSets_ReplacesAll(t *testing.T) {
 	toolSetTwo := dummyToolSet{name: testSecondToolSetName}
 
 	agent := New("set-agent",
+		WithModel(&extDummyModel{}),
 		WithToolSets([]tool.ToolSet{toolSetOne}),
 	)
 
@@ -609,6 +617,7 @@ func TestLLMAgent_FilterTools_NoFilterReturnsAll(t *testing.T) {
 
 	agent := New(
 		testFilterAgentName,
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{userTool1, userTool2}),
 	)
 
@@ -643,7 +652,7 @@ func TestLLMAgent_FilterTools_RespectsUserFilterOnly(t *testing.T) {
 		decl: &tool.Declaration{Name: testUserToolNameTwo},
 	}
 	kb := &minimalKnowledge{}
-	subAgent := New(testSubAgentName)
+	subAgent := New(testSubAgentName, WithModel(&extDummyModel{}))
 
 	filterFunc := func(ctx context.Context,
 		tl tool.Tool) bool {
@@ -652,6 +661,7 @@ func TestLLMAgent_FilterTools_RespectsUserFilterOnly(t *testing.T) {
 
 	agent := New(
 		testFilterAgentName,
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{userTool1, userTool2}),
 		WithKnowledge(kb),
 		WithSubAgents([]agent.Agent{subAgent}),
@@ -699,6 +709,7 @@ func TestLLMAgent_AddToolSet_NilDoesNothing(t *testing.T) {
 	}
 	llmAgent := New(
 		"add-nil",
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{baseTool}),
 	)
 
@@ -723,6 +734,7 @@ func TestLLMAgent_AddToolSet_ReplacesByName(t *testing.T) {
 	firstToolSet := &dummyToolSet{name: testDynamicToolSetName}
 	llmAgent := New(
 		"add-replace",
+		WithModel(&extDummyModel{}),
 		WithToolSets([]tool.ToolSet{firstToolSet}),
 	)
 
@@ -751,6 +763,7 @@ func TestLLMAgent_SetToolSets_ClearsWhenEmpty(t *testing.T) {
 	toolSet := &dummyToolSet{name: testDynamicToolSetName}
 	llmAgent := New(
 		"set-clear",
+		WithModel(&extDummyModel{}),
 		WithToolSets([]tool.ToolSet{toolSet}),
 	)
 

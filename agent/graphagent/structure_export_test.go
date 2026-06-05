@@ -73,7 +73,7 @@ func (m *structureMockModel) GenerateContent(
 }
 
 func (m *structureMockModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestExport_GraphAgent_HasRootAgentNodeAndEntryEdge(t *testing.T) {
@@ -219,7 +219,7 @@ func TestExport_GraphAgent_AgentNodeMergesChildRootSurfaces(t *testing.T) {
 		SetEntryPoint("researcher").
 		SetFinishPoint("researcher").
 		MustCompile()
-	child := llmagent.New("researcher")
+	child := llmagent.New("researcher", llmagent.WithModel(&structureMockModel{name: "researcher"}))
 	ag, err := New("assistant", compiled, WithSubAgents([]agent.Agent{child}))
 	require.NoError(t, err)
 	snapshot, err := structure.Export(context.Background(), ag)
@@ -245,6 +245,14 @@ func TestExport_GraphAgent_AgentNodeMergesChildRootSurfaces(t *testing.T) {
 				NodeID:    "assistant/researcher",
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: stringPtr("")},
+			},
+			{
+				SurfaceID: "assistant/researcher#model",
+				NodeID:    "assistant/researcher",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "researcher"},
+				},
 			},
 		},
 	})

@@ -965,7 +965,7 @@ func (m *mockModel) GenerateContent(
 }
 
 func (m *mockModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 // newMockModelWithToolCalls creates a mock model that returns tool calls.

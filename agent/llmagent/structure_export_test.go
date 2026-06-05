@@ -37,7 +37,7 @@ func (r *mockSkillRepository) Get(string) (*skill.Skill, error) { return nil, ni
 func (r *mockSkillRepository) Path(string) (string, error) { return "", nil }
 
 func TestExport_LLMAgent_BasicSnapshot(t *testing.T) {
-	ag := New("assistant")
+	ag := New("assistant", WithModel(&extDummyModel{}))
 	snapshot, err := structure.Export(context.Background(), ag)
 	require.NoError(t, err)
 	assertLLMSnapshotEqual(t, snapshot, &structure.Snapshot{
@@ -64,7 +64,7 @@ func TestExport_LLMAgent_BasicSnapshot(t *testing.T) {
 }
 
 func TestExport_LLMAgent_ConfiguredSnapshot(t *testing.T) {
-	subOne := New("sub")
+	subOne := New("sub", WithModel(&extDummyModel{}))
 	subTwo := &mockAgent{name: "sub"}
 	ag := New(
 		"assistant",
@@ -176,7 +176,7 @@ func TestExport_LLMAgent_ConfiguredSnapshot(t *testing.T) {
 }
 
 func TestExport_LLMAgent_DoubleBraceSyntax(t *testing.T) {
-	ag := New("assistant")
+	ag := New("assistant", WithModel(&extDummyModel{}))
 	ag.instruction = prompt.Text{
 		Template: "{{ solve }}",
 		Syntax:   prompt.SyntaxDoubleBrace,

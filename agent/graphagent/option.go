@@ -144,6 +144,8 @@ type Options struct {
 	// Default is 0; the recommended value to pass when opting in is
 	// processor.DefaultContextCompactionOversizedToolResultMaxTokens (8192).
 	ContextCompactionOversizedToolResultMaxTokens int
+	// Model is the model used by the graph agent.
+	Model model.Model
 	// ContextCompactionTokenCounter estimates tool-result size for context
 	// compaction. When nil, SimpleTokenCounter is used.
 	ContextCompactionTokenCounter model.TokenCounter
@@ -325,6 +327,13 @@ func WithContextCompactionOversizedToolResultMaxTokens(tokens int) Option {
 		if tokens >= 0 {
 			opts.ContextCompactionOversizedToolResultMaxTokens = tokens
 		}
+	}
+}
+
+// WithModel sets the model for the graph agent.
+func WithModel(m model.Model) Option {
+	return func(o *Options) {
+		o.Model = m
 	}
 }
 

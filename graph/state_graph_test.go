@@ -2685,7 +2685,7 @@ func (m *mockModel) GenerateContent(ctx context.Context, req *model.Request) (<-
 }
 
 func (m *mockModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 // stubModel returns a single response then closes channel.
@@ -2701,7 +2701,7 @@ func (s *stubModel) GenerateContent(ctx context.Context, req *model.Request) (<-
 }
 
 func (s *stubModel) Info() model.Info {
-	return model.Info{Name: "stub"}
+	return model.NewTestInfo("stub")
 }
 
 func newRunner(respID string) *llmRunner {
@@ -2754,7 +2754,7 @@ func (m *streamRecordingModel) GenerateContent(
 }
 
 func (m *streamRecordingModel) Info() model.Info {
-	return model.Info{Name: "stream-recording"}
+	return model.NewTestInfo("stream-recording")
 }
 
 func TestLLMRunnerSetsLastResponseID(t *testing.T) {
@@ -3300,7 +3300,7 @@ func (m *recordingModel) GenerateContent(
 }
 
 func (m *recordingModel) Info() model.Info {
-	return model.Info{Name: "recording"}
+	return model.NewTestInfo("recording")
 }
 
 type deltaModel struct {
@@ -3332,7 +3332,7 @@ func (m *deltaModel) GenerateContent(
 }
 
 func (m *deltaModel) Info() model.Info {
-	return model.Info{Name: "delta"}
+	return model.NewTestInfo("delta")
 }
 
 func TestAddLLMNode_StaticToolSets(t *testing.T) {

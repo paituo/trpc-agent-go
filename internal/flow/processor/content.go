@@ -1328,7 +1328,7 @@ func shouldCompactCurrentInvocationToolResult(
 	}
 	counter := cfg.TokenCounter
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 	tokens, err := counter.CountTokens(context.Background(), msg)
 	if err != nil {

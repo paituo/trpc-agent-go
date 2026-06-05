@@ -37,7 +37,7 @@ func (m *errorModel) GenerateContent(ctx context.Context, req *model.Request) (<
 	return nil, m.err
 }
 
-func (m *errorModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *errorModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 // recordingSpan is a minimal Span implementation that records calls relevant to our tests.
 type recordingSpan struct {

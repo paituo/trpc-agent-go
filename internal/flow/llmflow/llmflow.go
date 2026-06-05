@@ -1164,7 +1164,7 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 	// Record pre-compaction token count.
 	counter := rebuildPlan.contentProcessor.ContextCompactionConfig.TokenCounter
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.TokenCounterForModel(invocation.Model)
 	}
 	totalTokens, tokenErr := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
 	if tokenErr == nil {
@@ -1509,7 +1509,7 @@ func shouldSyncCompactContext(
 	}
 
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.TokenCounterForModel(inv.Model)
 	}
 	tokens, err := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
 	if err != nil {

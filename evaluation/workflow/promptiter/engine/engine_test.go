@@ -167,7 +167,7 @@ func (m *providerBackedTestModel) GenerateContent(
 }
 
 func (m *providerBackedTestModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type scriptedEvalService struct {

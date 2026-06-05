@@ -611,7 +611,7 @@ func (m *scriptedIterModel) GenerateContentIter(
 }
 
 func (m *scriptedIterModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type nilSeqIterModel struct {
@@ -635,7 +635,7 @@ func (m *nilSeqIterModel) GenerateContentIter(
 }
 
 func (m *nilSeqIterModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type scriptedModel struct {
@@ -664,7 +664,7 @@ func (m *scriptedModel) GenerateContent(
 }
 
 func (m *scriptedModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type cancelAwareChannelModel struct {
@@ -700,7 +700,7 @@ func (m *cancelAwareChannelModel) GenerateContent(
 }
 
 func (m *cancelAwareChannelModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type stubTool struct {

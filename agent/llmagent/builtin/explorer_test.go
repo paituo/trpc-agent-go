@@ -36,7 +36,7 @@ func (m *mockModel) GenerateContent(
 	return ch, nil
 }
 
-func (m *mockModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *mockModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 type mockTool struct{ name string }
 

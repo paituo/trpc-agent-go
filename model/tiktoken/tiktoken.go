@@ -18,6 +18,7 @@ import (
 
 	"github.com/tiktoken-go/tokenizer"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/log"
 )
 
 // Counter implements a tiktoken-based token counter compatible with model.TokenCounter.
@@ -52,6 +53,28 @@ func New(modelName string) (*Counter, error) {
 // will use tiktoken-go for qwen/deepseek and other known models.
 func init() {
 	model.SetTokenCounterFromModel(NewTokenCounter)
+	registerKnownModels()
+}
+
+func registerKnownModels() {
+	// Qwen/Qwq → o200k_base
+	if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+		model.RegisterRegistryEntry("qwen", c)
+		model.RegisterRegistryEntry("qwq", c)
+	} else {
+		log.WarnfContext(context.Background(),
+			"tiktoken: failed to load o200k_base encoding for qwen/qwq: %v", err)
+	}
+	// DeepSeek → cl100k_base
+	if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
+		model.RegisterRegistryEntry("deepseek", c)
+	} else {
+		log.WarnfContext(context.Background(),
+			"tiktoken: failed to load cl100k_base encoding for deepseek: %v", err)
+	}
+	// GLM → SimpleTokenCounter(1.8)
+	model.RegisterRegistryEntry("glm",
+		model.NewSimpleTokenCounter(model.WithApproxRunesPerToken(1.8)))
 }
 
 // CountTokens returns the token count for a single message using tiktoken-go.
