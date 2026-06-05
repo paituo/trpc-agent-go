@@ -3837,7 +3837,7 @@ type toolCallIDRunnerIntegrationModel struct {
 }
 
 func (m *toolCallIDRunnerIntegrationModel) Info() model.Info {
-	return model.Info{Name: "toolcallid-agui-model"}
+	return model.NewTestInfo("toolcallid-agui-model")
 }
 
 func (m *toolCallIDRunnerIntegrationModel) GenerateContent(

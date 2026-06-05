@@ -58,7 +58,7 @@ func (m *stubModel) GenerateContent(
 }
 
 func (m *stubModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestWithPatch_MergesBySurfaceTypePerNode(t *testing.T) {

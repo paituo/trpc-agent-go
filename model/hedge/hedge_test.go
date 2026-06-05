@@ -787,6 +787,7 @@ func (m *scriptedIterModel) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
+		TokenCounter:  model.NewTokenCounter(m.name),
 	}
 }
 
@@ -811,7 +812,7 @@ func (m *nilIterModel) GenerateContentIter(
 }
 
 func (m *nilIterModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type scriptedChannelModel struct {
@@ -860,7 +861,7 @@ func (m *scriptedChannelModel) GenerateContent(
 }
 
 func (m *scriptedChannelModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type nilChannelModel struct {
@@ -875,7 +876,7 @@ func (m *nilChannelModel) GenerateContent(
 }
 
 func (m *nilChannelModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type blockingChannelModel struct {
@@ -890,7 +891,7 @@ func (m *blockingChannelModel) GenerateContent(
 }
 
 func (m *blockingChannelModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type stubTool struct {

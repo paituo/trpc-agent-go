@@ -42,7 +42,7 @@ func (c *namedCaptureModel) GenerateContent(
 }
 
 func (c *namedCaptureModel) Info() model.Info {
-	return model.Info{Name: c.name}
+	return model.NewTestInfo(c.name)
 }
 
 func TestLLMNode_SurfacePatch_OverridesInstructionFewShotModelAndTools(t *testing.T) {

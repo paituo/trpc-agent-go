@@ -63,7 +63,7 @@ func (d dummyModel) GenerateContent(ctx context.Context, req *model.Request) (<-
 }
 
 func (d dummyModel) Info() model.Info {
-	return model.Info{Name: "dummy"}
+	return model.NewTestInfo("dummy")
 }
 
 func newStubSpan() *stubSpan {

@@ -10,12 +10,23 @@
 package mcpbroker
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	mcpcfg "trpc.group/trpc-go/trpc-agent-go/tool/mcp"
 )
+
+type exampleTestDummyModel struct{}
+
+func (m *exampleTestDummyModel) Info() model.Info { return model.NewTestInfo("example-test-dummy") }
+func (m *exampleTestDummyModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
 
 func ExampleNew() {
 	broker := New(
@@ -30,6 +41,7 @@ func ExampleNew() {
 
 	agent := llmagent.New(
 		"assistant",
+		llmagent.WithModel(&exampleTestDummyModel{}),
 		llmagent.WithTools(broker.Tools()),
 	)
 

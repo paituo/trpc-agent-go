@@ -95,7 +95,7 @@ func (m *mockModelWithResponses) GenerateContent(
 }
 
 func (m *mockModelWithResponses) Info() model.Info {
-	return model.Info{Name: "mock-model"}
+	return model.NewTestInfo("mock-model")
 }
 
 type mockStreamableTool struct {

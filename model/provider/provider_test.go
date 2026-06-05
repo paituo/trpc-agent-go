@@ -554,7 +554,7 @@ func (testModel) GenerateContent(context.Context, *model.Request) (<-chan *model
 }
 
 func (testModel) Info() model.Info {
-	return model.Info{Name: "test"}
+	return model.NewTestInfo("test")
 }
 
 func makeFunc[T any]() T {

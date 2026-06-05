@@ -55,5 +55,6 @@ func (m contextWindowTestModel) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.window,
+		TokenCounter:  model.NewTokenCounter(m.name),
 	}
 }

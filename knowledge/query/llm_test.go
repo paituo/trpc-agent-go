@@ -42,7 +42,7 @@ func (s *stubModel) GenerateContent(_ context.Context, req *model.Request) (<-ch
 }
 
 func (s *stubModel) Info() model.Info {
-	return model.Info{Name: "stub"}
+	return model.NewTestInfo("stub")
 }
 
 func TestLLMEnhancer_Basic(t *testing.T) {

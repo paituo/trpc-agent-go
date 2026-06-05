@@ -97,6 +97,7 @@ func TestLLMAgent_SkillRunToolRegistered(t *testing.T) {
 	require.NoError(t, err)
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 	)
@@ -122,7 +123,7 @@ func TestLLMAgent_SkillRunToolRegistered(t *testing.T) {
 }
 
 func TestLLMAgent_WorkspaceExecRegisteredForExplicitExecutor(t *testing.T) {
-	a := New("tester", WithCodeExecutor(&stubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&stubExec{}))
 	names := make(map[string]bool)
 	for _, tl := range a.Tools() {
 		if d := tl.Declaration(); d != nil {
@@ -139,7 +140,7 @@ func TestLLMAgent_WorkspaceExecRegisteredForExplicitExecutor(t *testing.T) {
 func TestLLMAgent_WorkspaceExecSessionToolsRegisteredForInteractiveExecutor(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(&interactiveStubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&interactiveStubExec{}))
 	names := make(map[string]bool)
 	for _, tl := range a.Tools() {
 		if d := tl.Declaration(); d != nil {
@@ -158,6 +159,7 @@ func TestLLMAgent_WorkspaceExecSurfaceDisabledForExplicitExecutor(
 ) {
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(&interactiveStubExec{}),
 		WithWorkspaceExecSurfaceEnabled(false),
 	)
@@ -176,7 +178,7 @@ func TestLLMAgent_WorkspaceExecSurfaceDisabledForExplicitExecutor(
 func TestLLMAgent_WorkspaceExecDeclarationOmitsSessionFieldsForNonInteractiveExecutor(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(&stubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&stubExec{}))
 	tl := findTool(a.Tools(), "workspace_exec")
 	require.NotNil(t, tl)
 
@@ -195,7 +197,7 @@ func TestLLMAgent_WorkspaceExecDeclarationOmitsSessionFieldsForNonInteractiveExe
 func TestLLMAgent_WorkspaceExecDeclarationIncludesSessionFieldsForInteractiveExecutor(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(&interactiveStubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&interactiveStubExec{}))
 	tl := findTool(a.Tools(), "workspace_exec")
 	require.NotNil(t, tl)
 
@@ -212,7 +214,7 @@ func TestLLMAgent_WorkspaceExecDeclarationIncludesSessionFieldsForInteractiveExe
 }
 
 func TestLLMAgent_WorkspaceExecOmittedWithoutExplicitExecutor(t *testing.T) {
-	a := New("tester")
+	a := New("tester", WithModel(&extDummyModel{}))
 	names := make(map[string]bool)
 	for _, tl := range a.Tools() {
 		if d := tl.Declaration(); d != nil {
@@ -232,6 +234,7 @@ func TestLLMAgent_InvocationToolSurface_UsesRunCodeExecutorForWorkspaceExec(
 	require.NoError(t, err)
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 	)
@@ -260,6 +263,7 @@ func TestLLMAgent_InvocationToolSurface_RunCodeExecutorOverridesStaticExecutor(
 	require.NoError(t, err)
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&interactiveStubExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -301,7 +305,7 @@ func TestLLMAgent_InvocationToolSurface_RunCodeExecutorOverridesStaticExecutor(
 func TestLLMAgent_WorkspaceSaveArtifactRegisteredForInvocationCapability(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(&stubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&stubExec{}))
 	inv := &agent.Invocation{
 		Session: &session.Session{
 			ID:      "sess",
@@ -319,7 +323,7 @@ func TestLLMAgent_WorkspaceSaveArtifactRegisteredForInvocationCapability(
 func TestLLMAgent_WorkspaceSaveArtifactOmittedWithoutInvocationCapability(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(&stubExec{}))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(&stubExec{}))
 	inv := &agent.Invocation{Session: &session.Session{ID: "sess"}}
 
 	tools, _ := a.InvocationToolSurface(context.Background(), inv)
@@ -330,7 +334,7 @@ func TestLLMAgent_WorkspaceSaveArtifactOmittedWithoutInvocationCapability(
 func TestLLMAgent_InvocationWorkspaceRegistry_NoSessionIsNotShared(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(localexec.New()))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(localexec.New()))
 
 	inv1 := agent.NewInvocation(
 		agent.WithInvocationMessage(model.NewUserMessage("write")),
@@ -352,7 +356,7 @@ func TestLLMAgent_InvocationWorkspaceRegistry_NoSessionIsNotShared(
 func TestLLMAgent_InvocationWorkspaceRegistry_ReusesSameSessionExecutor(
 	t *testing.T,
 ) {
-	a := New("tester", WithCodeExecutor(localexec.New()))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(localexec.New()))
 
 	inv1 := agent.NewInvocation(
 		agent.WithInvocationMessage(model.NewUserMessage("write")),
@@ -378,7 +382,7 @@ func TestLLMAgent_InvocationWorkspaceRegistry_IsolatedByExecutor(
 ) {
 	defaultExec := localexec.New()
 	overrideExec := localexec.New()
-	a := New("tester", WithCodeExecutor(defaultExec))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(defaultExec))
 
 	invDefault := agent.NewInvocation(
 		agent.WithInvocationMessage(model.NewUserMessage("default write")),
@@ -428,7 +432,7 @@ func TestLLMAgent_WorkspaceRegistryKey_NonComparableExecutor(t *testing.T) {
 	reg := codeexecutor.NewWorkspaceRegistry()
 	require.Nil(t, workspaceRegistryMap(exec, reg))
 
-	a := New("tester")
+	a := New("tester", WithModel(&extDummyModel{}))
 	got, ok := a.ensureWorkspaceRegistryForExecutor(exec)
 	require.False(t, ok)
 	require.Nil(t, got)
@@ -437,7 +441,7 @@ func TestLLMAgent_WorkspaceRegistryKey_NonComparableExecutor(t *testing.T) {
 func TestLLMAgent_WorkspaceRegistryForInvocation_NonComparableExecutorFallback(
 	t *testing.T,
 ) {
-	a := New("tester")
+	a := New("tester", WithModel(&extDummyModel{}))
 	inv := agent.NewInvocation(
 		agent.WithInvocationSession(&session.Session{ID: "sess"}),
 	)
@@ -486,7 +490,7 @@ func TestLLMAgent_WorkspaceRegistryForKeyLocked_StoresPrimaryRegistry(
 
 func TestLLMAgent_RefreshToolsLocked_ReusesExecutorRegistry(t *testing.T) {
 	exec := &stubExec{}
-	a := New("tester", WithCodeExecutor(exec))
+	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(exec))
 	initialReg := a.workspaceRegistry
 	require.NotNil(t, initialReg)
 
@@ -540,6 +544,7 @@ func TestLLMAgent_SkillRunUsesDefaultExecutorWhenNoExplicitExecutor(t *testing.T
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 	)
@@ -568,6 +573,7 @@ func TestLLMAgent_SkillExecSharesRunToolInstance(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&interactiveStubExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -592,6 +598,7 @@ func TestLLMAgent_SkillKnowledgeOnlyToolsRegistered(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileKnowledgeOnly),
 	)
@@ -619,6 +626,7 @@ func TestLLMAgent_SkillLoadOnlyToolsRegistered(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithAllowedSkillTools(SkillToolLoad),
 	)
@@ -646,6 +654,7 @@ func TestLLMAgent_SkillListDocsOnlyToolsRegistered(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithAllowedSkillTools(SkillToolListDocs),
 	)
@@ -669,6 +678,7 @@ func TestLLMAgent_SkillRunToolExecutes(t *testing.T) {
 	require.NoError(t, err)
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 	)
@@ -695,6 +705,7 @@ func TestLLMAgent_SkillRun_OutputLimits_Configurable(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 		WithSkillRunOutputLimits(toolskill.RunOutputLimits{
@@ -877,6 +888,7 @@ func TestLLMAgent_SkillRun_UsesInjectedExecutor(t *testing.T) {
 	se := &stubExec{}
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(se),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -899,6 +911,7 @@ func TestLLMAgent_SkillRun_UsesConfiguredStager(t *testing.T) {
 	)
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(se),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -939,6 +952,7 @@ func TestLLMAgent_SkillRun_AllowedCommands_Enforced(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 		WithSkillRunAllowedCommands("echo"),
@@ -972,6 +986,7 @@ func TestLLMAgent_SkillRun_AllowedCommands_Enforced(t *testing.T) {
 func TestLLMAgent_WorkspaceExec_DeniedCommands_Enforced(t *testing.T) {
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(localexec.New()),
 		WithWorkspaceExecDeniedCommands("curl", "wget"),
 	)
@@ -1003,6 +1018,7 @@ func TestLLMAgent_WorkspaceExec_DeniedCommands_Enforced(t *testing.T) {
 func TestLLMAgent_WorkspaceExec_AllowedCommands_Enforced(t *testing.T) {
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(localexec.New()),
 		WithWorkspaceExecAllowedCommands("echo"),
 	)
@@ -1042,6 +1058,9 @@ func TestLLMAgent_WithSkillsToolingGuidance_Disabled(t *testing.T) {
 
 	makeReq := func(opts *Options) *model.Request {
 		t.Helper()
+		if opts.ContextCompactionTokenCounter == nil {
+			WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
+		}
 		procs := buildRequestProcessors("tester", opts)
 		inv := &agent.Invocation{
 			InvocationID: "inv1",
@@ -1108,6 +1127,7 @@ func TestLLMAgent_WithSkillToolProfile_KnowledgeOnly_WiresPrompt(
 	opts := &Options{}
 	WithSkills(repo)(opts)
 	WithSkillToolProfile(SkillToolProfileKnowledgeOnly)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1152,6 +1172,7 @@ func TestLLMAgent_WithSkillToolProfile_KnowledgeOnly_GuidanceDisabled(
 	WithSkills(repo)(opts)
 	WithSkillToolProfile(SkillToolProfileKnowledgeOnly)(opts)
 	WithSkillsToolingGuidance("")(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1191,6 +1212,7 @@ func TestLLMAgent_WithSkillsDirectoryHints_WiresPrompt(t *testing.T) {
 	WithSkillToolProfile(SkillToolProfileKnowledgeOnly)(opts)
 	WithSkillsCapabilityGuidance("")(opts)
 	WithSkillsToolingGuidance("")(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1230,6 +1252,7 @@ func TestLLMAgent_WithSkillsFilePathHints_WiresPrompt(t *testing.T) {
 	WithSkillToolProfile(SkillToolProfileKnowledgeOnly)(opts)
 	WithSkillsCapabilityGuidance("")(opts)
 	WithSkillsToolingGuidance("")(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1268,6 +1291,7 @@ func TestLLMAgent_WithSkillsCapabilityGuidance_WiresPrompt(t *testing.T) {
 	WithSkillToolProfile(SkillToolProfileKnowledgeOnly)(opts)
 	WithSkillsCapabilityGuidance("Use skills as directory bundles.")(opts)
 	WithSkillsToolingGuidance("")(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1311,6 +1335,7 @@ func TestLLMAgent_WithSkillsProtocolGuidance_WiresPrompt(t *testing.T) {
 	WithSkillsProtocolGuidance(
 		"Use the matching skill before answering.",
 	)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1359,6 +1384,7 @@ func TestLLMAgent_WithAllowedSkillTools_LoadOnly_WiresPrompt(
 	opts := &Options{}
 	WithSkills(repo)(opts)
 	WithAllowedSkillTools(SkillToolLoad)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -1406,6 +1432,7 @@ func TestLLMAgent_WithAllowedSkillTools_InvalidDependenciesPanic(
 		func() {
 			New(
 				"tester",
+				WithModel(&extDummyModel{}),
 				WithSkills(repo),
 				WithAllowedSkillTools(SkillToolLoad, SkillToolExec),
 			)
@@ -1426,6 +1453,7 @@ func TestLLMAgent_WithAllowedSkillTools_RunWithoutLoadPanicsByDefault(
 		func() {
 			New(
 				"tester",
+				WithModel(&extDummyModel{}),
 				WithSkills(repo),
 				WithAllowedSkillTools(SkillToolRun),
 			)
@@ -1442,6 +1470,7 @@ func TestLLMAgent_WithAllowedSkillTools_RunWithoutLoadAllowedWhenRequireDisabled
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithAllowedSkillTools(SkillToolRun),
 		WithSkillRunRequireSkillLoaded(false),
@@ -1457,6 +1486,7 @@ func TestLLMAgent_SkillRun_DeniedCommands_Enforced(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileFull),
 		WithSkillRunDeniedCommands("echo"),
@@ -1510,7 +1540,7 @@ func (m *captureModel) GenerateContent(
 }
 
 func (m *captureModel) Info() model.Info {
-	return model.Info{Name: "capture"}
+	return model.NewTestInfo("capture")
 }
 
 func TestLLMAgent_WithSkills_InsertsOverview(t *testing.T) {
@@ -1637,6 +1667,7 @@ func TestLLMAgent_WithSkillFilter_FiltersPromptAndDeclaration(t *testing.T) {
 	opts := &Options{}
 	WithSkills(repo)(opts)
 	WithSkillFilter(filter)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 	inv := agent.NewInvocation(
 		agent.WithInvocationMessage(model.NewUserMessage("hi")),
 		agent.WithInvocationSession(&session.Session{}),
@@ -1658,6 +1689,7 @@ func TestLLMAgent_WithSkillFilter_FiltersPromptAndDeclaration(t *testing.T) {
 
 	agt := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillFilter(filter),
 	)
@@ -1689,6 +1721,7 @@ func TestLLMAgent_WithSkillLoadToolDescription_WiresTool(
 
 	agt := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillLoadToolDescription(description),
 	)
@@ -1709,6 +1742,7 @@ func TestLLMAgent_WithSkillsLoadedContentInToolResults_WiresProcessor(
 	opts := &Options{}
 	WithSkills(repo)(opts)
 	WithSkillsLoadedContentInToolResults(true)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	var saw bool
@@ -1745,6 +1779,7 @@ func TestLLMAgent_WithMaxLoadedSkills_WiresProcessor(t *testing.T) {
 	WithSkills(repo)(opts)
 	WithSkillLoadMode(SkillLoadModeSession)(opts)
 	WithMaxLoadedSkills(maxSkills)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	var srp *processor.SkillsRequestProcessor
@@ -1850,6 +1885,7 @@ func TestLLMAgent_ExecToolsOmittedForNonInteractiveExecutor(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&stubExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -1876,6 +1912,7 @@ func TestLLMAgent_ExecToolsRegisteredForInteractiveExecutor(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&interactiveStubExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -1902,6 +1939,7 @@ func TestLLMAgent_ExecToolsRegisteredForFallbackExecutor(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&bareExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -1929,6 +1967,7 @@ func TestLLMAgent_ExecToolsRegisteredForNilEngineExecutor(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithCodeExecutor(&nilEngineExec{}),
 		WithSkillToolProfile(SkillToolProfileFull),
@@ -2091,6 +2130,7 @@ func TestLLMAgent_GuidanceOmitsExecForNonInteractiveExecutor(t *testing.T) {
 	opts := &Options{}
 	WithSkills(repo)(opts)
 	WithCodeExecutor(&stubExec{})(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2130,6 +2170,7 @@ func TestLLMAgent_GuidanceIncludesExecForInteractiveExecutor(t *testing.T) {
 	WithSkills(repo)(opts)
 	WithCodeExecutor(&interactiveStubExec{})(opts)
 	WithSkillToolProfile(SkillToolProfileFull)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2163,6 +2204,7 @@ func TestLLMAgent_GuidanceRunCodeExecutorOverrideDisablesInteractiveTools(
 
 	opts := &Options{}
 	WithSkills(repo)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2194,6 +2236,7 @@ func TestLLMAgent_GuidanceRunCodeExecutorOverrideDisablesInteractiveTools(
 func TestLLMAgent_WorkspaceExecGuidanceWithoutSkillsRepo(t *testing.T) {
 	opts := &Options{}
 	WithCodeExecutor(&stubExec{})(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2235,6 +2278,7 @@ func TestLLMAgent_WorkspaceExecGuidanceDisabledByOption(t *testing.T) {
 	opts := &Options{}
 	WithCodeExecutor(&interactiveStubExec{})(opts)
 	WithWorkspaceExecSurfaceEnabled(false)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2257,6 +2301,7 @@ func TestLLMAgent_WorkspaceExecGuidanceIncludesSaveArtifactWhenAvailable(
 ) {
 	opts := &Options{}
 	WithCodeExecutor(&stubExec{})(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	inv := &agent.Invocation{
@@ -2299,7 +2344,7 @@ func TestLLMAgent_SkillsExecutorFallback_DefaultProfileAddsLocalExecutor(
 	repo, err := skill.NewFSRepository(root)
 	require.NoError(t, err)
 
-	a := New("tester", WithSkills(repo))
+	a := New("tester", WithModel(&extDummyModel{}), WithSkills(repo))
 
 	require.NotNil(
 		t,
@@ -2336,6 +2381,7 @@ func TestLLMAgent_SkillsExecutorFallback_ExplicitKnowledgeOnlySkipsFallback(
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileKnowledgeOnly),
 	)
@@ -2368,6 +2414,7 @@ func TestLLMAgent_SkillsExecutorFallback_ExplicitKnowledgeOnlyHonorsExplicitExec
 	exec := &stubExec{}
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithSkillToolProfile(SkillToolProfileKnowledgeOnly),
 		WithCodeExecutor(exec),
@@ -2406,6 +2453,7 @@ func TestLLMAgent_SkillsExecutorFallback_AllowedSkillToolsSkipsFallback(
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithSkills(repo),
 		WithAllowedSkillTools(SkillToolLoad),
 	)

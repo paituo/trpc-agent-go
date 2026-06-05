@@ -113,7 +113,7 @@ func (m *invocationSyncTestModel) GenerateContent(
 }
 
 func (m *invocationSyncTestModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestInvocation_Clone(t *testing.T) {

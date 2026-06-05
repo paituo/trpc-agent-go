@@ -108,7 +108,7 @@ func TestLLMAgent_Run_BeforeCallbackCust(t *testing.T) {
 		return &model.Response{Object: "before", Done: true}, nil
 	})
 
-	a := New("agent", WithAgentCallbacks(cb))
+	a := New("agent", WithModel(&extDummyModel{}), WithAgentCallbacks(cb))
 	// Replace flow to avoid heavy deps.
 	a.flow = &mockFlow{done: true}
 
@@ -124,7 +124,7 @@ func TestLLMAgent_Run_BeforeCallbackErr(t *testing.T) {
 		return nil, context.Canceled
 	})
 
-	a := New("agent", WithAgentCallbacks(cb))
+	a := New("agent", WithModel(&extDummyModel{}), WithAgentCallbacks(cb))
 	a.flow = &mockFlow{done: true}
 
 	_, err := a.Run(context.Background(), &agent.Invocation{InvocationID: "id", AgentName: "agent"})
@@ -137,7 +137,7 @@ func TestLLMAgent_Run_FlowAndAfterCb(t *testing.T) {
 		return &model.Response{Object: "after", Done: true}, nil
 	})
 
-	a := New("agent", WithAgentCallbacks(after))
+	a := New("agent", WithModel(&extDummyModel{}), WithAgentCallbacks(after))
 	a.flow = &mockFlow{}
 
 	evts, err := a.Run(context.Background(), &agent.Invocation{InvocationID: "id", AgentName: "agent"})
@@ -176,7 +176,7 @@ func TestLLMAgent_CallbackContextPropagation(t *testing.T) {
 	})
 
 	// Create agent with callbacks.
-	agt := New("test-agent", WithAgentCallbacks(callbacks))
+	agt := New("test-agent", WithModel(&extDummyModel{}), WithAgentCallbacks(callbacks))
 	agt.flow = &mockFlow{} // Use mock flow to avoid heavy dependencies
 
 	// Run the agent.
@@ -199,7 +199,7 @@ func TestLLMAgent_CallbackContextPropagation(t *testing.T) {
 }
 
 func TestLLMAgent_Run_StreamOverride(t *testing.T) {
-	a := New("agent")
+	a := New("agent", WithModel(&extDummyModel{}))
 	a.flow = &mockFlow{done: true}
 
 	stream := false
@@ -220,7 +220,7 @@ func TestLLMAgent_Run_StreamOverride(t *testing.T) {
 
 func TestLLMAgent_Run_DisableTracingSkipsSpanCreation(t *testing.T) {
 	recorder := useSpanRecorder(t)
-	a := New("agent")
+	a := New("agent", WithModel(&extDummyModel{}))
 	a.flow = &mockFlow{done: true}
 	invocation := &agent.Invocation{
 		InvocationID: "id-disable-tracing",

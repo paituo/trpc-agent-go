@@ -24,7 +24,7 @@ type echoPromptModel struct {
 }
 
 func (m *echoPromptModel) Info() model.Info {
-	return model.Info{Name: "echo"}
+	return model.NewTestInfo("echo")
 }
 
 func (m *echoPromptModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
@@ -219,7 +219,7 @@ func TestSessionSummarizer_PostHook_ErrorBehavior(t *testing.T) {
 type panicGenerateModel struct{}
 
 func (m *panicGenerateModel) Info() model.Info {
-	return model.Info{Name: "panic-generate"}
+	return model.NewTestInfo("panic-generate")
 }
 
 func (m *panicGenerateModel) GenerateContent(
@@ -234,7 +234,7 @@ type staticResponseModel struct {
 }
 
 func (m *staticResponseModel) Info() model.Info {
-	return model.Info{Name: "static"}
+	return model.NewTestInfo("static")
 }
 
 func (m *staticResponseModel) GenerateContent(

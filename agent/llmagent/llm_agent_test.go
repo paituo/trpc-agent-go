@@ -83,16 +83,18 @@ func (m *mockModelWithResponse) GenerateContent(
 }
 
 func (m *mockModelWithResponse) Info() model.Info {
-	return model.Info{Name: "mock-model"}
+	return model.NewTestInfo("mock-model")
 }
 
 func TestLLMAgent_SubAgents(t *testing.T) {
 	sub := New(
 		testSimpleSubAgentName,
+		WithModel(&extDummyModel{}),
 		WithDescription(testSubAgentDescription),
 	)
 	agt := New(
 		testSubAgentsMainName,
+		WithModel(&extDummyModel{}),
 		WithSubAgents([]agent.Agent{sub}),
 	)
 	if len(agt.SubAgents()) != 1 {
@@ -109,7 +111,7 @@ func TestLLMAgent_SubAgents(t *testing.T) {
 // TestLLMAgent_SubAgentsEmpty verifies that SubAgents returns nil when
 // no sub-agents are configured.
 func TestLLMAgent_SubAgentsEmpty(t *testing.T) {
-	agt := New(testSubAgentsMainName)
+	agt := New(testSubAgentsMainName, WithModel(&extDummyModel{}))
 
 	subAgents := agt.SubAgents()
 	require.Nil(t, subAgents)
@@ -123,6 +125,7 @@ func TestLLMAgent_SetSubAgents(t *testing.T) {
 
 	agt := New(
 		testSubAgentsMainName,
+		WithModel(&extDummyModel{}),
 		WithSubAgents([]agent.Agent{sub1}),
 	)
 
@@ -220,6 +223,7 @@ func TestLLMAgent_SubAgentsReturnsCopy(t *testing.T) {
 	sub := &mockAgent{name: testSimpleSubAgentName}
 	agt := New(
 		testSubAgentsMainName,
+		WithModel(&extDummyModel{}),
 		WithSubAgents([]agent.Agent{sub}),
 	)
 
@@ -242,6 +246,7 @@ func TestBuildRequestProcessors_AddSessionSummaryWiring(t *testing.T) {
 	// true case - test that WithAddSessionSummary(true) is properly wired.
 	optsTrue := &Options{}
 	WithAddSessionSummary(true)(optsTrue)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsTrue)
 	procs := buildRequestProcessors("test-agent", optsTrue)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -255,6 +260,7 @@ func TestBuildRequestProcessors_AddSessionSummaryWiring(t *testing.T) {
 	// false case - test that WithAddSessionSummary(false) is properly wired.
 	optsFalse := &Options{}
 	WithAddSessionSummary(false)(optsFalse)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsFalse)
 	procs = buildRequestProcessors("test-agent", optsFalse)
 	crp = nil
 	for _, p := range procs {
@@ -273,6 +279,7 @@ func TestBuildRequestProcessors_SessionSummaryInjectionModeWiring(t *testing.T) 
 	optsUser := &Options{}
 	WithAddSessionSummary(true)(optsUser)
 	WithSessionSummaryInjectionMode(SessionSummaryInjectionUser)(optsUser)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsUser)
 	procs := buildRequestProcessors("test-agent", optsUser)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -287,6 +294,7 @@ func TestBuildRequestProcessors_SessionSummaryInjectionModeWiring(t *testing.T) 
 	// default (system) mode
 	optsSystem := &Options{}
 	WithAddSessionSummary(true)(optsSystem)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsSystem)
 	procs = buildRequestProcessors("test-agent", optsSystem)
 	crp = nil
 	for _, p := range procs {
@@ -322,6 +330,7 @@ func TestBuildRequestProcessors_MaxHistoryRunsWiring(t *testing.T) {
 	// Test with MaxHistoryRuns set - test that WithMaxHistoryRuns(10) is properly wired.
 	optsWithMax := &Options{}
 	WithMaxHistoryRuns(10)(optsWithMax)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsWithMax)
 	procs := buildRequestProcessors("test-agent", optsWithMax)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -335,6 +344,7 @@ func TestBuildRequestProcessors_MaxHistoryRunsWiring(t *testing.T) {
 	// Test with default value (0) - test that WithMaxHistoryRuns(0) is properly wired.
 	optsDefault := &Options{}
 	WithMaxHistoryRuns(0)(optsDefault)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsDefault)
 	procs = buildRequestProcessors("test-agent", optsDefault)
 	crp = nil
 	for _, p := range procs {
@@ -394,6 +404,7 @@ func TestBuildRequestProcessors_PreserveSameBranchWiring(t *testing.T) {
 	// true case - ensure option is propagated to content processor.
 	optsTrue := &Options{}
 	WithPreserveSameBranch(true)(optsTrue)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsTrue)
 	procs := buildRequestProcessors("tester", optsTrue)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -407,6 +418,7 @@ func TestBuildRequestProcessors_PreserveSameBranchWiring(t *testing.T) {
 	// false case - ensure disabled option is propagated.
 	optsFalse := &Options{}
 	WithPreserveSameBranch(false)(optsFalse)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsFalse)
 	procs = buildRequestProcessors("tester", optsFalse)
 	crp = nil
 	for _, p := range procs {
@@ -421,6 +433,7 @@ func TestBuildRequestProcessors_PreserveSameBranchWiring(t *testing.T) {
 func TestBuildRequestProcessors_PreserveForeignMessagesWiring(t *testing.T) {
 	optsTrue := &Options{}
 	WithPreserveForeignMessages(true)(optsTrue)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsTrue)
 	procs := buildRequestProcessors("tester", optsTrue)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -433,6 +446,7 @@ func TestBuildRequestProcessors_PreserveForeignMessagesWiring(t *testing.T) {
 
 	optsFalse := &Options{}
 	WithPreserveForeignMessages(false)(optsFalse)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(optsFalse)
 	procs = buildRequestProcessors("tester", optsFalse)
 	crp = nil
 	for _, p := range procs {
@@ -452,6 +466,7 @@ func TestBuildRequestProcessors_PreloadSessionRecallWiring(t *testing.T) {
 	WithPreloadSessionRecallInjectionMode(PreloadSessionRecallInjectionUser)(opts)
 	WithPreloadSessionRecallMinScore(0.6)(opts)
 	WithPreloadSessionRecallSearchMode(session.SearchModeDense)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	var crp *processor.ContentRequestProcessor
@@ -495,6 +510,7 @@ func TestBuildRequestProcessors_EventMessageProjectorWiring(
 
 	opts := &Options{}
 	WithEventMessageProjector(projector)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 	procs := buildRequestProcessors("tester", opts)
 	var crp *processor.ContentRequestProcessor
 	for _, p := range procs {
@@ -527,6 +543,9 @@ func TestBuildRequestProcessors_PostToolPromptInjection(t *testing.T) {
 	) *processor.PostToolRequestProcessor {
 		t.Helper()
 
+		if opts.ContextCompactionTokenCounter == nil {
+			WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
+		}
 		procs := buildRequestProcessors("tester", opts)
 		for _, p := range procs {
 			if v, ok := p.(*processor.PostToolRequestProcessor); ok {
@@ -1034,7 +1053,7 @@ func (m *staticModel) GenerateContent(ctx context.Context, req *model.Request) (
 	return nil, nil
 }
 
-func (m *staticModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *staticModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 func TestLLMAgent_SetModel_UpdatesInvocationModel(t *testing.T) {
 	mA := &staticModel{name: "model-A"}
@@ -1127,7 +1146,7 @@ func TestLLMAgent_New_WithOutputSchema_InvalidCombos(t *testing.T) {
 	})
 
 	t.Run("with subagents", func(t *testing.T) {
-		sub := New("sub")
+		sub := New("sub", WithModel(&extDummyModel{}))
 		require.PanicsWithValue(t,
 			"Invalid LLMAgent configuration: if output_schema is set, sub_agents must be empty to disable agent transfer",
 			func() {
@@ -1174,6 +1193,7 @@ func TestLLMAgent_New_WithOutputSchema_InvalidCombos(t *testing.T) {
 		toolset := dummyToolSet{name: "activatable"}
 		require.NotPanics(t, func() {
 			_ = New("test",
+				WithModel(&extDummyModel{}),
 				WithOutputSchema(schema),
 				WithActivatableToolSets([]tool.ToolSet{toolset}),
 			)
@@ -1199,6 +1219,7 @@ func TestLLMAgent_New_WithOutputSchema_InvalidCombos(t *testing.T) {
 	t.Run("with hook-only extension is allowed", func(t *testing.T) {
 		require.NotPanics(t, func() {
 			_ = New("test",
+				WithModel(&extDummyModel{}),
 				WithOutputSchema(schema),
 				WithExtensions(&hookOnlyExt{name: "h"}),
 			)
@@ -1216,6 +1237,7 @@ func TestLLMAgent_New_WithStructuredOutputJSONSchema_AllowsTools(t *testing.T) {
 		simpleTool := dummyTool{decl: &tool.Declaration{Name: "test"}}
 		toolset := dummyToolSet{name: "test-toolset"}
 		_ = New("test",
+			WithModel(&extDummyModel{}),
 			WithStructuredOutputJSONSchema("test_schema", schema, true, ""),
 			WithTools([]tool.Tool{simpleTool}),
 			WithToolSets([]tool.ToolSet{toolset}),
@@ -1232,6 +1254,7 @@ func TestLLMAgent_OutputSchemaOnly_InjectsJSONInstructions(t *testing.T) {
 	}
 	agt := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithOutputSchema(schema),
 	)
 
@@ -1264,7 +1287,7 @@ func TestLLMAgent_OutputSchemaOnly_InjectsJSONInstructions(t *testing.T) {
 // from context when called through runner (after removing duplicate injection).
 func TestLLMAgent_InvocationContextAccess(t *testing.T) {
 	// Create a simple LLM agent.
-	llmAgent := New("test-llm-agent")
+	llmAgent := New("test-llm-agent", WithModel(&extDummyModel{}))
 
 	// Create invocation with context that contains invocation.
 	invocation := &agent.Invocation{
@@ -1311,6 +1334,7 @@ func fakeInvocation(include string) *agent.Invocation {
 // by constructing the content processor with the expected mode.
 func TestBuildRequestProcessors_IncludeContentsHonored(t *testing.T) {
 	opts := &Options{}
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	// Case 1: none
 	{
@@ -1397,7 +1421,7 @@ func TestBuildRequestProcessors_IncludeContentsHonored(t *testing.T) {
 // TestLLMAgent_OptionsWithCodeExecutor tests WithCodeExecutor option.
 func TestLLMAgent_OptionsWithCodeExecutor(t *testing.T) {
 	mockCE := &mockCodeExecutor{}
-	agt := New("test", WithCodeExecutor(mockCE))
+	agt := New("test", WithModel(&extDummyModel{}), WithCodeExecutor(mockCE))
 	require.Equal(t, mockCE, agt.CodeExecutor())
 }
 
@@ -1529,14 +1553,14 @@ func TestLLMAgent_EnableCodeExecutionResponseProcessor(t *testing.T) {
 
 // TestLLMAgent_OptionsWithOutputKey tests WithOutputKey option.
 func TestLLMAgent_OptionsWithOutputKey(t *testing.T) {
-	agt := New("test", WithOutputKey("my_output"))
+	agt := New("test", WithModel(&extDummyModel{}), WithOutputKey("my_output"))
 	require.Equal(t, "my_output", agt.outputKey)
 }
 
 // TestLLMAgent_OptionsWithInputSchema tests WithInputSchema option.
 func TestLLMAgent_OptionsWithInputSchema(t *testing.T) {
 	schema := map[string]any{"type": "object"}
-	agt := New("test", WithInputSchema(schema))
+	agt := New("test", WithModel(&extDummyModel{}), WithInputSchema(schema))
 	info := agt.Info()
 	require.Equal(t, schema, info.InputSchema)
 }
@@ -1621,6 +1645,7 @@ func TestLLMAgent_SetupInvocation_UsesRunStructuredOutputOverride(t *testing.T) 
 
 	agt := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithStructuredOutputJSON(new(agentOutput), true, "agent description"),
 	)
 	inv := &agent.Invocation{}
@@ -1738,7 +1763,7 @@ func TestLLMAgent_OptionsWithEndInvocationAfterTransfer(t *testing.T) {
 
 // TestLLMAgent_SetInstruction tests SetInstruction method.
 func TestLLMAgent_SetInstruction(t *testing.T) {
-	agt := New("test", WithInstruction("initial instruction"))
+	agt := New("test", WithModel(&extDummyModel{}), WithInstruction("initial instruction"))
 	require.Equal(t, "initial instruction", agt.getInstruction())
 
 	agt.SetInstruction("updated instruction")
@@ -1747,7 +1772,7 @@ func TestLLMAgent_SetInstruction(t *testing.T) {
 
 // TestLLMAgent_SetGlobalInstruction tests SetGlobalInstruction method.
 func TestLLMAgent_SetGlobalInstruction(t *testing.T) {
-	agt := New("test", WithGlobalInstruction("initial global"))
+	agt := New("test", WithModel(&extDummyModel{}), WithGlobalInstruction("initial global"))
 	require.Equal(t, "initial global", agt.getSystemPrompt())
 
 	agt.SetGlobalInstruction("updated global")
@@ -1757,6 +1782,7 @@ func TestLLMAgent_SetGlobalInstruction(t *testing.T) {
 func TestLLMAgent_SetPrompts(t *testing.T) {
 	agt := New(
 		"test",
+		WithModel(&extDummyModel{}),
 		WithInstruction("initial instruction"),
 		WithGlobalInstruction("initial global"),
 	)

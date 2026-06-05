@@ -85,7 +85,7 @@ func (m *staticGraphAgentModel) GenerateContent(
 }
 
 func (m *staticGraphAgentModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *emptyIDGraphAgentModel) GenerateContent(
@@ -106,7 +106,7 @@ func (m *emptyIDGraphAgentModel) GenerateContent(
 }
 
 func (m *emptyIDGraphAgentModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *streamingGraphAgentModel) GenerateContent(
@@ -135,7 +135,7 @@ func (m *streamingGraphAgentModel) GenerateContent(
 }
 
 func (m *streamingGraphAgentModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *usageGraphAgentModel) GenerateContent(
@@ -157,7 +157,7 @@ func (m *usageGraphAgentModel) GenerateContent(
 }
 
 func (m *usageGraphAgentModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type disableTracingModel struct{}
@@ -174,7 +174,7 @@ func (m *disableTracingModel) GenerateContent(ctx context.Context, req *model.Re
 }
 
 func (m *disableTracingModel) Info() model.Info {
-	return model.Info{Name: "disable-tracing-model"}
+	return model.NewTestInfo("disable-tracing-model")
 }
 
 func useSpanRecorder(t *testing.T) *tracetest.SpanRecorder {

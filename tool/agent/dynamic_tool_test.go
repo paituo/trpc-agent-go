@@ -896,6 +896,23 @@ func TestCallDynamic_TimeoutBoundsSubAgent(t *testing.T) {
 	require.Less(t, time.Since(start), time.Second)
 }
 
+// dynamicToolTestDummyModel is a minimal model.Model that satisfies the
+// model interface without doing any real work. It is used as a fallback
+// WithModel argument for llmagent.New() calls that need a non-nil model to
+// avoid a panic in contextCompactionTokenCounter → TokenCounterForModel.
+type dynamicToolTestDummyModel struct{}
+
+func (m *dynamicToolTestDummyModel) Info() model.Info {
+	return model.NewTestInfo("dynamic-tool-test-dummy")
+}
+func (m *dynamicToolTestDummyModel) GenerateContent(
+	_ context.Context, _ *model.Request,
+) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
+
 // dynRecordingModel records the set of tool names visible in each request.
 type dynRecordingModel struct {
 	name     string
@@ -928,7 +945,7 @@ func (m *dynRecordingModel) GenerateContent(
 	return ch, nil
 }
 
-func (m *dynRecordingModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *dynRecordingModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 func (m *dynRecordingModel) snapshot() [][]string {
 	m.mu.Lock()

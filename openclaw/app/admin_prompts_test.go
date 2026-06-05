@@ -10,6 +10,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 )
+
+type adminPromptsTestDummyModel struct{}
+
+func (m *adminPromptsTestDummyModel) Info() model.Info {
+	return model.NewTestInfo("admin-prompts-test-dummy")
+}
+func (m *adminPromptsTestDummyModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
 
 func TestAdminPromptProviderStatus(t *testing.T) {
 	t.Parallel()
@@ -51,6 +64,7 @@ func TestAdminPromptProviderStatus(t *testing.T) {
 		controller: newRuntimePromptController(
 			llmagent.New(
 				"test",
+				llmagent.WithModel(&adminPromptsTestDummyModel{}),
 				llmagent.WithInstruction(prompts.Instruction),
 				llmagent.WithGlobalInstruction(prompts.SystemPrompt),
 			),
@@ -132,6 +146,7 @@ func TestAdminPromptProviderSavePromptFile(t *testing.T) {
 		controller: newRuntimePromptController(
 			llmagent.New(
 				"test",
+				llmagent.WithModel(&adminPromptsTestDummyModel{}),
 				llmagent.WithInstruction(prompts.Instruction),
 				llmagent.WithGlobalInstruction(prompts.SystemPrompt),
 			),
@@ -178,6 +193,7 @@ func TestAdminPromptProviderCreateAndDeletePromptFile(t *testing.T) {
 		controller: newRuntimePromptController(
 			llmagent.New(
 				"test",
+				llmagent.WithModel(&adminPromptsTestDummyModel{}),
 				llmagent.WithInstruction(prompts.Instruction),
 				llmagent.WithGlobalInstruction(prompts.SystemPrompt),
 			),
@@ -231,6 +247,7 @@ func TestAdminPromptProviderSavePromptRuntime(t *testing.T) {
 		controller: newRuntimePromptController(
 			llmagent.New(
 				"test",
+				llmagent.WithModel(&adminPromptsTestDummyModel{}),
 				llmagent.WithInstruction(prompts.Instruction),
 				llmagent.WithGlobalInstruction(prompts.SystemPrompt),
 			),
@@ -452,6 +469,7 @@ func TestAdminPromptProviderAdditionalCoverage(t *testing.T) {
 		controller: newRuntimePromptController(
 			llmagent.New(
 				"test",
+				llmagent.WithModel(&adminPromptsTestDummyModel{}),
 				llmagent.WithInstruction(prompts.Instruction),
 				llmagent.WithGlobalInstruction(prompts.SystemPrompt),
 			),

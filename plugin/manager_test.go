@@ -1065,7 +1065,7 @@ func (m *staticModel) GenerateContent(
 }
 
 func (m *staticModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestRegistry_NilReceiver_IsSafe(t *testing.T) {

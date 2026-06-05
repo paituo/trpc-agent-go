@@ -41,7 +41,7 @@ func (m *mockModelWithUsage) GenerateContent(
 }
 
 func (m *mockModelWithUsage) Info() model.Info {
-	return model.Info{Name: "mock-model-with-usage"}
+	return model.NewTestInfo("mock-model-with-usage")
 }
 
 // TestLLMAgent_TokenUsageCounting tests that token usage is correctly counted and accumulated.

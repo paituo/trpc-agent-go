@@ -249,7 +249,7 @@ func (m *pluginCaptureModel) GenerateContent(
 }
 
 func (m *pluginCaptureModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type captureTool struct {
