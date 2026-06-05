@@ -9,7 +9,12 @@
 
 package service
 
-import "time"
+import (
+	"context"
+	"time"
+
+	"trpc.group/trpc-go/trpc-agent-go/session"
+)
 
 const (
 	// defaultPath is the default path for the AG-UI service.
@@ -18,6 +23,8 @@ const (
 	defaultMessagesSnapshotPath = "/history"
 	// defaultCancelPath is the default path for the cancel handler.
 	defaultCancelPath = "/cancel"
+	// defaultContextUsagePath is the default path for the context usage handler.
+	defaultContextUsagePath = "/context-usage"
 )
 
 // Options holds the options for an AG-UI transport implementation.
@@ -29,6 +36,11 @@ type Options struct {
 	CancelEnabled           bool          // CancelEnabled enables the cancel handler.
 	CancelPath              string        // CancelPath is the HTTP path for the cancel handler.
 	HeartbeatInterval       time.Duration // HeartbeatInterval controls how often heartbeat frames are sent.
+	ContextUsageEnabled     bool          // ContextUsageEnabled enables the context usage handler.
+	ContextUsagePath        string        // ContextUsagePath is the HTTP path for the context usage handler.
+	SessionService          interface {
+		GetSession(ctx context.Context, key session.Key) (*session.Session, error)
+	} // SessionService is used to retrieve sessions for context usage computation.
 }
 
 // NewOptions creates a new options instance.
@@ -45,6 +57,9 @@ func NewOptions(opt ...Option) *Options {
 	}
 	if opts.CancelEnabled && opts.CancelPath == "" {
 		opts.CancelPath = defaultCancelPath
+	}
+	if opts.ContextUsageEnabled && opts.ContextUsagePath == "" {
+		opts.ContextUsagePath = defaultContextUsagePath
 	}
 	return opts
 }

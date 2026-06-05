@@ -26,6 +26,7 @@ var (
 	defaultCancelPath            = "/cancel"
 	defaultMessagesSnapshotState = false
 	defaultCancelState           = false
+	defaultContextUsagePath      = "/context-usage"
 )
 
 // options holds the options for the AG-UI server.
@@ -42,6 +43,8 @@ type options struct {
 	heartbeatInterval        time.Duration
 	appName                  string
 	sessionService           session.Service
+	contextUsageEnabled      bool
+	contextUsagePath         string
 }
 
 // newOptions creates a new options instance.
@@ -54,6 +57,7 @@ func newOptions(opt ...Option) *options {
 		messagesSnapshotEnabled: defaultMessagesSnapshotState,
 		cancelPath:              defaultCancelPath,
 		cancelEnabled:           defaultCancelState,
+		contextUsagePath:        defaultContextUsagePath,
 	}
 	for _, o := range opt {
 		o(opts)
@@ -278,5 +282,24 @@ func WithSessionService(service session.Service) Option {
 	return func(o *options) {
 		o.sessionService = service
 		o.aguiRunnerOptions = append(o.aguiRunnerOptions, aguirunner.WithSessionService(service))
+	}
+}
+
+// WithEnableContextUsage enables the context usage endpoint and real-time
+// CustomEvent emission. When enabled, the server exposes a POST endpoint
+// at the context usage path and the runner emits "context_usage" CustomEvents
+// after each LLM response.
+func WithEnableContextUsage(enabled bool) Option {
+	return func(o *options) {
+		o.contextUsageEnabled = enabled
+		o.aguiRunnerOptions = append(o.aguiRunnerOptions, aguirunner.WithEnableContextUsage(enabled))
+	}
+}
+
+// WithContextUsagePath sets the HTTP path for the context usage endpoint.
+// Defaults to "/context-usage".
+func WithContextUsagePath(p string) Option {
+	return func(o *options) {
+		o.contextUsagePath = p
 	}
 }

@@ -102,6 +102,7 @@ func New(r trunner.Runner, opt ...Option) Runner {
 		streamingToolResultActivityEnabled:        opts.StreamingToolResultActivityEnabled,
 		distributedCancelEnabled:                  opts.DistributedCancelEnabled,
 		distributedCancelPollInterval:             opts.DistributedCancelPollInterval,
+		contextUsageEnabled:                       opts.ContextUsageEnabled,
 	}
 	return run
 }
@@ -139,6 +140,7 @@ type runner struct {
 	streamingToolResultActivityEnabled        bool
 	distributedCancelEnabled                  bool
 	distributedCancelPollInterval             time.Duration
+	contextUsageEnabled                       bool
 }
 
 type sessionContext struct {
@@ -775,6 +777,14 @@ func (r *runner) handleAgentEvent(ctx context.Context, events chan<- aguievents.
 			return false
 		}
 	}
+
+	// Emit context usage CustomEvent after LLM responses if enabled.
+	if r.contextUsageEnabled && isLLMCompletionEvent(customEvent) {
+		if !r.emitContextUsageEvent(ctx, events, input, customEvent) {
+			return false
+		}
+	}
+
 	return true
 }
 
@@ -1010,4 +1020,56 @@ func contextDoneMessage(ctx context.Context) string {
 		return err.Error()
 	}
 	return "run terminated"
+}
+
+// isLLMCompletionEvent reports whether the event represents a completed LLM
+// response that contains usage information.
+func isLLMCompletionEvent(evt *event.Event) bool {
+	if evt == nil || evt.Response == nil {
+		return false
+	}
+	return evt.Response.Usage != nil && evt.Response.Done
+}
+
+// emitContextUsageEvent computes the current context usage and emits it as
+// a CustomEvent with name "context_usage".
+func (r *runner) emitContextUsageEvent(
+	ctx context.Context,
+	events chan<- aguievents.Event,
+	input *runInput,
+	evt *event.Event,
+) bool {
+	if r.sessionService == nil {
+		return true
+	}
+
+	// Determine model name from the response.
+	modelName := ""
+	if evt.Response != nil {
+		modelName = evt.Response.Model
+	}
+	if modelName == "" {
+		return true
+	}
+
+	// Get the session to compute context usage.
+	sess, err := r.sessionService.GetSession(ctx, input.key)
+	if err != nil {
+		log.DebugfContext(ctx, "agui context usage: get session: %v", err)
+		return true
+	}
+
+	usage, err := session.ComputeContextUsage(
+		ctx, sess, modelName, nil, session.DefaultContextUsageConfig(),
+	)
+	if err != nil {
+		log.DebugfContext(ctx, "agui context usage: compute: %v", err)
+		return true
+	}
+
+	contextUsageEvent := aguievents.NewCustomEvent(
+		"context_usage",
+		aguievents.WithValue(usage),
+	)
+	return r.emitEvent(ctx, events, contextUsageEvent, input)
 }

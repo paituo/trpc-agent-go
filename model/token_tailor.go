@@ -12,6 +12,7 @@ package model
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -819,6 +820,97 @@ func newTokenCounterHeuristic(modelName string) TokenCounter {
 	default:
 		return NewSimpleTokenCounter()
 	}
+}
+
+// CategoryTokenCount holds token counts grouped by message role.
+type CategoryTokenCount struct {
+	// Category is the message role (e.g. "system", "user", "assistant", "tool").
+	Category string
+	// Tokens is the total estimated tokens for this category.
+	Tokens int
+	// Count is the number of messages in this category.
+	Count int
+	// ReasoningTokens is the number of tokens attributed to reasoning content
+	// within this category (only non-zero for "assistant" messages with
+	// ReasoningContent).
+	ReasoningTokens int
+}
+
+// CountTokensByCategory counts tokens for a slice of messages grouped by role.
+// It returns a slice of CategoryTokenCount sorted by category name.
+// Messages with ReasoningContent have their reasoning tokens tracked separately
+// in the ReasoningTokens field.
+func CountTokensByCategory(
+	ctx context.Context,
+	tokenCounter TokenCounter,
+	messages []Message,
+) ([]CategoryTokenCount, error) {
+	if tokenCounter == nil {
+		tokenCounter = NewSimpleTokenCounter()
+	}
+
+	categoryMap := make(map[string]*categoryTokenAccumulator)
+
+	for i := range messages {
+		msg := &messages[i]
+		role := string(msg.Role)
+		if role == "" {
+			continue
+		}
+
+		tokens, err := tokenCounter.CountTokens(ctx, *msg)
+		if err != nil {
+			continue
+		}
+
+		acc := getOrCreateCategoryAccumulator(categoryMap, role)
+		acc.tokens += tokens
+		acc.count++
+
+		// Track reasoning content separately if present.
+		if msg.ReasoningContent != "" {
+			reasoningMsg := Message{
+				Role:    RoleAssistant,
+				Content: msg.ReasoningContent,
+			}
+			rt, err := tokenCounter.CountTokens(ctx, reasoningMsg)
+			if err == nil {
+				acc.reasoningTokens += rt
+			}
+		}
+	}
+
+	result := make([]CategoryTokenCount, 0, len(categoryMap))
+	for cat, acc := range categoryMap {
+		result = append(result, CategoryTokenCount{
+			Category:        cat,
+			Tokens:          acc.tokens,
+			Count:           acc.count,
+			ReasoningTokens: acc.reasoningTokens,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Category < result[j].Category
+	})
+
+	return result, nil
+}
+
+// categoryTokenAccumulator accumulates token counts for a category.
+type categoryTokenAccumulator struct {
+	tokens          int
+	count           int
+	reasoningTokens int
+}
+
+// getOrCreateCategoryAccumulator returns the accumulator for the given category.
+func getOrCreateCategoryAccumulator(m map[string]*categoryTokenAccumulator, category string) *categoryTokenAccumulator {
+	acc, ok := m[category]
+	if !ok {
+		acc = &categoryTokenAccumulator{}
+		m[category] = acc
+	}
+	return acc
 }
 
 

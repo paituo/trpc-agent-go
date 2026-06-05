@@ -102,6 +102,21 @@ func newService(runner runner.Runner, opts *options) (service.Service, error) {
 			service.WithMessagesSnapshotPath(messagesSnapshotPath),
 		)
 	}
+	if opts.contextUsageEnabled {
+		if opts.sessionService == nil {
+			return nil, errors.New("agui: session service is required when context usage is enabled")
+		}
+		contextUsagePath, err := joinURLPath(opts.basePath, opts.contextUsagePath)
+		if err != nil {
+			return nil, fmt.Errorf("agui: url join context usage path: %w", err)
+		}
+		serviceOpts = append(
+			serviceOpts,
+			service.WithContextUsageEnabled(true),
+			service.WithContextUsagePath(contextUsagePath),
+			service.WithSessionService(opts.sessionService),
+		)
+	}
 	return opts.serviceFactory(aguiRunner, serviceOpts...), nil
 }
 

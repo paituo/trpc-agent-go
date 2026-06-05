@@ -35,6 +35,7 @@ const (
 	defaultStreamingToolResultActivityEnabled     = false
 	defaultDistributedCancelEnabled               = false
 	defaultDistributedCancelPollInterval          = time.Second
+	defaultContextUsageEnabled                    = false
 )
 
 // Options holds the options for the runner.
@@ -68,6 +69,7 @@ type Options struct {
 	StreamingToolResultActivityEnabled        bool                  // StreamingToolResultActivityEnabled rewrites partial tool results as activity events.
 	DistributedCancelEnabled                  bool                  // DistributedCancelEnabled enables best-effort cancel signaling through SessionState.
 	DistributedCancelPollInterval             time.Duration         // DistributedCancelPollInterval controls how often owner runs poll cancel markers.
+	ContextUsageEnabled                       bool                  // ContextUsageEnabled enables emitting context_usage CustomEvents after LLM responses.
 }
 
 // NewOptions creates a new options instance.
@@ -94,6 +96,7 @@ func NewOptions(opt ...Option) *Options {
 		StreamingToolResultActivityEnabled:     defaultStreamingToolResultActivityEnabled,
 		DistributedCancelEnabled:               defaultDistributedCancelEnabled,
 		DistributedCancelPollInterval:          defaultDistributedCancelPollInterval,
+		ContextUsageEnabled:                    defaultContextUsageEnabled,
 	}
 	for _, o := range opt {
 		o(opts)
@@ -328,6 +331,15 @@ func WithDistributedCancelEnabled(enabled bool) Option {
 func WithDistributedCancelPollInterval(d time.Duration) Option {
 	return func(o *Options) {
 		o.DistributedCancelPollInterval = d
+	}
+}
+
+// WithEnableContextUsage enables or disables emitting context_usage CustomEvents
+// after each LLM response. When enabled, the runner computes the current context
+// window usage and emits a CustomEvent with name "context_usage" to the frontend.
+func WithEnableContextUsage(enabled bool) Option {
+	return func(o *Options) {
+		o.ContextUsageEnabled = enabled
 	}
 }
 
