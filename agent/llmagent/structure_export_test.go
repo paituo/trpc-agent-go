@@ -59,6 +59,12 @@ func TestExport_LLMAgent_BasicSnapshot(t *testing.T) {
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: textPtr("")},
 			},
+			{
+				SurfaceID: "assistant#model",
+				NodeID:    "assistant",
+				Type:      structure.SurfaceTypeModel,
+				Value:     structure.SurfaceValue{Model: &structure.ModelRef{Name: "ext-dummy"}},
+			},
 		},
 	})
 }
@@ -171,6 +177,12 @@ func TestExport_LLMAgent_ConfiguredSnapshot(t *testing.T) {
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: textPtr("")},
 			},
+			{
+				SurfaceID: "assistant/sub#model",
+				NodeID:    "assistant/sub",
+				Type:      structure.SurfaceTypeModel,
+				Value:     structure.SurfaceValue{Model: &structure.ModelRef{Name: "ext-dummy"}},
+			},
 		},
 	})
 }
@@ -212,6 +224,12 @@ func TestExport_LLMAgent_DoubleBraceSyntax(t *testing.T) {
 					Text:         textPtr("{{ solve }}"),
 					PromptSyntax: promptSyntaxPtr(structure.PromptSyntaxDoubleBrace),
 				},
+			},
+			{
+				SurfaceID: "assistant#model",
+				NodeID:    "assistant",
+				Type:      structure.SurfaceTypeModel,
+				Value:     structure.SurfaceValue{Model: &structure.ModelRef{Name: "ext-dummy"}},
 			},
 		},
 	})
