@@ -335,15 +335,15 @@ type runOptions struct {
 	MemoryAutoMessageThreshold int
 	MemoryAutoTimeInterval     time.Duration
 
-	SessionSummaryEnabled                 bool
-	SessionSummaryMode                    string
-	SessionSummaryPolicy                  string
-	SessionSummaryEventCount              int
-	SessionSummaryTokenCount              int
-	SessionSummaryIdleThreshold           time.Duration
-	SessionSummaryMaxWords                int
-	SessionSummaryApproxRunesPerToken     float64
-	SessionSummaryContextThresholdRatio   float64
+	SessionSummaryEnabled                   bool
+	SessionSummaryMode                      string
+	SessionSummaryPolicy                    string
+	SessionSummaryEventCount                int
+	SessionSummaryTokenCount                int
+	SessionSummaryIdleThreshold             time.Duration
+	SessionSummaryMaxWords                  int
+	SessionSummaryApproxRunesPerToken       float64
+	SessionSummaryContextThresholdRatio     float64
 	SessionSummaryContextThresholdMinTokens int
 
 	EnableLocalExec                    bool
@@ -399,6 +399,10 @@ func parseRunOptions(args []string) (runOptions, error) {
 		SkillsSkipFallback:  true,
 
 		EvolutionSkillScopeMode: skill.SkillScopeApp,
+
+		SkillsProjectAgentsRoot:  true,
+		SkillsPersonalAgentsRoot: true,
+		SkillsManagedRoot:        true,
 
 		SessionBackend: sessionBackendInMemory,
 		MemoryBackend:  memoryBackendInMemory,
@@ -638,19 +642,19 @@ func parseRunOptions(args []string) (runOptions, error) {
 	fs.BoolVar(
 		&opts.SkillsProjectAgentsRoot,
 		flagSkillsProjectAgentsRoot,
-		false,
+		true,
 		"Use project agents root",
 	)
 	fs.BoolVar(
 		&opts.SkillsPersonalAgentsRoot,
 		flagSkillsPersonalAgentsRoot,
-		false,
+		true,
 		"Use personal agents root",
 	)
 	fs.BoolVar(
 		&opts.SkillsManagedRoot,
 		flagSkillsManagedRoot,
-		false,
+		true,
 		"Use managed root",
 	)
 	fs.StringVar(
@@ -1795,16 +1799,16 @@ type redisConfig struct {
 }
 
 type summaryConfig struct {
-	Enabled                 *bool    `yaml:"enabled,omitempty"`
-	Mode                    *string  `yaml:"mode,omitempty"`
-	Policy                  *string  `yaml:"policy,omitempty"`
-	EventThreshold          *int     `yaml:"event_threshold,omitempty"`
-	TokenThreshold          *int     `yaml:"token_threshold,omitempty"`
-	IdleThreshold           *string  `yaml:"idle_threshold,omitempty"`
-	MaxWords                *int     `yaml:"max_words,omitempty"`
-	ApproxRunesPerToken     *float64 `yaml:"approx_runes_per_token,omitempty"`
-	ContextThresholdRatio   *float64 `yaml:"context_threshold_ratio,omitempty"`
-	ContextThresholdMinTokens *int    `yaml:"context_threshold_min_tokens,omitempty"`
+	Enabled                   *bool    `yaml:"enabled,omitempty"`
+	Mode                      *string  `yaml:"mode,omitempty"`
+	Policy                    *string  `yaml:"policy,omitempty"`
+	EventThreshold            *int     `yaml:"event_threshold,omitempty"`
+	TokenThreshold            *int     `yaml:"token_threshold,omitempty"`
+	IdleThreshold             *string  `yaml:"idle_threshold,omitempty"`
+	MaxWords                  *int     `yaml:"max_words,omitempty"`
+	ApproxRunesPerToken       *float64 `yaml:"approx_runes_per_token,omitempty"`
+	ContextThresholdRatio     *float64 `yaml:"context_threshold_ratio,omitempty"`
+	ContextThresholdMinTokens *int     `yaml:"context_threshold_min_tokens,omitempty"`
 }
 
 type memoryAuto struct {
