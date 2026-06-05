@@ -1303,9 +1303,7 @@ func (m *MockModel) GenerateContent(ctx context.Context, request *model.Request)
 }
 
 func (m *MockModel) Info() model.Info {
-	return model.Info{
-		Name: "mock-model",
-	}
+	return model.NewTestInfo("mock-model")
 }
 
 // TestBasicLinearWorkflow tests a simple linear workflow with state updates
@@ -1975,9 +1973,7 @@ func (m *IssueClassificationMockModel) GenerateContent(ctx context.Context, requ
 }
 
 func (m *IssueClassificationMockModel) Info() model.Info {
-	return model.Info{
-		Name: "issue-classification-mock-model",
-	}
+	return model.NewTestInfo("issue-classification-mock-model")
 }
 
 // TestBeforeCallbackShortCircuit ensures that a BeforeNode callback returning a

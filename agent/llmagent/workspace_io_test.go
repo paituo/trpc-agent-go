@@ -61,6 +61,7 @@ func TestLLMAgent_Run_InstallsWorkspaceInContext(t *testing.T) {
 	})
 
 	a := New("agent",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(exec),
 		WithAgentCallbacks(cb),
 	)
@@ -100,6 +101,7 @@ func TestLLMAgent_Run_PreservesExistingWorkspaceInContext(t *testing.T) {
 	})
 
 	a := New("agent",
+		WithModel(&extDummyModel{}),
 		WithCodeExecutor(exec),
 		WithAgentCallbacks(cb),
 	)
@@ -143,7 +145,7 @@ func TestLLMAgent_Run_InstallsWorkspaceWhenRunnerNil(t *testing.T) {
 		return nil, nil
 	})
 
-	a := New("agent", WithCodeExecutor(exec), WithAgentCallbacks(cb))
+	a := New("agent", WithModel(&extDummyModel{}), WithCodeExecutor(exec), WithAgentCallbacks(cb))
 	a.flow = &mockFlow{done: true}
 
 	inv := agent.NewInvocation(
@@ -181,7 +183,7 @@ func TestLLMAgent_Run_HonorsRunOptionsCodeExecutorForWorkspace(t *testing.T) {
 		return nil, nil
 	})
 
-	a := New("agent", WithAgentCallbacks(cb)) // no WithCodeExecutor
+	a := New("agent", WithModel(&extDummyModel{}), WithAgentCallbacks(cb)) // no WithCodeExecutor
 	a.flow = &mockFlow{done: true}
 
 	inv := agent.NewInvocation(
@@ -220,7 +222,7 @@ func TestLLMAgent_Run_WithoutCodeExecutor_NoWorkspaceInContext(t *testing.T) {
 		return nil, nil
 	})
 
-	a := New("agent", WithAgentCallbacks(cb))
+	a := New("agent", WithModel(&extDummyModel{}), WithAgentCallbacks(cb))
 	a.flow = &mockFlow{done: true}
 
 	inv := agent.NewInvocation(

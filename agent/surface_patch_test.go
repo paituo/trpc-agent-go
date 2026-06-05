@@ -59,7 +59,7 @@ func (m *surfacePatchTestModel) GenerateContent(
 }
 
 func (m *surfacePatchTestModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestWithSurfacePatchForNode_MergesAndCopiesByValue(t *testing.T) {

@@ -276,7 +276,7 @@ func (m *staticModel) GenerateContent(
 	return ch, nil
 }
 
-func (m *staticModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *staticModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 func (m *emptyIDModel) GenerateContent(
 	_ context.Context,
@@ -296,7 +296,7 @@ func (m *emptyIDModel) GenerateContent(
 	return ch, nil
 }
 
-func (m *emptyIDModel) Info() model.Info { return model.Info{Name: m.name} }
+func (m *emptyIDModel) Info() model.Info { return model.NewTestInfo(m.name) }
 
 type runnerStructuredOutputTypedPayload struct {
 	Answer string `json:"answer"`
@@ -366,7 +366,7 @@ func (m *sequentialModel) GenerateContent(
 }
 
 func (m *sequentialModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *sequentialModel) Requests() []*capturedModelRequest {
@@ -406,7 +406,7 @@ func (m *capturingStructuredOutputModel) GenerateContent(
 }
 
 func (m *capturingStructuredOutputModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *capturingStructuredOutputModel) LatestRequest() *capturedModelRequest {
@@ -10064,7 +10064,7 @@ func (m *scriptedSurfaceModel) GenerateContent(
 }
 
 func (m *scriptedSurfaceModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *scriptedSurfaceModel) RequestCount() int {

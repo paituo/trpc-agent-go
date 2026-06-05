@@ -44,7 +44,7 @@ func (m *benchChanModel) GenerateContent(ctx context.Context, request *model.Req
 }
 
 func (m *benchChanModel) Info() model.Info {
-	return model.Info{Name: "benchChanModel"}
+	return model.NewTestInfo("benchChanModel")
 }
 
 type benchIterModel struct {
@@ -68,7 +68,7 @@ func (m *benchIterModel) GenerateContentIter(ctx context.Context, request *model
 }
 
 func (m *benchIterModel) Info() model.Info {
-	return model.Info{Name: "benchIterModel"}
+	return model.NewTestInfo("benchIterModel")
 }
 
 func makeBenchResponses(n int) []*model.Response {

@@ -81,6 +81,11 @@ func New(modelName string, opts ...Option) (*Model, error) {
 		httpClient = &http.Client{}
 	}
 
+	// Initialize token counter lazily if not provided.
+	if options.TokenCounter == nil {
+		options.TokenCounter = model.NewTokenCounter(modelName)
+	}
+
 	// Initialize token tailoring strategy if enabled.
 	var tailoringStrategy model.TailoringStrategy
 	if options.EnableTokenTailoring || options.MaxInputTokens > 0 {
@@ -199,6 +204,7 @@ func (m *Model) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
+		TokenCounter:  m.tokenCounter,
 	}
 }
 

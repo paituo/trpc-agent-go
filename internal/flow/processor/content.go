@@ -2121,6 +2121,23 @@ func toolHasName(tl tool.Tool, name string) bool {
 	return decl != nil && decl.Name == name
 }
 
+func shouldCompactCurrentInvocationToolResult(
+	msg model.Message,
+	cfg ContextCompactionConfig,
+) bool {
+	if cfg.ToolResultMaxTokens <= 0 {
+		return false
+	}
+	counter := cfg.TokenCounter
+	if counter == nil {
+		counter = model.NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
+	}
+	tokens, err := counter.CountTokens(context.Background(), msg)
+	if err != nil {
+		return false
+	}
+	return tokens > cfg.ToolResultMaxTokens
+}
 func annotateUserMessagesWithAttachedFiles(
 	messages []model.Message,
 ) []model.Message {

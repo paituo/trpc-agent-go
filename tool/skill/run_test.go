@@ -4170,7 +4170,7 @@ func (m *stubDownloadModel) GenerateContent(
 }
 
 func (m *stubDownloadModel) Info() model.Info {
-	return model.Info{Name: "stub"}
+	return model.NewTestInfo("stub")
 }
 
 func (m *stubDownloadModel) DownloadFile(

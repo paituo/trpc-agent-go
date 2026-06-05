@@ -64,9 +64,7 @@ type mockModel struct {
 }
 
 func (m *mockModel) Info() model.Info {
-	return model.Info{
-		Name: "mock",
-	}
+	return model.NewTestInfo("mock")
 }
 
 func (m *mockModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {

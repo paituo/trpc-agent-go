@@ -454,7 +454,7 @@ func TestOptions(t *testing.T) {
 
 type testModel struct{}
 
-func (t *testModel) Info() model.Info { return model.Info{Name: "test"} }
+func (t *testModel) Info() model.Info { return model.NewTestInfo("test") }
 func (t *testModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, 1)
 	ch <- &model.Response{Done: true, Choices: []model.Choice{{Message: model.Message{Content: "ok"}}}}

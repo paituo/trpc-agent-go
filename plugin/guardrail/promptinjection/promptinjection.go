@@ -36,7 +36,7 @@ func New(options ...Option) (*Plugin, error) {
 	return &Plugin{
 		name:         opts.name,
 		reviewer:     opts.reviewer,
-		tokenCounter: model.NewSimpleTokenCounter(),
+		tokenCounter: model.NewTokenCounter(""),
 		enabled:      opts.enabled,
 	}, nil
 }

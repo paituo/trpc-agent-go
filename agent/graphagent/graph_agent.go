@@ -45,6 +45,7 @@ type GraphAgent struct {
 	agentCallbacks    *agent.Callbacks
 	initialState      graph.State
 	channelBufferSize int
+	model             model.Model
 	options           Options
 }
 
@@ -95,6 +96,7 @@ func New(name string, g *graph.Graph, opts ...Option) (*GraphAgent, error) {
 		agentCallbacks:    options.AgentCallbacks,
 		initialState:      options.InitialState,
 		channelBufferSize: options.ChannelBufferSize,
+		model:             options.Model,
 		options:           options,
 	}, nil
 }
@@ -401,6 +403,19 @@ func (ga *GraphAgent) runWithCallbacks(ctx context.Context, invocation *agent.In
 	return eventChan, nil
 }
 
+func contextCompactionTokenCounter(
+	explicitCounter model.TokenCounter,
+	mdl model.Model,
+) model.TokenCounter {
+	if explicitCounter != nil {
+		return explicitCounter
+	}
+	if mdl != nil {
+		return model.TokenCounterForModel(mdl)
+	}
+	return nil
+}
+
 func (ga *GraphAgent) createInitialState(ctx context.Context, invocation *agent.Invocation) graph.State {
 	var initialState graph.State
 
@@ -442,7 +457,10 @@ func (ga *GraphAgent) createInitialState(ctx context.Context, invocation *agent.
 				ga.options.ContextCompactionOversizedToolResultMaxTokens,
 			),
 			processor.WithContextCompactionTokenCounter(
-				ga.options.ContextCompactionTokenCounter,
+				contextCompactionTokenCounter(
+					ga.options.ContextCompactionTokenCounter,
+					ga.model,
+				),
 			),
 			processor.WithPreserveSameBranch(true),
 			processor.WithPreserveForeignMessages(

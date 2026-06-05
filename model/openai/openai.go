@@ -489,6 +489,9 @@ func New(name string, opts ...Option) *Model {
 
 	client := openai.NewClient(clientOpts...)
 
+	if o.TokenCounter == nil {
+		o.TokenCounter = model.NewTokenCounter(name)
+	}
 	if o.TailoringStrategy == nil {
 		o.TailoringStrategy = model.NewMiddleOutStrategy(o.TokenCounter)
 	}
@@ -581,6 +584,7 @@ func (m *Model) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
+		TokenCounter:  m.tokenCounter,
 	}
 }
 

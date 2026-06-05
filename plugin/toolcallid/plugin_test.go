@@ -544,7 +544,7 @@ type capturingToolLoopModel struct {
 }
 
 func (m *capturingToolLoopModel) Info() model.Info {
-	return model.Info{Name: "capturing-tool-loop-model"}
+	return model.NewTestInfo("capturing-tool-loop-model")
 }
 
 func (m *capturingToolLoopModel) GenerateContent(
@@ -615,7 +615,7 @@ type scriptedResponseModel struct {
 }
 
 func (m *scriptedResponseModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *scriptedResponseModel) GenerateContent(

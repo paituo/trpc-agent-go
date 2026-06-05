@@ -1650,6 +1650,8 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		req,
 		rebuildPlan.callLimitFinalizationMessage,
 	)
+	// NOTE: branch's RecordPreCompaction token-counting block is intentionally
+	// skipped per merge scope (TokenCounter & context-budget work is deferred).
 	decision := syncCompactContextDecision(
 		ctx,
 		invocation,
@@ -2129,7 +2131,7 @@ func syncCompactContextDecision(
 		ratio,
 	)
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.TokenCounterForModel(inv.Model)
 	}
 	tokens, err := counter.CountTokensRange(ctx, req.Messages, 0, len(req.Messages))
 	decision.tokenCount = tokens

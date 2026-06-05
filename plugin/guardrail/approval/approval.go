@@ -55,7 +55,7 @@ func New(options ...Option) (*Plugin, error) {
 		reviewer:          opts.reviewer,
 		defaultToolPolicy: opts.defaultToolPolicy,
 		toolPolicies:      opts.toolPolicies,
-		tokenCounter:      model.NewSimpleTokenCounter(),
+		tokenCounter:      model.NewTokenCounter(""),
 		enabled:           opts.enabled,
 	}, nil
 }

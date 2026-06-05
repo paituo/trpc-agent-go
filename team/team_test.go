@@ -382,7 +382,7 @@ func (m *swarmStructuredOutputModel) GenerateContent(
 }
 
 func (m *swarmStructuredOutputModel) Info() model.Info {
-	return model.Info{Name: "swarm-structured-output-model"}
+	return model.NewTestInfo("swarm-structured-output-model")
 }
 
 func (m *swarmStructuredOutputModel) Snapshot() (bool, string, string) {
@@ -1635,7 +1635,7 @@ func (m *teamScriptedSurfaceModel) GenerateContent(
 }
 
 func (m *teamScriptedSurfaceModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *teamScriptedSurfaceModel) RequestCount() int {

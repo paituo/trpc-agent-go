@@ -146,7 +146,7 @@ var (
 		Variant:               VariantOpenAI, // The default variant is VariantOpenAI.
 		ChannelBufferSize:     defaultChannelBufferSize,
 		BatchCompletionWindow: defaultBatchCompletionWindow,
-		TokenCounter:          model.NewSimpleTokenCounter(),
+		TokenCounter:          nil,
 		TokenTailoringConfig: &model.TokenTailoringConfig{
 			ProtocolOverheadTokens: imodel.DefaultProtocolOverheadTokens,
 			ReserveOutputTokens:    imodel.DefaultReserveOutputTokens,

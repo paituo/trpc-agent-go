@@ -257,10 +257,10 @@ func TestWithReasoningContentMode(t *testing.T) {
 }
 
 func TestWithSkillLoadMode(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Equal(t, SkillLoadModeTurn, a.option.SkillLoadMode)
 
-	b := New("test-agent", WithSkillLoadMode(SkillLoadModeSession))
+	b := New("test-agent", WithModel(&extDummyModel{}), WithSkillLoadMode(SkillLoadModeSession))
 	require.Equal(t, SkillLoadModeSession, b.option.SkillLoadMode)
 }
 
@@ -270,13 +270,13 @@ func TestWithMaxLoadedSkills(t *testing.T) {
 		maxSkills = 3
 	)
 
-	a := New(agentName)
+	a := New(agentName, WithModel(&extDummyModel{}))
 	require.Equal(t, 0, a.option.MaxLoadedSkills)
 
-	b := New(agentName, WithMaxLoadedSkills(maxSkills))
+	b := New(agentName, WithModel(&extDummyModel{}), WithMaxLoadedSkills(maxSkills))
 	require.Equal(t, maxSkills, b.option.MaxLoadedSkills)
 
-	c := New(agentName, WithMaxLoadedSkills(0))
+	c := New(agentName, WithModel(&extDummyModel{}), WithMaxLoadedSkills(0))
 	require.Equal(t, 0, c.option.MaxLoadedSkills)
 }
 
@@ -303,37 +303,38 @@ func TestWithMaxOverviewSkills(t *testing.T) {
 }
 
 func TestWithSkillsLoadedContentInToolResults(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.False(t, a.option.SkillsLoadedContentInToolResults)
 
-	b := New("test-agent", WithSkillsLoadedContentInToolResults(true))
+	b := New("test-agent", WithModel(&extDummyModel{}), WithSkillsLoadedContentInToolResults(true))
 	require.True(t, b.option.SkillsLoadedContentInToolResults)
 }
 
 func TestWithSkillsDirectoryHints(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.False(t, a.option.skillsDirectoryHints)
 
-	b := New("test-agent", WithSkillsDirectoryHints(true))
+	b := New("test-agent", WithModel(&extDummyModel{}), WithSkillsDirectoryHints(true))
 	require.True(t, b.option.skillsDirectoryHints)
 }
 
 func TestWithSkillsFilePathHints(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.False(t, a.option.skillsFilePathHints)
 
-	b := New("test-agent", WithSkillsFilePathHints(true))
+	b := New("test-agent", WithModel(&extDummyModel{}), WithSkillsFilePathHints(true))
 	require.True(t, b.option.skillsFilePathHints)
 }
 
 func TestWithSkillLoadToolDescription(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Nil(t, a.option.skillLoadToolDescription)
 
 	const description = "Load the matching skill before answering."
 
 	b := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithSkillLoadToolDescription(description),
 	)
 	require.NotNil(t, b.option.skillLoadToolDescription)
@@ -341,12 +342,13 @@ func TestWithSkillLoadToolDescription(t *testing.T) {
 }
 
 func TestWithWorkspaceExecSurfaceEnabled(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Nil(t, a.option.workspaceExecSurfaceEnabled)
 	require.True(t, workspaceExecSurfaceEnabled(&a.option))
 
 	b := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithWorkspaceExecSurfaceEnabled(false),
 	)
 	require.NotNil(t, b.option.workspaceExecSurfaceEnabled)
@@ -361,11 +363,12 @@ func TestWithWorkspaceExecOutputLimits(t *testing.T) {
 }
 
 func TestWithSkillsCapabilityGuidance(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Nil(t, a.option.skillsCapabilityGuidance)
 
 	b := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithSkillsCapabilityGuidance("Use directory bundles."),
 	)
 	require.NotNil(t, b.option.skillsCapabilityGuidance)
@@ -377,11 +380,12 @@ func TestWithSkillsCapabilityGuidance(t *testing.T) {
 }
 
 func TestWithSkillsProtocolGuidance(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Nil(t, a.option.skillsProtocolGuidance)
 
 	b := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithSkillsProtocolGuidance("Always load SKILL.md first."),
 	)
 	require.NotNil(t, b.option.skillsProtocolGuidance)
@@ -393,27 +397,28 @@ func TestWithSkillsProtocolGuidance(t *testing.T) {
 }
 
 func TestWithSkillFilter(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.Nil(t, a.option.skillFilter)
 
 	filter := func(context.Context, skill.Summary) bool { return true }
-	b := New("test-agent", WithSkillFilter(filter))
+	b := New("test-agent", WithModel(&extDummyModel{}), WithSkillFilter(filter))
 	require.NotNil(t, b.option.skillFilter)
 }
 
 func TestWithSkipSkillsFallbackOnSessionSummary(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.True(t, a.option.SkipSkillsFallbackOnSessionSummary)
 
 	b := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithSkipSkillsFallbackOnSessionSummary(false),
 	)
 	require.False(t, b.option.SkipSkillsFallbackOnSessionSummary)
 }
 
 func TestNew_DefaultGenerationConfigKeepsLegacyNonStreaming(t *testing.T) {
-	a := New("test-agent")
+	a := New("test-agent", WithModel(&extDummyModel{}))
 	require.False(t, a.genConfig.Stream)
 }
 
@@ -421,7 +426,7 @@ func TestWithModelSelector(t *testing.T) {
 	selector := func(ctx context.Context, inv *agent.Invocation) (model.Model, error) {
 		return inv.Model, nil
 	}
-	a := New("test-agent", WithModelSelector(selector))
+	a := New("test-agent", WithModel(&extDummyModel{}), WithModelSelector(selector))
 	require.NotNil(t, a.modelSelector)
 	expected := newDummyModel()
 	got, err := a.modelSelector(context.Background(), &agent.Invocation{
@@ -491,6 +496,7 @@ func TestWithGenerationConfig_ExplicitFalseDisablesStreaming(
 ) {
 	a := New(
 		"test-agent",
+		WithModel(&extDummyModel{}),
 		WithGenerationConfig(model.GenerationConfig{Stream: false}),
 	)
 	require.False(t, a.genConfig.Stream)
@@ -499,7 +505,9 @@ func TestWithGenerationConfig_ExplicitFalseDisablesStreaming(
 func TestBuildRequestProcessors_DefaultGenerationConfigUsesZeroValue(
 	t *testing.T,
 ) {
-	procs := buildRequestProcessors("test-agent", &Options{})
+	opts := &Options{}
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
+	procs := buildRequestProcessors("test-agent", opts)
 	var basicProc *processor.BasicRequestProcessor
 	for _, proc := range procs {
 		if candidate, ok := proc.(*processor.BasicRequestProcessor); ok {
@@ -849,7 +857,7 @@ func TestBuildRequestProcessorsWithReasoningContentMode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := New("test-agent", WithReasoningContentMode(tt.reasoningContentMode))
+			agent := New("test-agent", WithModel(&extDummyModel{}), WithReasoningContentMode(tt.reasoningContentMode))
 
 			// When reasoningContentMode is set, agent should be created
 			// without errors. The actual verification is done by checking that
@@ -883,7 +891,7 @@ func TestBuildRequestProcessorsWithSummaryFormatter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := New("test-agent", WithSummaryFormatter(tt.formatter))
+			agent := New("test-agent", WithModel(&extDummyModel{}), WithSummaryFormatter(tt.formatter))
 
 			// When SummaryFormatter is set, agent should be created
 			// without errors. The actual verification is done by checking that

@@ -77,6 +77,9 @@ func New(ctx context.Context, name string, opts ...Option) (*Model, error) {
 	for _, opt := range opts {
 		opt(&o)
 	}
+	if o.tokenCounter == nil {
+		o.tokenCounter = model.NewTokenCounter(name)
+	}
 	if o.tailoringStrategy == nil {
 		o.tailoringStrategy = model.NewMiddleOutStrategy(o.tokenCounter)
 	}
@@ -95,14 +98,17 @@ func New(ctx context.Context, name string, opts ...Option) (*Model, error) {
 	return &Model{
 		client:                     &clientWrapper{client: client},
 		name:                       name,
+		enableTokenTailoring:       o.enableTokenTailoring,
+		maxInputTokens:             o.maxInputTokens,
+		contextWindow:              o.contextWindow,
+		tokenCounter:               o.tokenCounter,
+		tailoringStrategy:          o.tailoringStrategy,
 		protocolOverheadTokens:     o.tokenTailoringConfig.ProtocolOverheadTokens,
 		reserveOutputTokens:        o.tokenTailoringConfig.ReserveOutputTokens,
 		inputTokensFloor:           o.tokenTailoringConfig.InputTokensFloor,
 		outputTokensFloor:          o.tokenTailoringConfig.OutputTokensFloor,
 		safetyMarginRatio:          o.tokenTailoringConfig.SafetyMarginRatio,
 		maxInputTokensRatio:        o.tokenTailoringConfig.MaxInputTokensRatio,
-		maxInputTokens:             o.maxInputTokens,
-		contextWindow:              o.contextWindow,
 		chatRequestCallback:        o.chatRequestCallback,
 		chatResponseCallback:       o.chatResponseCallback,
 		chatChunkCallback:          o.chatChunkCallback,
@@ -115,6 +121,7 @@ func (m *Model) Info() model.Info {
 	return model.Info{
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
+		TokenCounter:  m.tokenCounter,
 	}
 }
 

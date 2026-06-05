@@ -18,8 +18,20 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/llmagent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/structure"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
+
+type teamStructureTestDummyModel struct{}
+
+func (m *teamStructureTestDummyModel) Info() model.Info {
+	return model.NewTestInfo("team-structure-test-dummy")
+}
+func (m *teamStructureTestDummyModel) GenerateContent(_ context.Context, _ *model.Request) (<-chan *model.Response, error) {
+	ch := make(chan *model.Response)
+	close(ch)
+	return ch, nil
+}
 
 func TestExport_TeamCoordinator_RootConnectsOnlyToCoordinator(t *testing.T) {
 	coordinator := &testCoordinator{name: "team"}
@@ -44,10 +56,10 @@ func TestExport_TeamCoordinator_RootConnectsOnlyToCoordinator(t *testing.T) {
 }
 
 func TestExport_TeamCoordinator_MembersHangFromCoordinatorRoot(t *testing.T) {
-	coordinator := llmagent.New("team", llmagent.WithSubAgents([]agent.Agent{
-		llmagent.New("delegate"),
+	coordinator := llmagent.New("team", llmagent.WithModel(&teamStructureTestDummyModel{}), llmagent.WithSubAgents([]agent.Agent{
+		llmagent.New("delegate", llmagent.WithModel(&teamStructureTestDummyModel{})),
 	}))
-	member := llmagent.New("researcher")
+	member := llmagent.New("researcher", llmagent.WithModel(&teamStructureTestDummyModel{}))
 	tm, err := New(coordinator, []agent.Agent{member})
 	require.NoError(t, err)
 	snapshot, err := structure.Export(context.Background(), tm)
@@ -79,6 +91,14 @@ func TestExport_TeamCoordinator_MembersHangFromCoordinatorRoot(t *testing.T) {
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "team/coordinator#model",
+				NodeID:    "team/coordinator",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "team/coordinator#tool",
 				NodeID:    "team/coordinator",
 				Type:      structure.SurfaceTypeTool,
@@ -99,6 +119,14 @@ func TestExport_TeamCoordinator_MembersHangFromCoordinatorRoot(t *testing.T) {
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "team/coordinator/delegate#model",
+				NodeID:    "team/coordinator/delegate",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "team/researcher#global_instruction",
 				NodeID:    "team/researcher",
 				Type:      structure.SurfaceTypeGlobalInstruction,
@@ -110,15 +138,23 @@ func TestExport_TeamCoordinator_MembersHangFromCoordinatorRoot(t *testing.T) {
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
+			{
+				SurfaceID: "team/researcher#model",
+				NodeID:    "team/researcher",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
 		},
 	})
 }
 
 func TestExport_TeamCoordinator_CoordinatorNamespaceAvoidsMemberCollision(t *testing.T) {
-	coordinator := llmagent.New("team", llmagent.WithSubAgents([]agent.Agent{
-		llmagent.New("researcher"),
+	coordinator := llmagent.New("team", llmagent.WithModel(&teamStructureTestDummyModel{}), llmagent.WithSubAgents([]agent.Agent{
+		llmagent.New("researcher", llmagent.WithModel(&teamStructureTestDummyModel{})),
 	}))
-	member := llmagent.New("researcher")
+	member := llmagent.New("researcher", llmagent.WithModel(&teamStructureTestDummyModel{}))
 	tm, err := New(coordinator, []agent.Agent{member})
 	require.NoError(t, err)
 	snapshot, err := structure.Export(context.Background(), tm)
@@ -150,6 +186,14 @@ func TestExport_TeamCoordinator_CoordinatorNamespaceAvoidsMemberCollision(t *tes
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "team/coordinator#model",
+				NodeID:    "team/coordinator",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "team/coordinator#tool",
 				NodeID:    "team/coordinator",
 				Type:      structure.SurfaceTypeTool,
@@ -170,6 +214,14 @@ func TestExport_TeamCoordinator_CoordinatorNamespaceAvoidsMemberCollision(t *tes
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "team/coordinator/researcher#model",
+				NodeID:    "team/coordinator/researcher",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "team/researcher#global_instruction",
 				NodeID:    "team/researcher",
 				Type:      structure.SurfaceTypeGlobalInstruction,
@@ -180,6 +232,14 @@ func TestExport_TeamCoordinator_CoordinatorNamespaceAvoidsMemberCollision(t *tes
 				NodeID:    "team/researcher",
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
+			},
+			{
+				SurfaceID: "team/researcher#model",
+				NodeID:    "team/researcher",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
 			},
 		},
 	})
@@ -209,8 +269,8 @@ func TestExport_TeamSwarm_RootConnectsToEntryMember(t *testing.T) {
 }
 
 func TestExport_TeamSwarm_DoesNotRecursivelyExpandMemberRoster(t *testing.T) {
-	first := llmagent.New("alpha")
-	second := llmagent.New("beta")
+	first := llmagent.New("alpha", llmagent.WithModel(&teamStructureTestDummyModel{}))
+	second := llmagent.New("beta", llmagent.WithModel(&teamStructureTestDummyModel{}))
 	tm, err := NewSwarm("swarm", "alpha", []agent.Agent{first, second})
 	require.NoError(t, err)
 	snapshot, err := structure.Export(context.Background(), tm)
@@ -241,6 +301,14 @@ func TestExport_TeamSwarm_DoesNotRecursivelyExpandMemberRoster(t *testing.T) {
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "swarm/alpha#model",
+				NodeID:    "swarm/alpha",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "swarm/beta#global_instruction",
 				NodeID:    "swarm/beta",
 				Type:      structure.SurfaceTypeGlobalInstruction,
@@ -252,14 +320,22 @@ func TestExport_TeamSwarm_DoesNotRecursivelyExpandMemberRoster(t *testing.T) {
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
+			{
+				SurfaceID: "swarm/beta#model",
+				NodeID:    "swarm/beta",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
 		},
 	})
 }
 
 func TestExport_TeamSwarm_ThreeMembersFormDirectedCompleteGraph(t *testing.T) {
-	first := llmagent.New("alpha")
-	second := llmagent.New("beta")
-	third := llmagent.New("gamma")
+	first := llmagent.New("alpha", llmagent.WithModel(&teamStructureTestDummyModel{}))
+	second := llmagent.New("beta", llmagent.WithModel(&teamStructureTestDummyModel{}))
+	third := llmagent.New("gamma", llmagent.WithModel(&teamStructureTestDummyModel{}))
 	tm, err := NewSwarm("swarm", "alpha", []agent.Agent{first, second, third})
 	require.NoError(t, err)
 	snapshot, err := structure.Export(context.Background(), tm)
@@ -295,6 +371,14 @@ func TestExport_TeamSwarm_ThreeMembersFormDirectedCompleteGraph(t *testing.T) {
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "swarm/alpha#model",
+				NodeID:    "swarm/alpha",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "swarm/beta#global_instruction",
 				NodeID:    "swarm/beta",
 				Type:      structure.SurfaceTypeGlobalInstruction,
@@ -307,6 +391,14 @@ func TestExport_TeamSwarm_ThreeMembersFormDirectedCompleteGraph(t *testing.T) {
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
 			},
 			{
+				SurfaceID: "swarm/beta#model",
+				NodeID:    "swarm/beta",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
+			},
+			{
 				SurfaceID: "swarm/gamma#global_instruction",
 				NodeID:    "swarm/gamma",
 				Type:      structure.SurfaceTypeGlobalInstruction,
@@ -317,6 +409,14 @@ func TestExport_TeamSwarm_ThreeMembersFormDirectedCompleteGraph(t *testing.T) {
 				NodeID:    "swarm/gamma",
 				Type:      structure.SurfaceTypeInstruction,
 				Value:     structure.SurfaceValue{Text: teamTextPtr("")},
+			},
+			{
+				SurfaceID: "swarm/gamma#model",
+				NodeID:    "swarm/gamma",
+				Type:      structure.SurfaceTypeModel,
+				Value: structure.SurfaceValue{
+					Model: &structure.ModelRef{Name: "team-structure-test-dummy"},
+				},
 			},
 		},
 	})

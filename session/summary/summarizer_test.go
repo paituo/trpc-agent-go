@@ -977,7 +977,7 @@ func TestPrepareSummaryRequestFallsBackBeforeDroppingSourceRounds(t *testing.T) 
 // fakeModel is a minimal model that returns the conversation content back to simulate LLM.
 type fakeModel struct{}
 
-func (f *fakeModel) Info() model.Info { return model.Info{Name: "fake"} }
+func (f *fakeModel) Info() model.Info { return model.NewTestInfo("fake") }
 func (f *fakeModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, 1)
 	content := ""
@@ -1652,7 +1652,7 @@ func TestSessionSummarizer_CustomToolFormatters(t *testing.T) {
 // errorModel returns an error when generating content
 type errorModel struct{}
 
-func (e *errorModel) Info() model.Info { return model.Info{Name: "error"} }
+func (e *errorModel) Info() model.Info { return model.NewTestInfo("error") }
 func (e *errorModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	return nil, fmt.Errorf("model error")
 }
@@ -1660,7 +1660,7 @@ func (e *errorModel) GenerateContent(ctx context.Context, req *model.Request) (<
 // responseErrorModel returns a response with an error.
 type responseErrorModel struct{}
 
-func (r *responseErrorModel) Info() model.Info { return model.Info{Name: "response-error"} }
+func (r *responseErrorModel) Info() model.Info { return model.NewTestInfo("response-error") }
 func (r *responseErrorModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, 1)
 	ch <- &model.Response{
@@ -1675,7 +1675,7 @@ func (r *responseErrorModel) GenerateContent(ctx context.Context, req *model.Req
 type responseErrorModelWithDetails struct{}
 
 func (r *responseErrorModelWithDetails) Info() model.Info {
-	return model.Info{Name: "response-error-detailed"}
+	return model.NewTestInfo("response-error-detailed")
 }
 func (r *responseErrorModelWithDetails) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	code := "rate_limit_exceeded"
@@ -1695,7 +1695,7 @@ func (r *responseErrorModelWithDetails) GenerateContent(ctx context.Context, req
 // emptyResponseModel returns an empty response.
 type emptyResponseModel struct{}
 
-func (e *emptyResponseModel) Info() model.Info { return model.Info{Name: "empty"} }
+func (e *emptyResponseModel) Info() model.Info { return model.NewTestInfo("empty") }
 func (e *emptyResponseModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, 1)
 	ch <- &model.Response{Done: true, Choices: []model.Choice{{Message: model.Message{Content: ""}}}}
@@ -1707,7 +1707,7 @@ func (e *emptyResponseModel) GenerateContent(ctx context.Context, req *model.Req
 // sends a response nor closes the response channel after ctx cancellation.
 type blockingResponseModel struct{}
 
-func (b *blockingResponseModel) Info() model.Info { return model.Info{Name: "blocking-response"} }
+func (b *blockingResponseModel) Info() model.Info { return model.NewTestInfo("blocking-response") }
 func (b *blockingResponseModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	// The channel is intentionally never closed to exercise context timeout handling.
 	return make(chan *model.Response), nil
@@ -1716,7 +1716,7 @@ func (b *blockingResponseModel) GenerateContent(ctx context.Context, req *model.
 type nilResponseChannelModel struct{}
 
 func (n *nilResponseChannelModel) Info() model.Info {
-	return model.Info{Name: "nil-response-channel"}
+	return model.NewTestInfo("nil-response-channel")
 }
 
 func (n *nilResponseChannelModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
@@ -2716,7 +2716,7 @@ type captureRequestModel struct {
 	output      string
 }
 
-func (c *captureRequestModel) Info() model.Info { return model.Info{Name: "capture"} }
+func (c *captureRequestModel) Info() model.Info { return model.NewTestInfo("capture") }
 
 func (c *captureRequestModel) GenerateContent(
 	ctx context.Context,
@@ -2983,7 +2983,7 @@ type customOutputModel struct {
 }
 
 func (c *customOutputModel) Info() model.Info {
-	return model.Info{Name: "custom-output"}
+	return model.NewTestInfo("custom-output")
 }
 
 func (c *customOutputModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {

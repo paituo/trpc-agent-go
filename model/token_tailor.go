@@ -418,7 +418,7 @@ func shouldReturnOriginal(
 		return true, messages
 	}
 	if tokenCounter == nil {
-		tokenCounter = NewSimpleTokenCounter()
+		tokenCounter = NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 	tokens, err := tokenCounter.CountTokensRange(ctx, messages, 0, len(messages))
 	if err != nil {
@@ -441,7 +441,7 @@ func fitsWithinBudget(
 		return false
 	}
 	if tokenCounter == nil {
-		tokenCounter = NewSimpleTokenCounter()
+		tokenCounter = NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 	tokens, err := tokenCounter.CountTokensRange(ctx, messages, 0, len(messages))
 	if err != nil {
@@ -456,7 +456,7 @@ func countCandidateTokens(
 	messages []Message,
 ) (int, error) {
 	if tokenCounter == nil {
-		tokenCounter = NewSimpleTokenCounter()
+		tokenCounter = NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 	return tokenCounter.CountTokensRange(ctx, messages, 0, len(messages))
 }
@@ -737,7 +737,7 @@ func buildPrefixSum(ctx context.Context, tokenCounter TokenCounter, messages []M
 		log.WarnfContext(ctx,
 			"token-counter-fallback: buildPrefixSum using SimpleTokenCounter(4.0)",
 		)
-		tokenCounter = NewSimpleTokenCounter()
+		tokenCounter = NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 
 	fallbackCounter := NewSimpleTokenCounter()
@@ -798,9 +798,15 @@ func SetTokenCounterFromModel(fn TokenCounterFromModel) {
 // When a custom factory is registered via SetTokenCounterFromModel, it takes
 // precedence and this function delegates to it.
 func NewTokenCounter(modelName string) TokenCounter {
+	// 1. 优先查询注册表（最长前缀匹配）
+	if c := globalRegistry.Lookup(modelName); c != nil {
+		return c
+	}
+	// 2. 回退到工厂函数（tiktoken init() 注册的 SetTokenCounterFromModel）
 	if tokenCounterFromModel != nil {
 		return tokenCounterFromModel(modelName)
 	}
+	// 3. 最终回退到启发式路由
 	return newTokenCounterHeuristic(modelName)
 }
 
