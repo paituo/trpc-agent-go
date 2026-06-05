@@ -91,6 +91,10 @@ type LLMAgent struct {
 	structuredOutput     *model.StructuredOutput
 	structuredOutputType reflect.Type
 	option               Options
+	// calibratingCounter holds the CalibratingTokenCounter when
+	// EnableTokenCounterCalibration is true. It is used to calibrate
+	// the token counter based on actual API response token counts.
+	calibratingCounter *model.CalibratingTokenCounter
 }
 
 const invalidOutputSchemaAwaitUserReply = "" +
@@ -461,10 +465,7 @@ func buildRequestProcessorsWithAgent(a *LLMAgent, options *Options) []flow.Reque
 			options.ContextCompactionOversizedToolResultMaxTokens,
 		),
 		processor.WithContextCompactionTokenCounter(
-			contextCompactionTokenCounter(
-				options.ContextCompactionTokenCounter,
-				a.model,
-			),
+			a.tokenCounterForCompaction(options),
 		),
 		processor.WithPreserveSameBranch(options.PreserveSameBranch),
 		processor.WithPreserveForeignMessages(options.PreserveForeignMessages),
@@ -1859,9 +1860,12 @@ func (a *LLMAgent) wrapEventChannelWithTelemetry(
 				&responseErrorType,
 			); trackedEvent != nil {
 				fullRespEvent = trackedEvent
-				if traceLease.Owns {
-					traceOutput = llmAgentTraceOutputSnapshot(trackedEvent)
-				}
+			if traceLease.Owns {
+				traceOutput = llmAgentTraceOutputSnapshot(trackedEvent)
+			}
+			// Calibrate the token counter using actual prompt_tokens
+			// from the API response.
+			a.calibrateTokenCounter(trackedEvent)
 			}
 			if err := event.EmitEvent(ctx, wrappedChan, evt); err != nil {
 				runErr = err
@@ -2503,15 +2507,55 @@ func (a *LLMAgent) systemPromptTextForInvocation(inv *agent.Invocation) prompt.T
 	return a.systemPrompt
 }
 
+// calibrateTokenCounter calibrates the token counter using actual token
+// counts from the API response. This is a no-op when token counter
+// calibration is not enabled.
+func (a *LLMAgent) calibrateTokenCounter(evt *event.Event) {
+	if a.calibratingCounter == nil {
+		return
+	}
+	if evt == nil || evt.Response == nil || evt.Response.IsPartial {
+		return
+	}
+	usage := evt.Response.Usage
+	if usage == nil || usage.PromptTokens <= 0 {
+		return
+	}
+	a.calibratingCounter.CalibrateFromActual(usage.PromptTokens)
+}
+
+// tokenCounterForCompaction returns the TokenCounter to use for context
+// compaction. When EnableTokenCounterCalibration is true, the resolved
+// counter is wrapped in a CalibratingTokenCounter stored on the agent
+// so it can be calibrated from API responses.
+func (a *LLMAgent) tokenCounterForCompaction(options *Options) model.TokenCounter {
+	base := contextCompactionTokenCounter(
+		options.ContextCompactionTokenCounter,
+		options.TokenCounterOverride,
+		a.model,
+	)
+	if !options.EnableTokenCounterCalibration {
+		return base
+	}
+	cc := model.NewCalibratingTokenCounter(base)
+	a.calibratingCounter = cc
+	return cc
+}
+
 // contextCompactionTokenCounter returns a model-aware TokenCounter for context compaction.
 // When an explicit counter is provided, it is used directly.
+// When an override counter is provided, it is used next (bypassing model-name routing).
 // Otherwise, the counter is auto-detected from the model via model.TokenCounterForModel.
 func contextCompactionTokenCounter(
 	explicitCounter model.TokenCounter,
+	overrideCounter model.TokenCounter,
 	mdl model.Model,
 ) model.TokenCounter {
 	if explicitCounter != nil {
 		return explicitCounter
+	}
+	if overrideCounter != nil {
+		return overrideCounter
 	}
 	return model.TokenCounterForModel(mdl)
 }
