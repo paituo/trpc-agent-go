@@ -817,6 +817,19 @@ func newTokenCounterHeuristic(modelName string) TokenCounter {
 		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
 	case strings.HasPrefix(name, "deepseek"):
 		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenDeepSeek))
+	case strings.HasPrefix(name, "glm-5"), strings.HasPrefix(name, "glm5"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
+	case strings.HasPrefix(name, "doubao"), strings.HasPrefix(name, "hunyuan"),
+		strings.HasPrefix(name, "minimax"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
+	case strings.HasPrefix(name, "claude"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
+	case strings.HasPrefix(name, "gpt-4o"), strings.HasPrefix(name, "gpt-4.1"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenQWEN))
+	case strings.HasPrefix(name, "gpt-4"), strings.HasPrefix(name, "gpt-3.5"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenDeepSeek))
+	case strings.HasPrefix(name, "llama"), strings.HasPrefix(name, "yi-"):
+		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenDeepSeek))
 	case strings.HasPrefix(name, "glm"):
 		return NewSimpleTokenCounter(WithApproxRunesPerToken(runesPerTokenGLM))
 	default:

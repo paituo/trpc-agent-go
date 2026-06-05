@@ -128,6 +128,30 @@ func TestWithContextCompactionOptions(t *testing.T) {
 	require.Same(t, counter, opts.ContextCompactionTokenCounter)
 }
 
+func TestWithTokenCounterOverride(t *testing.T) {
+	opts := &Options{}
+	require.Nil(t, opts.TokenCounterOverride)
+
+	counter := model.NewSimpleTokenCounter(model.WithApproxRunesPerToken(1))
+	WithTokenCounterOverride(counter)(opts)
+	require.Same(t, counter, opts.TokenCounterOverride)
+
+	// nil counter does not override
+	WithTokenCounterOverride(nil)(opts)
+	require.Same(t, counter, opts.TokenCounterOverride)
+}
+
+func TestWithEnableTokenCounterCalibration(t *testing.T) {
+	opts := &Options{}
+	require.False(t, opts.EnableTokenCounterCalibration)
+
+	WithEnableTokenCounterCalibration(true)(opts)
+	require.True(t, opts.EnableTokenCounterCalibration)
+
+	WithEnableTokenCounterCalibration(false)(opts)
+	require.False(t, opts.EnableTokenCounterCalibration)
+}
+
 func TestWithToolResultCompactionConfig(t *testing.T) {
 	opts := &Options{}
 	cfg := &ToolResultCompactionConfig{
