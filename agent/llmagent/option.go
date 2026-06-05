@@ -399,6 +399,28 @@ type Options struct {
 	// estimate, not provider-reported usage tokens. When nil,
 	// SimpleTokenCounter is used.
 	ContextCompactionTokenCounter model.TokenCounter
+	// TokenCounterOverride allows the user to explicitly specify a TokenCounter
+	// for this agent, bypassing the model-name-based prefix routing.
+	// When set, this counter is used instead of the one derived from the model's
+	// Info().TokenCounter for context compaction token estimation.
+	//
+	// Use this when the API gateway uses a different tokenizer than the model
+	// name suggests (e.g., "deepseek-r1" behind a Qwen-tokenizer gateway).
+	TokenCounterOverride model.TokenCounter
+	// EnableTokenCounterCalibration enables automatic calibration of the
+	// token counter using actual token counts from API responses.
+	//
+	// When enabled, the token counter used for context compaction is wrapped
+	// in a CalibratingTokenCounter. After each LLM response that includes
+	// usage.prompt_tokens, the counter's correction factor is updated so that
+	// subsequent estimates converge toward the actual tokenizer behavior.
+	//
+	// This is particularly useful when the API gateway uses a different
+	// tokenizer than the model name suggests and you cannot provide an
+	// explicit TokenCounterOverride.
+	//
+	// Default: false.
+	EnableTokenCounterCalibration bool
 	// ToolResultCompactionConfig declares tool-name based compaction rules.
 	ToolResultCompactionConfig *ToolResultCompactionConfig
 	// summaryFormatter allows custom formatting of session summary content.
@@ -1740,6 +1762,44 @@ func WithContextCompactionTokenCounter(counter model.TokenCounter) Option {
 		if counter != nil {
 			opts.ContextCompactionTokenCounter = counter
 		}
+	}
+}
+
+// WithTokenCounterOverride sets an explicit TokenCounter for this agent,
+// bypassing model-name-based prefix routing. This is useful when the API
+// gateway uses a different tokenizer than the model name suggests.
+//
+// Example:
+//
+//	// deepseek-r1 is behind a Qwen-tokenizer gateway
+//	agent := llmagent.New("agent",
+//	    llmagent.WithModel(modelInstance),
+//	    llmagent.WithTokenCounterOverride(
+//	        model.NewTokenCounter("qwen"),  // use Qwen's tokenizer
+//	    ),
+//	)
+func WithTokenCounterOverride(counter model.TokenCounter) Option {
+	return func(opts *Options) {
+		if counter != nil {
+			opts.TokenCounterOverride = counter
+		}
+	}
+}
+
+// WithEnableTokenCounterCalibration enables automatic calibration of the
+// token counter using actual token counts from API responses.
+//
+// When enabled, the context compaction token counter is wrapped in a
+// CalibratingTokenCounter that adjusts its correction factor after each
+// LLM response containing usage.prompt_tokens. Over multiple requests,
+// the estimates converge toward the actual tokenizer behavior.
+//
+// This is useful when the API gateway uses a different tokenizer than
+// the model name suggests and you cannot determine the correct tokenizer
+// in advance.
+func WithEnableTokenCounterCalibration(enable bool) Option {
+	return func(opts *Options) {
+		opts.EnableTokenCounterCalibration = enable
 	}
 }
 

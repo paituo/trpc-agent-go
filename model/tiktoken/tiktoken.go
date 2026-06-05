@@ -57,22 +57,46 @@ func init() {
 }
 
 func registerKnownModels() {
-	// Qwen/Qwq → o200k_base
+	// Qwen/Qwq → o200k_base (vocab 151,936, tiktoken-compatible BPE)
 	if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
 		model.RegisterRegistryEntry("qwen", c)
 		model.RegisterRegistryEntry("qwq", c)
+		// GLM-5 uses Qwen tokenizer (vocab 151,936)
+		model.RegisterRegistryEntry("glm-5", c)
+		model.RegisterRegistryEntry("glm5", c)
+		// Doubao (豆包) uses Qwen-compatible tokenizer
+		model.RegisterRegistryEntry("doubao", c)
+		// Hunyuan (混元) uses Qwen-compatible tokenizer
+		model.RegisterRegistryEntry("hunyuan", c)
+		// MiniMax uses Qwen-compatible tokenizer
+		model.RegisterRegistryEntry("minimax", c)
+		// Claude → o200k_base (close approximation)
+		model.RegisterRegistryEntry("claude", c)
+		// GPT-4o / GPT-4.1 → o200k_base (exact match)
+		model.RegisterRegistryEntry("gpt-4o", c)
+		model.RegisterRegistryEntry("gpt-4.1", c)
 	} else {
 		log.WarnfContext(context.Background(),
-			"tiktoken: failed to load o200k_base encoding for qwen/qwq: %v", err)
+			"tiktoken: failed to load o200k_base encoding: %v", err)
 	}
-	// DeepSeek → cl100k_base
+
+	// DeepSeek → cl100k_base (vocab 129,024, close approximation for direct API)
 	if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
 		model.RegisterRegistryEntry("deepseek", c)
+		// Llama 3/4 → cl100k_base (vocab 128,256, close approximation)
+		model.RegisterRegistryEntry("llama", c)
+		// Yi (零一万物) → cl100k_base (vocab ~64,000, close approximation)
+		model.RegisterRegistryEntry("yi-", c)
+		// GPT-4 / GPT-3.5 → cl100k_base (exact match)
+		model.RegisterRegistryEntry("gpt-4", c)
+		model.RegisterRegistryEntry("gpt-3.5", c)
 	} else {
 		log.WarnfContext(context.Background(),
 			"tiktoken: failed to load cl100k_base encoding for deepseek: %v", err)
 	}
-	// GLM → SimpleTokenCounter(1.8)
+
+	// GLM-4 and earlier → SimpleTokenCounter(1.8) (Zhipu official ratio)
+	// Note: glm-5 is registered above with o200k_base; this catches glm-4, glm-3, etc.
 	model.RegisterRegistryEntry("glm",
 		model.NewSimpleTokenCounter(model.WithApproxRunesPerToken(1.8)))
 }
@@ -122,11 +146,20 @@ func (c *Counter) CountTokens(_ context.Context, message model.Message) (int, er
 
 // NewTokenCounter creates a model-aware TokenCounter based on the model name.
 //
-// Routing:
-//   - qwen*, qwq*  → o200k_base encoding (Qwen official recommendation)
-//   - deepseek*    → cl100k_base encoding (close to DeepSeek's tokenizer)
-//   - glm*         → SimpleTokenCounter(runes/1.8) (Zhipu official ratio)
-//   - others       → tiktoken by model name, fallback to SimpleTokenCounter
+// Routing (longest-prefix-match):
+//   - gpt-4o*, gpt-4.1*                → o200k_base (exact match)
+//   - gpt-4*, gpt-3.5*                 → cl100k_base (exact match)
+//   - qwen*, qwq*                      → o200k_base (vocab 151,936, tiktoken-compatible BPE)
+//   - glm-5*, glm5*                    → o200k_base (GLM-5 uses Qwen tokenizer)
+//   - doubao*                           → o200k_base (Qwen-compatible)
+//   - hunyuan*                          → o200k_base (Qwen-compatible)
+//   - minimax*                          → o200k_base (Qwen-compatible)
+//   - claude*                           → o200k_base (close approximation)
+//   - deepseek*                         → cl100k_base (vocab 129,024, close approximation)
+//   - llama*                            → cl100k_base (vocab 128,256, close approximation)
+//   - yi-*                              → cl100k_base (vocab ~64,000, close approximation)
+//   - glm*                              → SimpleTokenCounter(runes/1.8) (Zhipu official ratio)
+//   - others                            → tiktoken by model name, fallback to SimpleTokenCounter
 //
 // This function should be registered at application startup via
 // model.SetTokenCounterFromModel(tiktoken.NewTokenCounter) to enable
@@ -135,11 +168,47 @@ func NewTokenCounter(modelName string) model.TokenCounter {
 	name := strings.ToLower(strings.TrimSpace(modelName))
 
 	switch {
+	case strings.HasPrefix(name, "gpt-4o"), strings.HasPrefix(name, "gpt-4.1"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "gpt-4"), strings.HasPrefix(name, "gpt-3.5"):
+		if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
+			return c
+		}
 	case strings.HasPrefix(name, "qwen"), strings.HasPrefix(name, "qwq"):
 		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
 			return c
 		}
+	case strings.HasPrefix(name, "glm-5"), strings.HasPrefix(name, "glm5"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "doubao"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "hunyuan"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "minimax"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "claude"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
 	case strings.HasPrefix(name, "deepseek"):
+		if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "llama"):
+		if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "yi-"):
 		if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
 			return c
 		}
