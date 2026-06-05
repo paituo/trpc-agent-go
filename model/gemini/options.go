@@ -91,7 +91,7 @@ var (
 			InputTokensFloor:       imodel.DefaultInputTokensFloor,
 			MaxInputTokensRatio:    imodel.DefaultMaxInputTokensRatio,
 		},
-		tokenCounter: model.NewSimpleTokenCounter(),
+		tokenCounter: nil,
 	}
 )
 

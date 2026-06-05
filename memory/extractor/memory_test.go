@@ -52,7 +52,7 @@ func (m *mockModel) GenerateContent(
 }
 
 func (m *mockModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type blockingModel struct {
@@ -68,7 +68,7 @@ func (m *blockingModel) GenerateContent(
 }
 
 func (m *blockingModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 type nilChannelModel struct {
@@ -83,7 +83,7 @@ func (m *nilChannelModel) GenerateContent(
 }
 
 func (m *nilChannelModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 // newMockModelWithToolCalls creates a mock model that returns tool calls.

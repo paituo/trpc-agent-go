@@ -43,7 +43,7 @@ func (m *testModel) GenerateContent(
 }
 
 func (m *testModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func TestInvocationViewCopiesInvocationAndUsesFallbackModel(t *testing.T) {

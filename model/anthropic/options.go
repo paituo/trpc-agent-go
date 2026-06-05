@@ -107,7 +107,7 @@ type options struct {
 var (
 	defaultOptions = options{
 		channelBufferSize: defaultChannelBufferSize,
-		tokenCounter:      model.NewSimpleTokenCounter(),
+		tokenCounter:      nil,
 		tokenTailoringConfig: &model.TokenTailoringConfig{
 			ProtocolOverheadTokens: imodel.DefaultProtocolOverheadTokens,
 			ReserveOutputTokens:    imodel.DefaultReserveOutputTokens,

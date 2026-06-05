@@ -2475,7 +2475,7 @@ func (a *LLMAgent) systemPromptTextForInvocation(inv *agent.Invocation) prompt.T
 
 // contextCompactionTokenCounter returns a model-aware TokenCounter for context compaction.
 // When an explicit counter is provided, it is used directly.
-// Otherwise, the counter is auto-detected from the model name via model.NewTokenCounter.
+// Otherwise, the counter is auto-detected from the model via model.TokenCounterForModel.
 func contextCompactionTokenCounter(
 	explicitCounter model.TokenCounter,
 	mdl model.Model,
@@ -2483,8 +2483,5 @@ func contextCompactionTokenCounter(
 	if explicitCounter != nil {
 		return explicitCounter
 	}
-	if mdl != nil {
-		return model.NewTokenCounter(mdl.Info().Name)
-	}
-	return model.NewTokenCounter("")
+	return model.TokenCounterForModel(mdl)
 }

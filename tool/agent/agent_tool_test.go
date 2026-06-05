@@ -139,7 +139,7 @@ func (m *fixedResponseModel) GenerateContent(
 }
 
 func (m *fixedResponseModel) Info() model.Info {
-	return model.Info{Name: "fixed-response-model"}
+	return model.NewTestInfo("fixed-response-model")
 }
 
 func (a *visibleCompletionThenAfterAgent) Run(
@@ -2985,7 +2985,7 @@ func (m *structuredOutputCaptureModel) GenerateContent(
 }
 
 func (m *structuredOutputCaptureModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *structuredOutputCaptureModel) Snapshot() (bool, string) {

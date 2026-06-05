@@ -267,7 +267,7 @@ func normalizeContextCompactionConfig(
 			"token-counter-fallback: normalizeContextCompactionConfig using default SimpleTokenCounter(4.0), "+
 				"configure WithContextCompactionTokenCounter for Chinese text accuracy",
 		)
-		cfg.TokenCounter = model.NewSimpleTokenCounter()
+		cfg.TokenCounter = model.NewTokenCounter("")
 	}
 	cfg.toolResultCompactionRules.forceCleanToolNames = normalizeToolNameSet(
 		cfg.toolResultCompactionRules.forceCleanToolNames,
@@ -698,7 +698,7 @@ func truncateOversizedToolResultMessage(
 		ctx,
 		msg,
 		maxTokens,
-		model.NewSimpleTokenCounter(),
+		model.NewTokenCounter(""), // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	)
 }
 
@@ -746,7 +746,7 @@ func truncateOversizedToolResultMessageWithCounterAndRef(
 		log.WarnfContext(ctx,
 			"token-counter-fallback: truncateOversizedToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
 		)
-		counter = model.NewSimpleTokenCounter()
+		counter = model.NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 
 	originalTokens, err := counter.CountTokens(ctx, msg)
@@ -874,7 +874,7 @@ func cleanToolResultMessageWithCounter(
 		return msg, false, 0
 	}
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = model.NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 
 	// Force-clean is policy-driven, not threshold-driven. Even if token
@@ -910,7 +910,7 @@ func compactHistoricalToolResultMessage(
 		ctx,
 		msg,
 		maxTokens,
-		model.NewSimpleTokenCounter(),
+		model.NewTokenCounter(""), // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	)
 }
 
@@ -952,7 +952,7 @@ func compactHistoricalToolResultMessageWithCounterAndRef(
 		log.WarnfContext(ctx,
 			"token-counter-fallback: compactHistoricalToolResultMessageWithCounter using SimpleTokenCounter(4.0)",
 		)
-		counter = model.NewSimpleTokenCounter()
+		counter = model.NewTokenCounter("") // TODO: pass model.TokenCounter from caller to avoid fallback to SimpleTokenCounter(4.0).
 	}
 	originalTokens, err := counter.CountTokens(ctx, msg)
 	if err != nil || originalTokens <= maxTokens {

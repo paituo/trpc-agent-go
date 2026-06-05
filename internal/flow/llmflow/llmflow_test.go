@@ -2183,7 +2183,7 @@ type namedFlowModel struct {
 }
 
 func (m *namedFlowModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *namedFlowModel) GenerateContent(
@@ -2226,9 +2226,7 @@ func (p *captureInvocationModelNameProcessor) ProcessRequest(
 }
 
 func (m *mockModel) Info() model.Info {
-	return model.Info{
-		Name: "mock",
-	}
+	return model.NewTestInfo("mock")
 }
 
 func (m *mockModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
@@ -2300,7 +2298,7 @@ type mockIterModel struct {
 }
 
 func (m *mockIterModel) Info() model.Info {
-	return model.Info{Name: "mock-iter"}
+	return model.NewTestInfo("mock-iter")
 }
 
 func (m *mockIterModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
@@ -3145,7 +3143,7 @@ func TestProcessStreamingResponses_ContextCancelledAfterPostprocess(t *testing.T
 // noResponseModel returns a closed channel without emitting any responses.
 type noResponseModel struct{}
 
-func (m *noResponseModel) Info() model.Info { return model.Info{Name: "noresp"} }
+func (m *noResponseModel) Info() model.Info { return model.NewTestInfo("noresp") }
 func (m *noResponseModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response)
 	close(ch)
@@ -3326,7 +3324,7 @@ func TestRunAfterModelCallbacks_ErrorPassing(t *testing.T) {
 type blockingModel struct{}
 
 func (m *blockingModel) Info() model.Info {
-	return model.Info{Name: "blocking"}
+	return model.NewTestInfo("blocking")
 }
 
 func (m *blockingModel) GenerateContent(
@@ -3403,7 +3401,7 @@ func (m *captureModel) GenerateContent(
 	return ch, nil
 }
 
-func (m *captureModel) Info() model.Info { return model.Info{Name: "m"} }
+func (m *captureModel) Info() model.Info { return model.NewTestInfo("m") }
 
 func TestFlow_CallLLM_PluginBeforeModelCanShortCircuit(t *testing.T) {
 	plugCalled := false
@@ -4021,7 +4019,7 @@ type twoStepToolCallModel struct {
 }
 
 func (m *twoStepToolCallModel) Info() model.Info {
-	return model.Info{Name: "two-step"}
+	return model.NewTestInfo("two-step")
 }
 
 func (m *twoStepToolCallModel) GenerateContent(

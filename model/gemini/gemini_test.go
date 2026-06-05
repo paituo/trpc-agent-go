@@ -668,11 +668,13 @@ func TestModel_Info(t *testing.T) {
 			name: "info",
 			fields: fields{
 				m: &Model{
-					name: "gemini-pro",
+					name:         "gemini-pro",
+					tokenCounter: model.NewSimpleTokenCounter(),
 				},
 			},
 			want: model.Info{
-				Name: "gemini-pro",
+				Name:         "gemini-pro",
+				TokenCounter: model.NewSimpleTokenCounter(),
 			},
 		},
 	}

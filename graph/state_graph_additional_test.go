@@ -57,7 +57,7 @@ func (c *captureModel) GenerateContent(ctx context.Context, req *model.Request) 
 	return ch, nil
 }
 
-func (c *captureModel) Info() model.Info { return model.Info{Name: "capture"} }
+func (c *captureModel) Info() model.Info { return model.NewTestInfo("capture") }
 
 type namedGraphModel struct {
 	name   string
@@ -82,7 +82,7 @@ func (m *namedGraphModel) GenerateContent(ctx context.Context, req *model.Reques
 }
 
 func (m *namedGraphModel) Info() model.Info {
-	return model.Info{Name: m.name}
+	return model.NewTestInfo(m.name)
 }
 
 func (m *namedGraphModel) Called() bool {
@@ -187,7 +187,7 @@ func (m *iterErrorModel) GenerateContentIter(ctx context.Context, req *model.Req
 }
 
 func (m *iterErrorModel) Info() model.Info {
-	return model.Info{Name: "iter-error-model"}
+	return model.NewTestInfo("iter-error-model")
 }
 
 type nilIterModel struct{}
@@ -203,7 +203,7 @@ func (m *nilIterModel) GenerateContentIter(ctx context.Context, req *model.Reque
 }
 
 func (m *nilIterModel) Info() model.Info {
-	return model.Info{Name: "nil-iter-model"}
+	return model.NewTestInfo("nil-iter-model")
 }
 
 type noResponseModel struct{}
@@ -215,7 +215,7 @@ func (m *noResponseModel) GenerateContent(ctx context.Context, req *model.Reques
 }
 
 func (m *noResponseModel) Info() model.Info {
-	return model.Info{Name: "no-response-model"}
+	return model.NewTestInfo("no-response-model")
 }
 
 type multiResponseModel struct {
@@ -236,7 +236,7 @@ func (m *multiResponseModel) GenerateContent(ctx context.Context, req *model.Req
 }
 
 func (m *multiResponseModel) Info() model.Info {
-	return model.Info{Name: "multi-response-model"}
+	return model.NewTestInfo("multi-response-model")
 }
 
 // graphRecordingSpan captures trace attributes for assertions.

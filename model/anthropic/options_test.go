@@ -153,7 +153,7 @@ func TestWithTokenTailoringConfig(t *testing.T) {
 func TestWithTokenCounter_Nil(t *testing.T) {
 	opt := defaultOptions
 	WithTokenCounter(nil)(&opt)
-	assert.NotNil(t, opt.tokenCounter, "tokenCounter is nil")
+	assert.Nil(t, opt.tokenCounter, "tokenCounter should be nil when WithTokenCounter(nil) is called")
 }
 
 func TestWithShowToolCallDelta(t *testing.T) {

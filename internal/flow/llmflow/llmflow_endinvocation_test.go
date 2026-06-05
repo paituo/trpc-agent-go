@@ -71,7 +71,7 @@ func TestPreprocess_StopsAfterEndInvocation(t *testing.T) {
 // twoChunkModel returns two streaming chunks to ensure we break after EndInvocation.
 type twoChunkModel struct{}
 
-func (m *twoChunkModel) Info() model.Info { return model.Info{Name: "mock"} }
+func (m *twoChunkModel) Info() model.Info { return model.NewTestInfo("mock") }
 
 func (m *twoChunkModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, 2)

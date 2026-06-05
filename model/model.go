@@ -10,7 +10,10 @@
 // Package model provides interfaces for working with LLMs.
 package model
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Model is the interface for all language models.
 //
@@ -89,4 +92,31 @@ type Info struct {
 	SafetyMarginRatio float64
 	// MaxInputTokensRatio is the maximum input tokens ratio of the context window.
 	MaxInputTokensRatio float64
+	// TokenCounter estimates token counts for this model.
+	// This field MUST be non-nil for any Model implementation.
+	// A nil value indicates a framework invariant violation and will cause
+	// a panic when accessed via TokenCounterForModel.
+	// TokenCounter is set during model construction and is immutable.
+	TokenCounter TokenCounter
+}
+
+// TokenCounterForModel returns the TokenCounter for the given model.
+// It panics if m is nil or m.Info().TokenCounter is nil, because a model
+// without a TokenCounter is a framework invariant violation.
+// Use model.NewTokenCounter(name) during model construction to ensure
+// TokenCounter is always set.
+func TokenCounterForModel(m Model) TokenCounter {
+	if m == nil {
+		panic("model.TokenCounterForModel: model is nil")
+	}
+	tc := m.Info().TokenCounter
+	if tc == nil {
+		panic(fmt.Sprintf(
+			"model.TokenCounterForModel: model %q has nil TokenCounter; "+
+				"this is a framework invariant violation. "+
+				"Ensure the model constructor calls model.NewTokenCounter(name)",
+			m.Info().Name,
+		))
+	}
+	return tc
 }

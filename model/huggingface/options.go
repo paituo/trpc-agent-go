@@ -94,7 +94,7 @@ var (
 	defaultOptions = options{
 		BaseURL:           defaultBaseURL,
 		ChannelBufferSize: defaultChannelBufferSize,
-		TokenCounter:      model.NewSimpleTokenCounter(),
+		TokenCounter:      nil,
 		TokenTailoringConfig: &model.TokenTailoringConfig{
 			ProtocolOverheadTokens: 512,
 			ReserveOutputTokens:    2048,

@@ -494,5 +494,5 @@ func (m *reasoningWaitModel) GenerateContent(ctx context.Context, request *model
 }
 
 func (m *reasoningWaitModel) Info() model.Info {
-	return model.Info{Name: "reasoning-wait-model"}
+	return model.NewTestInfo("reasoning-wait-model")
 }

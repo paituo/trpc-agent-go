@@ -116,6 +116,7 @@ func TestLLMAgent_ToolsAddsTransfer(t *testing.T) {
 	sub2 := &mockAgent{name: "sub2"}
 
 	a := New("parent",
+		WithModel(&extDummyModel{}),
 		WithTools([]tool.Tool{coreTool}),
 		WithSubAgents([]agent.Agent{sub1, sub2}),
 	)
@@ -135,7 +136,7 @@ func TestLLMAgent_ToolsAddsTransfer(t *testing.T) {
 
 func TestLLMAgent_InfoAndTools(t *testing.T) {
 	t1 := &mockTool{name: "t1"}
-	agent := New("my-agent", WithDescription("desc"), WithTools([]tool.Tool{t1}))
+	agent := New("my-agent", WithModel(&extDummyModel{}), WithDescription("desc"), WithTools([]tool.Tool{t1}))
 
 	info := agent.Info()
 	require.Equal(t, "my-agent", info.Name)
@@ -360,8 +361,8 @@ func TestLLMAgent_WithToolSet(t *testing.T) {
 }
 
 func TestLLMAgent_Tools_WithSubAgents(t *testing.T) {
-	sub := New("child")
-	parent := New("parent", WithSubAgents([]agent.Agent{sub}))
+	sub := New("child", WithModel(&extDummyModel{}))
+	parent := New("parent", WithModel(&extDummyModel{}), WithSubAgents([]agent.Agent{sub}))
 
 	tools := parent.Tools()
 	// A transfer tool should be automatically added when SubAgents() is non-empty.
@@ -470,6 +471,7 @@ func TestLLMAgent_WithEnableParallelTools_Integration(t *testing.T) {
 	// Test with parallel disabled (default)
 	agentDisabled := New(
 		"test-agent-disabled",
+		WithModel(&extDummyModel{}),
 		WithDescription("Test agent with parallel disabled"),
 		WithTools([]tool.Tool{tool1, tool2}),
 		WithEnableParallelTools(false),
@@ -478,6 +480,7 @@ func TestLLMAgent_WithEnableParallelTools_Integration(t *testing.T) {
 	// Test with parallel enabled
 	agentEnabled := New(
 		"test-agent-enabled",
+		WithModel(&extDummyModel{}),
 		WithDescription("Test agent with parallel enabled"),
 		WithTools([]tool.Tool{tool1, tool2}),
 		WithEnableParallelTools(true),

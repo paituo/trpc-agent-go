@@ -17,6 +17,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/internal/flow"
 	"trpc.group/trpc-go/trpc-agent-go/internal/flow/processor"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
@@ -54,6 +55,7 @@ func (s *onDemandSearchOnlyService) SearchEvents(
 func TestBuildRequestProcessors_OnDemandSessionWiring(t *testing.T) {
 	opts := &Options{}
 	WithEnableOnDemandSession(true)(opts)
+	WithContextCompactionTokenCounter(model.NewSimpleTokenCounter())(opts)
 
 	procs := buildRequestProcessors("tester", opts)
 	var found bool
@@ -67,7 +69,7 @@ func TestBuildRequestProcessors_OnDemandSessionWiring(t *testing.T) {
 }
 
 func TestLLMAgent_OnDemandSessionTools_StaticAndInvocationAware(t *testing.T) {
-	a := New("tester", WithEnableOnDemandSession(true))
+	a := New("tester", WithModel(&extDummyModel{}), WithEnableOnDemandSession(true))
 	require.Nil(t, findTool(a.Tools(), "session_search"))
 	require.Nil(t, findTool(a.Tools(), "session_load"))
 
@@ -137,6 +139,7 @@ func TestLLMAgent_OnDemandSessionSkippedWithOutputSchema(t *testing.T) {
 
 	a := New(
 		"tester",
+		WithModel(&extDummyModel{}),
 		WithEnableOnDemandSession(true),
 		WithOutputSchema(map[string]any{"type": "object"}),
 	)

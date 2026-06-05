@@ -38,7 +38,7 @@ func (m *telemetryTestModel) GenerateContent(
 }
 
 func (m *telemetryTestModel) Info() model.Info {
-	return model.Info{Name: "telemetry-test-model"}
+	return model.NewTestInfo("telemetry-test-model")
 }
 
 type telemetryAltTestModel struct{}
@@ -53,7 +53,7 @@ func (m *telemetryAltTestModel) GenerateContent(
 }
 
 func (m *telemetryAltTestModel) Info() model.Info {
-	return model.Info{Name: "telemetry-alt-test-model"}
+	return model.NewTestInfo("telemetry-alt-test-model")
 }
 
 func TestChatMetricsTracker_RecordMetrics_NoMetrics_ReturnsNoop(t *testing.T) {

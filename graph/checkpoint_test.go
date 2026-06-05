@@ -1139,7 +1139,7 @@ func (d *dummyModel) GenerateContent(ctx context.Context, req *model.Request) (<
 	close(ch)
 	return ch, nil
 }
-func (d *dummyModel) Info() model.Info { return model.Info{Name: "dummy"} }
+func (d *dummyModel) Info() model.Info { return model.NewTestInfo("dummy") }
 
 func TestLLMRunner_ExecuteOneShotStage(t *testing.T) {
 	r := &llmRunner{llmModel: &dummyModel{}, instruction: "inst", tools: nil, nodeID: "node1"}
@@ -1191,7 +1191,7 @@ func (e *emptyModel) GenerateContent(ctx context.Context, req *model.Request) (<
 	close(ch)
 	return ch, nil
 }
-func (e *emptyModel) Info() model.Info { return model.Info{Name: "empty"} }
+func (e *emptyModel) Info() model.Info { return model.NewTestInfo("empty") }
 
 type emptyChoicesModel struct{}
 
@@ -1206,7 +1206,7 @@ func (e *emptyChoicesModel) GenerateContent(
 }
 
 func (e *emptyChoicesModel) Info() model.Info {
-	return model.Info{Name: "empty_choices"}
+	return model.NewTestInfo("empty_choices")
 }
 
 func TestExecuteModelWithEvents_NoResponseError(t *testing.T) {
@@ -1563,7 +1563,7 @@ func (m *toolCallStreamModel) GenerateContent(ctx context.Context, req *model.Re
 	close(ch)
 	return ch, nil
 }
-func (m *toolCallStreamModel) Info() model.Info { return model.Info{Name: "toolcall"} }
+func (m *toolCallStreamModel) Info() model.Info { return model.NewTestInfo("toolcall") }
 
 func TestExecuteModelWithEvents_ToolCallsMerged(t *testing.T) {
 	tracer := oteltrace.NewNoopTracerProvider().Tracer("t")
@@ -1772,7 +1772,7 @@ type errModel struct{}
 func (e *errModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	return nil, assert.AnError
 }
-func (e *errModel) Info() model.Info { return model.Info{Name: "err"} }
+func (e *errModel) Info() model.Info { return model.NewTestInfo("err") }
 
 func TestRunModel_GenerateContentError(t *testing.T) {
 	_, _, err := runModel(context.Background(), nil, &errModel{}, &model.Request{Messages: []model.Message{model.NewUserMessage("hi")}})
