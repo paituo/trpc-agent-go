@@ -331,8 +331,12 @@ type fileToolSetConfig struct {
 	EnableSearchFile    *bool `yaml:"enable_search_file,omitempty"`
 	EnableSearchContent *bool `yaml:"enable_search_content,omitempty"`
 
-	MaxFileSize         int64 `yaml:"max_file_size,omitempty"`
-	MaxToolResultChars  int64 `yaml:"max_tool_result_chars,omitempty"`
+	EnableMove   *bool `yaml:"enable_move,omitempty"`
+	EnableCopy   *bool `yaml:"enable_copy,omitempty"`
+	EnableDelete *bool `yaml:"enable_delete,omitempty"`
+
+	MaxFileSize        int64 `yaml:"max_file_size,omitempty"`
+	MaxToolResultChars int64 `yaml:"max_tool_result_chars,omitempty"`
 }
 
 func newFileToolSet(
@@ -389,6 +393,25 @@ func newFileToolSet(
 			file.WithSearchContentEnabled(*cfg.EnableSearchContent),
 		)
 	}
+
+	moveEnabled := !readOnly
+	if cfg.EnableMove != nil {
+		moveEnabled = *cfg.EnableMove
+	}
+	opts = append(opts, file.WithMoveFilesEnabled(moveEnabled))
+
+	copyEnabled := !readOnly
+	if cfg.EnableCopy != nil {
+		copyEnabled = *cfg.EnableCopy
+	}
+	opts = append(opts, file.WithCopyFilesEnabled(copyEnabled))
+
+	deleteEnabled := !readOnly
+	if cfg.EnableDelete != nil {
+		deleteEnabled = *cfg.EnableDelete
+	}
+	opts = append(opts, file.WithDeleteFilesEnabled(deleteEnabled))
+
 	if cfg.MaxFileSize > 0 {
 		opts = append(opts, file.WithMaxFileSize(cfg.MaxFileSize))
 	}

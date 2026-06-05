@@ -3016,27 +3016,35 @@ func buildOpenClawTools(
 
 func resolveSkillRoots(cwd string, cfg agentConfig) []string {
 	workspaceSkills := resolveWorkspaceSkillsRoot(cwd, cfg.SkillsRoot)
-	projectAgentsSkills := filepath.Join(
-		cwd,
-		defaultAgentsDir,
-		defaultSkillsDir,
-	)
-	home, _ := os.UserHomeDir()
-	personalAgentsSkills := filepath.Join(
-		home,
-		defaultAgentsDir,
-		defaultSkillsDir,
-	)
-	managedSkills := filepath.Join(cfg.StateDir, defaultSkillsDir)
 	bundledSkills := resolveBundledSkillsRoot(cwd, cfg.StateDir)
 
 	roots := make([]string, 0, 6+len(cfg.SkillsExtraDirs))
 	roots = append(roots, workspaceSkills)
-	roots = append(roots, projectAgentsSkills)
-	roots = append(roots, personalAgentsSkills)
-	roots = append(roots, managedSkills)
+
+	if cfg.SkillsProjectAgentsRoot {
+		projectAgentsSkills := filepath.Join(
+			cwd,
+			defaultAgentsDir,
+			defaultSkillsDir,
+		)
+		roots = append(roots, projectAgentsSkills)
+	}
+	if cfg.SkillsPersonalAgentsRoot {
+		home, _ := os.UserHomeDir()
+		personalAgentsSkills := filepath.Join(
+			home,
+			defaultAgentsDir,
+			defaultSkillsDir,
+		)
+		roots = append(roots, personalAgentsSkills)
+	}
+	if cfg.SkillsManagedRoot {
+		managedSkills := filepath.Join(cfg.StateDir, defaultSkillsDir)
+		roots = append(roots, managedSkills)
+	}
+
 	if bundledSkills != workspaceSkills &&
-		bundledSkills != managedSkills {
+		bundledSkills != filepath.Join(cfg.StateDir, defaultSkillsDir) {
 		roots = append(roots, bundledSkills)
 	}
 	roots = append(roots, cfg.SkillsExtraDirs...)
