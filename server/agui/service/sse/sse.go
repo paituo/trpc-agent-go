@@ -24,6 +24,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/server/agui/adapter"
 	aguirunner "trpc.group/trpc-go/trpc-agent-go/server/agui/runner"
 	"trpc.group/trpc-go/trpc-agent-go/server/agui/service"
+	"trpc.group/trpc-go/trpc-agent-go/session"
 )
 
 // sse is a SSE service implementation.
@@ -31,12 +32,17 @@ type sse struct {
 	path                    string
 	messagesSnapshotPath    string
 	cancelPath              string
+	contextUsagePath        string
 	writer                  *aguisse.SSEWriter
 	runner                  aguirunner.Runner
 	handler                 http.Handler
 	messagesSnapshotEnabled bool
 	cancelEnabled           bool
+	contextUsageEnabled     bool
 	heartbeatInterval       time.Duration
+	sessionService          interface {
+		GetSession(ctx context.Context, key session.Key) (*session.Session, error)
+	}
 }
 
 // New creates a new SSE service.
@@ -46,11 +52,14 @@ func New(runner aguirunner.Runner, opt ...service.Option) service.Service {
 		path:                    opts.Path,
 		messagesSnapshotPath:    opts.MessagesSnapshotPath,
 		cancelPath:              opts.CancelPath,
+		contextUsagePath:        opts.ContextUsagePath,
 		runner:                  runner,
 		writer:                  aguisse.NewSSEWriter(),
 		messagesSnapshotEnabled: opts.MessagesSnapshotEnabled,
 		cancelEnabled:           opts.CancelEnabled,
+		contextUsageEnabled:     opts.ContextUsageEnabled,
 		heartbeatInterval:       opts.HeartbeatInterval,
+		sessionService:          opts.SessionService,
 	}
 	h := http.NewServeMux()
 	h.HandleFunc(s.path, s.handle)
@@ -59,6 +68,9 @@ func New(runner aguirunner.Runner, opt ...service.Option) service.Service {
 	}
 	if s.cancelEnabled {
 		h.HandleFunc(s.cancelPath, s.handleCancel)
+	}
+	if s.contextUsageEnabled {
+		h.HandleFunc(s.contextUsagePath, s.handleContextUsage)
 	}
 	s.handler = h
 	return s
@@ -377,5 +389,104 @@ func runAgentInputFromReader(r io.Reader) (*adapter.RunAgentInput, error) {
 
 func drainEvents(events <-chan aguievents.Event) {
 	for range events {
+	}
+}
+
+// contextUsageRequest is the request body for the context usage endpoint.
+type contextUsageRequest struct {
+	ThreadID  string `json:"threadId"`
+	UserID    string `json:"userId"`
+	AppName   string `json:"appName"`
+	ModelName string `json:"modelName"`
+}
+
+// contextUsageResponse is the combined response for context usage and contents.
+type contextUsageResponse struct {
+	Usage    *session.ContextUsage    `json:"usage"`
+	Contents *session.ContextContents `json:"contents"`
+}
+
+// handleContextUsage handles a POST request to retrieve the current context
+// usage overview and content inventory for a session.
+func (s *sse) handleContextUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log.DebugfContext(
+		ctx,
+		"agui handle context usage: path: %s, method: %s",
+		s.contextUsagePath,
+		r.Method,
+	)
+	if r.Method == http.MethodOptions {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", http.MethodPost)
+		if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.sessionService == nil {
+		log.ErrorfContext(ctx, "agui handle context usage: session service not configured")
+		http.Error(w, "session service not configured", http.StatusInternalServerError)
+		return
+	}
+
+	var req contextUsageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.WarnfContext(ctx, "agui handle context usage: parse request: %v", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.AppName == "" || req.UserID == "" || req.ThreadID == "" {
+		http.Error(w, "appName, userId, and threadId are required", http.StatusBadRequest)
+		return
+	}
+	if req.ModelName == "" {
+		http.Error(w, "modelName is required", http.StatusBadRequest)
+		return
+	}
+
+	key := session.Key{
+		AppName:   req.AppName,
+		UserID:    req.UserID,
+		SessionID: req.ThreadID,
+	}
+
+	sess, err := s.sessionService.GetSession(ctx, key)
+	if err != nil {
+		log.ErrorfContext(ctx, "agui handle context usage: get session: %v", err)
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	usage, err := session.ComputeContextUsage(ctx, sess, req.ModelName, nil, session.DefaultContextUsageConfig())
+	if err != nil {
+		log.ErrorfContext(ctx, "agui handle context usage: compute usage: %v", err)
+		http.Error(w, "failed to compute context usage", http.StatusInternalServerError)
+		return
+	}
+
+	contents, err := session.ComputeContextContents(ctx, sess, req.ModelName, nil)
+	if err != nil {
+		log.ErrorfContext(ctx, "agui handle context usage: compute contents: %v", err)
+		http.Error(w, "failed to compute context contents", http.StatusInternalServerError)
+		return
+	}
+
+	resp := contextUsageResponse{
+		Usage:    usage,
+		Contents: contents,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.ErrorfContext(ctx, "agui handle context usage: encode response: %v", err)
 	}
 }

@@ -1031,8 +1031,8 @@ func isLLMCompletionEvent(evt *event.Event) bool {
 	return evt.Response.Usage != nil && evt.Response.Done
 }
 
-// emitContextUsageEvent computes the current context usage and emits it as
-// a CustomEvent with name "context_usage".
+// emitContextUsageEvent computes the current context usage and content inventory,
+// then emits them as CustomEvents.
 func (r *runner) emitContextUsageEvent(
 	ctx context.Context,
 	events chan<- aguievents.Event,
@@ -1059,11 +1059,12 @@ func (r *runner) emitContextUsageEvent(
 		return true
 	}
 
+	// Emit context_usage event (token usage overview).
 	usage, err := session.ComputeContextUsage(
 		ctx, sess, modelName, nil, session.DefaultContextUsageConfig(),
 	)
 	if err != nil {
-		log.DebugfContext(ctx, "agui context usage: compute: %v", err)
+		log.DebugfContext(ctx, "agui context usage: compute usage: %v", err)
 		return true
 	}
 
@@ -1071,5 +1072,20 @@ func (r *runner) emitContextUsageEvent(
 		"context_usage",
 		aguievents.WithValue(usage),
 	)
-	return r.emitEvent(ctx, events, contextUsageEvent, input)
+	if !r.emitEvent(ctx, events, contextUsageEvent, input) {
+		return false
+	}
+
+	// Emit context_contents event (content inventory).
+	contents, err := session.ComputeContextContents(ctx, sess, modelName, nil)
+	if err != nil {
+		log.DebugfContext(ctx, "agui context usage: compute contents: %v", err)
+		return true
+	}
+
+	contextContentsEvent := aguievents.NewCustomEvent(
+		"context_contents",
+		aguievents.WithValue(contents),
+	)
+	return r.emitEvent(ctx, events, contextContentsEvent, input)
 }

@@ -108,3 +108,26 @@ func WithHeartbeatInterval(d time.Duration) Option {
 		s.HeartbeatInterval = d
 	}
 }
+
+// WithContextUsageEnabled enables the context usage handler.
+func WithContextUsageEnabled(e bool) Option {
+	return func(s *Options) {
+		s.ContextUsageEnabled = e
+	}
+}
+
+// WithContextUsagePath sets the HTTP path for the context usage handler.
+func WithContextUsagePath(p string) Option {
+	return func(s *Options) {
+		s.ContextUsagePath = p
+	}
+}
+
+// WithSessionService sets the session service for context usage computation.
+func WithSessionService(svc interface {
+	GetSession(ctx context.Context, key session.Key) (*session.Session, error)
+}) Option {
+	return func(s *Options) {
+		s.SessionService = svc
+	}
+}
