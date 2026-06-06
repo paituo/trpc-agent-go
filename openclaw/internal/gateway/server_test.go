@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -4222,7 +4222,7 @@ func progressAfterMessageDeltaOptions() *gwproto.MessageStreamOptions {
 func TestStreamProgressHelpers(t *testing.T) {
 	t.Parallel()
 
-	updates := progressUpdatesFromRunnerEvent(nil)
+	updates := progressUpdatesFromRunnerEvent(nil, nil)
 	require.Empty(t, updates)
 
 	updates = progressUpdatesFromRunnerEvent(&event.Event{
@@ -4267,7 +4267,7 @@ func TestStreamProgressHelpers(t *testing.T) {
 				},
 			}},
 		},
-	})
+	}, nil)
 	require.Len(t, updates, 1)
 	require.Equal(
 		t,

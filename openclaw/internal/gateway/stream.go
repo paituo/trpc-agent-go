@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -483,6 +483,10 @@ func (s *Server) streamLocked(
 	lastPublicCompleted := ""
 	pendingThought := false
 	lastThoughtCompleted := ""
+	var noTruncateTools []string
+	if run.streamOptions != nil {
+		noTruncateTools = run.streamOptions.NoTruncateTools
+	}
 	for evt := range events {
 		if trace != nil && evt != nil {
 			_ = trace.Record(debugrecorder.KindRunnerEvent, evt)
@@ -491,7 +495,7 @@ func (s *Server) streamLocked(
 			continue
 		}
 
-		if updates := progressUpdatesFromRunnerEvent(evt);
+		if updates := progressUpdatesFromRunnerEvent(evt, noTruncateTools);
 			len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
 			for _, update := range updates {
 				if !sendProgressUpdate(
@@ -632,12 +636,13 @@ func (s *Server) streamLocked(
 		}
 		sentText = true
 		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
-			Type:      gwproto.StreamEventTypeMessageDelta,
-			SessionID: run.sessionID,
-			RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
-			Delta:     delta,
-			Model:     modelFromEvent(evt),
-		}) {
+		Type:      gwproto.StreamEventTypeMessageDelta,
+		SessionID: run.sessionID,
+		RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
+		MessageID: result.RequestID,
+		Delta:     delta,
+		Model:     modelFromEvent(evt),
+	}) {
 			return streamOutcome{
 				status: traceStatusError,
 				errMsg: contextErrMessage(ctx),
@@ -709,6 +714,7 @@ func (s *Server) streamLocked(
 		Type:         gwproto.StreamEventTypeMessageCompleted,
 		SessionID:    run.sessionID,
 		RequestID:    requestID,
+		MessageID:    requestID,
 		Reply:        reply,
 		Usage:        cloneGatewayUsage(result.Usage),
 		FinishReason: result.FinishReason,
@@ -766,10 +772,12 @@ type progressUpdate struct {
 	toolStatus gwproto.StreamToolStatus
 	usage      *gwproto.Usage
 	model      string
+	toolCalls  []gwproto.StreamToolCall
 }
 
 func progressUpdatesFromRunnerEvent(
 	evt *event.Event,
+	noTruncateTools []string,
 ) []progressUpdate {
 	if evt == nil || evt.Response == nil {
 		return nil
@@ -788,7 +796,7 @@ func progressUpdatesFromRunnerEvent(
 		return updates
 	}
 	if evt.Object == model.ObjectTypeToolResponse {
-		u := progressFromToolResult(evt.Response)
+		u := progressFromToolResult(evt.Response, noTruncateTools)
 		return []progressUpdate{u}
 	}
 	return nil
@@ -842,6 +850,11 @@ func progressFromToolCall(
 		toolDetail: toolDetailFromToolCall(toolCall),
 		toolCallID: strings.TrimSpace(toolCall.ID),
 		toolStatus: gwproto.StreamToolStatusRunning,
+		toolCalls: []gwproto.StreamToolCall{{
+			ID:        strings.TrimSpace(toolCall.ID),
+			Name:      name,
+			Arguments: json.RawMessage(toolCall.Function.Arguments),
+		}},
 	}
 	switch name {
 	case streamToolReadDocument:
@@ -866,7 +879,7 @@ func progressFromToolCall(
 	}
 }
 
-func progressFromToolResult(rsp *model.Response) progressUpdate {
+func progressFromToolResult(rsp *model.Response, noTruncateTools []string) progressUpdate {
 	update := progressUpdate{
 		stage:   gwproto.StreamProgressStageSummarizing,
 		summary: progressSummaryAnswering,
@@ -886,6 +899,14 @@ func progressFromToolResult(rsp *model.Response) progressUpdate {
 		update.toolStatus = gwproto.StreamToolStatusCompleted
 	}
 	update.toolResult = sanitizeStreamToolDetail(truncateToolResult(msg.Content))
+	// Check if this tool is in the NoTruncateTools list.
+	toolName := strings.TrimSpace(msg.ToolName)
+	for _, name := range noTruncateTools {
+		if toolName == name {
+			update.toolResult = msg.Content
+			break
+		}
+	}
 	return update
 }
 
@@ -1793,6 +1814,7 @@ func sendProgressUpdate(
 		ToolDetail: update.toolDetail,
 		ToolResult: update.toolResult,
 		ToolCallID: update.toolCallID,
+		ToolCalls:   update.toolCalls,
 		ToolStatus: update.toolStatus,
 		ElapsedMS:  time.Since(state.startedAt).Milliseconds(),
 		Usage:      update.usage,

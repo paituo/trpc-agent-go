@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -77,6 +77,12 @@ type StreamingGatewayClient interface {
 	StreamMessage(
 		ctx context.Context,
 		req gwclient.MessageRequest,
+	) (<-chan gwclient.StreamEvent, error)
+
+	StreamMessageWithOptions(
+		ctx context.Context,
+		req gwclient.MessageRequest,
+		opts *gwclient.MessageStreamOptions,
 	) (<-chan gwclient.StreamEvent, error)
 }
 
