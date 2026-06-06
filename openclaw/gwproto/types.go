@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -47,6 +47,12 @@ type MessageStreamOptions struct {
 	// ProgressAfterTextDelta lets opt-in clients receive run.progress
 	// events after the first message.delta event has started.
 	ProgressAfterTextDelta bool `json:"progress_after_text_delta,omitempty"`
+
+	// NoTruncateTools lists tool names whose results should not be
+	// truncated in run.progress events. When a tool result is for a
+	// listed tool, the full content is sent instead of the sanitized
+	// and truncated version.
+	NoTruncateTools []string `json:"no_truncate_tools,omitempty"`
 }
 
 // APIError matches gateway error payloads.
@@ -160,6 +166,13 @@ const (
 	StreamToolStatusCompleted StreamToolStatus = "completed"
 )
 
+// StreamToolCall carries full tool call information in a StreamEvent.
+type StreamToolCall struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
 // StreamEvent is one gateway streaming event payload.
 type StreamEvent struct {
 	Type StreamEventType `json:"type"`
@@ -196,6 +209,13 @@ type StreamEvent struct {
 	// StateDelta carries opaque key-value state changes from the runner.
 	// Used for graph node lifecycle, custom node events, and tool artifacts.
 	StateDelta map[string]json.RawMessage `json:"state_delta,omitempty"`
+
+	// ToolCalls carries full tool call information when Type is
+	// run.progress and ToolStatus is "running".
+	ToolCalls []StreamToolCall `json:"tool_calls,omitempty"`
+
+	// MessageID carries the LLM response ID for message events.
+	MessageID string `json:"message_id,omitempty"`
 }
 
 // ContentPartType is the type discriminator for ContentPart.

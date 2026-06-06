@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -65,6 +65,14 @@ func (g *stubStreamingGateway) StreamMessage(
 	}
 	close(out)
 	return out, nil
+}
+
+func (g *stubStreamingGateway) StreamMessageWithOptions(
+	_ context.Context,
+	req gwclient.MessageRequest,
+	_ *gwclient.MessageStreamOptions,
+) (<-chan gwclient.StreamEvent, error) {
+	return g.StreamMessage(context.Background(), req)
 }
 
 func TestInit_RegistersChannel(t *testing.T) {
