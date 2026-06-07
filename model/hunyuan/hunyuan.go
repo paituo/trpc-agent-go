@@ -151,6 +151,9 @@ func New(name string, opts ...Option) *Model {
 	// Create Hunyuan API client.
 	client := hunyuan.NewClient(clientOpts...)
 
+	if o.tokenCounter == nil {
+		o.tokenCounter = model.NewTokenCounter(name)
+	}
 	if o.tailoringStrategy == nil {
 		o.tailoringStrategy = model.NewMiddleOutStrategy(o.tokenCounter)
 	}

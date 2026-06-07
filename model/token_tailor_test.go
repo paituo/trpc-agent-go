@@ -1110,6 +1110,10 @@ func (c *mockErrorTokenCounter) CountTokensRange(ctx context.Context, messages [
 	return 0, fmt.Errorf("mock error")
 }
 
+func (c *mockErrorTokenCounter) RecordEstimate(ctx context.Context, messages []Message) (int, error) {
+	return 0, fmt.Errorf("mock error")
+}
+
 type rangeLenTokenCounter struct{}
 
 func (rangeLenTokenCounter) CountTokens(ctx context.Context, message Message) (int, error) {
@@ -1121,6 +1125,10 @@ func (rangeLenTokenCounter) CountTokensRange(ctx context.Context, messages []Mes
 		return 0, fmt.Errorf("invalid range")
 	}
 	return end - start, nil
+}
+
+func (rangeLenTokenCounter) RecordEstimate(ctx context.Context, messages []Message) (int, error) {
+	return rangeLenTokenCounter{}.CountTokensRange(ctx, messages, 0, len(messages))
 }
 
 type scriptedRangeTokenCounter struct {
@@ -1142,6 +1150,10 @@ func (c *scriptedRangeTokenCounter) CountTokensRange(ctx context.Context, messag
 	step := c.steps[c.calls]
 	c.calls++
 	return step.tokens, step.err
+}
+
+func (c *scriptedRangeTokenCounter) RecordEstimate(ctx context.Context, messages []Message) (int, error) {
+	return c.CountTokensRange(ctx, messages, 0, len(messages))
 }
 
 // TestBuildPrefixSum_WithActualError tests the error handling path in buildPrefixSum

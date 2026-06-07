@@ -3297,6 +3297,10 @@ func (m *mockTokenCounter) CountTokensRange(ctx context.Context, messages []mode
 	return 0, nil
 }
 
+func (m *mockTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return m.CountTokensRange(ctx, messages, 0, len(messages))
+}
+
 // TestWithChannelBufferSize tests the WithChannelBufferSize option with various inputs.
 func TestWithChannelBufferSize(t *testing.T) {
 	tests := []struct {

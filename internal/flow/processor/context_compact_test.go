@@ -54,6 +54,13 @@ func (c *sequenceTokenCounter) CountTokensRange(
 	return 0, nil
 }
 
+func (c *sequenceTokenCounter) RecordEstimate(
+	_ context.Context,
+	_ []model.Message,
+) (int, error) {
+	return c.CountTokensRange(nil, nil, 0, 0)
+}
+
 func TestRecoveryRefLinesKeepToolCallIDWithoutEventID(t *testing.T) {
 	placeholder := recoverableToolResultPlaceholder(
 		toolResultRecoveryRef{

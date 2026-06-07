@@ -582,11 +582,11 @@ func (f *Flow) runOneStep(
 	rebuildPlan := f.preprocess(ctx, invocation, llmRequest, eventChan)
 
 	// Record initial state after preprocess.
-	ctxTracker.RecordInitialState(llmRequest.Messages, f.tokenCounter())
+	ctxTracker.RecordInitialState(llmRequest.Messages, f.tokenCounterForModel(callModel))
 
 	// Record tool definition tokens estimate (when detailed metrics is enabled).
 	if len(llmRequest.Tools) > 0 && f.enableDetailedMetrics {
-		toolDefTokens, tokenErr := estimateToolDefinitionTokens(llmRequest.Tools, f.tokenCounter())
+		toolDefTokens, tokenErr := estimateToolDefinitionTokens(llmRequest.Tools, f.tokenCounterForModel(callModel))
 		if tokenErr == nil {
 			ctxTracker.RecordToolDefinitionTokens(toolDefTokens)
 		}
@@ -609,8 +609,8 @@ func (f *Flow) runOneStep(
 		if callModel != nil {
 			contextWindow = callModel.Info().ContextWindow
 		}
-		ctxTracker.RecordPreTailoring(llmRequest.Messages, contextWindow, "", f.tokenCounter())
-		ctxTracker.RecordPostTailoring(llmRequest.Messages, f.tokenCounter())
+		ctxTracker.RecordPreTailoring(llmRequest.Messages, contextWindow, "", f.tokenCounterForModel(callModel))
+		ctxTracker.RecordPostTailoring(llmRequest.Messages, f.tokenCounterForModel(callModel))
 	}
 	observabilityInvocation := invocationViewForModel(invocation, callModel)
 	stepID := agent.StartExecutionTraceStep(
@@ -1964,6 +1964,20 @@ func (f *Flow) tokenCounter() model.TokenCounter {
 		}
 	}
 	return nil
+}
+
+// tokenCounterForModel returns the TokenCounter to use for the given model.
+// It prefers the model's own TokenCounter (which is always set by the model
+// constructor) to ensure consistent counting across tailoring and compaction.
+// Falls back to the processor-configured counter, then to a default.
+func (f *Flow) tokenCounterForModel(mdl model.Model) model.TokenCounter {
+	if mdl != nil {
+		return model.TokenCounterForModel(mdl)
+	}
+	if tc := f.tokenCounter(); tc != nil {
+		return tc
+	}
+	return model.NewTokenCounter("")
 }
 
 func estimateToolDefinitionTokens(tools map[string]tool.Tool, counter model.TokenCounter) (int, error) {

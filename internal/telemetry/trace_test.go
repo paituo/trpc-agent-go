@@ -274,7 +274,7 @@ func TestTraceFunctions_NonRecordingSpan_ReturnsEarly(t *testing.T) {
 	require.False(t, span.IsRecording(), "expected noop span to be non-recording")
 
 	TraceWorkflow(span, &Workflow{Name: "wf", ID: "wf-1"})
-	TraceBeforeInvokeAgent(span, nil, "", "", nil)
+	TraceBeforeInvokeAgent(context.Background(), span, nil, "", "", nil)
 	TraceAfterInvokeAgent(span, nil, nil, 0, model.ErrorTypeRunError)
 	TraceChat(span, nil)
 }
@@ -285,7 +285,7 @@ func TestTraceBeforeAfter_Tool_Merged_Chat_Embedding(t *testing.T) {
 	gc := &model.GenerationConfig{Stop: []string{"END"}, FrequencyPenalty: &fp, MaxTokens: &mt, PresencePenalty: &pp, Temperature: &tp, TopP: &topP, Stream: true}
 	inv := &agent.Invocation{AgentName: "alpha", InvocationID: "inv-1", Session: &session.Session{ID: "sess-1", UserID: "u-1"}}
 	s := newRecordingSpan()
-	TraceBeforeInvokeAgent(s, inv, "desc", "inst", gc)
+	TraceBeforeInvokeAgent(context.Background(), s, inv, "desc", "inst", gc)
 	if !hasAttr(s.attrs, semconvtrace.KeyGenAIAgentName, "alpha") {
 		t.Fatalf("missing agent name")
 	}
@@ -416,7 +416,7 @@ func TestTraceBeforeInvokeAgent_WithSpanAttributes(t *testing.T) {
 		RunOptions:   agent.RunOptions{SpanAttributes: []attribute.KeyValue{attribute.String("custom.attr", "v1")}},
 	}
 	span := newRecordingSpan()
-	TraceBeforeInvokeAgent(span, inv, "desc", "inst", nil)
+	TraceBeforeInvokeAgent(context.Background(), span, inv, "desc", "inst", nil)
 	require.True(t, hasAttr(span.attrs, "custom.attr", "v1"), "custom span attribute should be applied")
 }
 
@@ -435,7 +435,7 @@ func TestTraceBeforeInvokeAgent_WithTraceStartedCallback(t *testing.T) {
 	}
 	span := newRecordingSpan()
 
-	TraceBeforeInvokeAgent(span, inv, "desc", "inst", nil)
+	TraceBeforeInvokeAgent(context.Background(), span, inv, "desc", "inst", nil)
 
 	require.Equal(t, span.SpanContext(), got)
 }
@@ -453,7 +453,7 @@ func TestTraceBeforeInvokeAgent_IgnoresNilTraceStartedCallback(t *testing.T) {
 	span := newRecordingSpan()
 
 	require.NotPanics(t, func() {
-		TraceBeforeInvokeAgent(span, inv, "desc", "inst", nil)
+		TraceBeforeInvokeAgent(context.Background(), span, inv, "desc", "inst", nil)
 	})
 }
 
@@ -470,7 +470,7 @@ func TestTraceBeforeInvokeAgent_SkipsChildTraceStartedCallback(
 	span := newRecordingSpan()
 
 	require.NotPanics(t, func() {
-		TraceBeforeInvokeAgent(span, child, "desc", "inst", nil)
+		TraceBeforeInvokeAgent(context.Background(), span, child, "desc", "inst", nil)
 	})
 }
 
@@ -666,7 +666,7 @@ func TestTraceBeforeInvokeAgent_NilPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			span := newRecordingSpan()
-			TraceBeforeInvokeAgent(span, tt.invoke, "desc", "instructions", tt.genConfig)
+			TraceBeforeInvokeAgent(context.Background(), span, tt.invoke, "desc", "instructions", tt.genConfig)
 
 			require.True(t, hasAttr(span.attrs, semconvtrace.KeyGenAIAgentName, "test-agent"))
 			require.True(t, hasAttr(span.attrs, semconvtrace.KeyGenAIAgentID, "test-agent"))
@@ -682,7 +682,7 @@ func TestTraceBeforeInvokeAgent_UsesInvocationAgentNameOnly(t *testing.T) {
 		Message:      model.Message{Role: model.RoleUser, Content: "hello"},
 	}
 
-	TraceBeforeInvokeAgent(span, inv, "desc", "instructions", nil)
+	TraceBeforeInvokeAgent(context.Background(), span, inv, "desc", "instructions", nil)
 
 	require.False(t, hasAttrKey(span.attrs, semconvtrace.KeyGenAIAgentName))
 	require.False(t, hasAttrKey(span.attrs, semconvtrace.KeyGenAIAgentID))
@@ -1185,7 +1185,7 @@ func TestTraceBeforeInvokeAgent_JSONMarshalError(t *testing.T) {
 		Message:      model.Message{Role: model.RoleUser, Content: "test"},
 	}
 
-	TraceBeforeInvokeAgent(span, inv, "desc", "instructions", nil)
+	TraceBeforeInvokeAgent(context.Background(), span, inv, "desc", "instructions", nil)
 
 	require.True(t, hasAttr(span.attrs, semconvtrace.KeyGenAIAgentName, "test-agent"))
 	require.True(t, hasAttr(span.attrs, semconvtrace.KeyGenAIAgentID, "test-agent"))
@@ -1204,7 +1204,7 @@ func TestTraceBeforeAfterInvokeAgent_NormalizesToolResponseMessageFields(t *test
 		},
 	}
 
-	TraceBeforeInvokeAgent(beforeSpan, inv, "desc", "instructions", nil)
+	TraceBeforeInvokeAgent(context.Background(), beforeSpan, inv, "desc", "instructions", nil)
 	beforeJSON, ok := attrStringValue(beforeSpan.attrs, semconvtrace.KeyGenAIInputMessages)
 	require.True(t, ok)
 	require.Contains(t, beforeJSON, `"tool_call_id":"call-before"`)

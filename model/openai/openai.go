@@ -31,6 +31,8 @@ import (
 	"github.com/openai/openai-go/packages/respjson"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
+
+	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	"trpc.group/trpc-go/trpc-agent-go/internal/modeltelemetry"
 	"trpc.group/trpc-go/trpc-agent-go/internal/toolorder"
@@ -387,6 +389,23 @@ func (m *Model) Info() model.Info {
 	}
 }
 
+// SetTokenCounter replaces the token counter used for token tailoring.
+// This allows external callers (e.g., LLMAgent) to install a
+// CalibratingTokenCounter that wraps the original counter, ensuring
+// that RecordEstimate calls from applyTokenTailoring accumulate into
+// the calibrating counter for automatic calibration.
+func (m *Model) SetTokenCounter(counter model.TokenCounter) {
+	if counter == nil {
+		return
+	}
+	m.tokenCounter = counter
+	// Propagate the new counter to the tailoring strategy so that
+	// token counting remains consistent across tailoring operations.
+	if s, ok := m.tailoringStrategy.(*model.MiddleOutStrategy); ok {
+		s.SetTokenCounter(counter)
+	}
+}
+
 func (m *Model) runChatRequestCallback(
 	ctx context.Context,
 	chatRequest *openai.ChatCompletionNewParams,
@@ -563,10 +582,59 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 		return
 	}
 
-	// Determine max input tokens using priority: user config > auto calculation > default.
-	maxInputTokens := m.maxInputTokens
+	// Log original message sizes for diagnosis.
+	if m.tokenCounter != nil {
+		var sessionID string
+		if inv, ok := agent.InvocationFromContext(ctx); ok && inv != nil && inv.Session != nil {
+			sessionID = inv.Session.ID
+		}
+		// Diagnostic: log the counter type once per session to verify routing.
+		log.InfofContext(ctx,
+			"token-tailoring-counter-type: model=%s, counterType=%T, session=%s",
+			m.name, m.tokenCounter, sessionID,
+		)
+		var totalOriginalTokens int
+		for i, msg := range request.Messages {
+			t, _ := m.tokenCounter.CountTokens(ctx, msg)
+			totalOriginalTokens += t
+			if t > 5000 {
+				log.WarnfContext(ctx,
+					"token-tailoring-large-msg: session=%s, idx=%d, role=%s, tokens=%d, contentLen=%d, partsLen=%d, tcLen=%d",
+					sessionID, i, string(msg.Role), t, len(msg.Content), len(msg.ContentParts), len(msg.ToolCalls),
+				)
+			}
+		}
+		log.DebugfContext(ctx,
+			"token-tailoring-original-total: model=%s, totalTokens=%d, msgCount=%d",
+			m.name, totalOriginalTokens, len(request.Messages),
+		)
+	}
+
+	// #region debug-point A:tailoring-params
+	// Instrumentation: log key parameters before tailoring
 	outputReserveTokens := m.effectiveOutputReserveTokens(request)
 	contextWindow := m.contextWindow
+	if contextWindow <= 0 {
+		contextWindow = imodel.ResolveContextWindow(m.name)
+	}
+	m.debugLog("A", "tailoring-params",
+		"location:openai.go:applyTokenTailoring",
+		map[string]any{
+			"modelName":           m.name,
+			"contextWindow":       contextWindow,
+			"maxInputTokens_cfg":  m.maxInputTokens,
+			"outputReserveTokens": outputReserveTokens,
+			"autoBudget":          m.maxInputTokens <= 0,
+			"messagesCount":       len(request.Messages),
+			"toolsCount":          len(request.Tools),
+			"enableTailoring":     m.enableTokenTailoring,
+		})
+	// #endregion
+
+	// Determine max input tokens using priority: user config > auto calculation > default.
+	maxInputTokens := m.maxInputTokens
+	outputReserveTokens = m.effectiveOutputReserveTokens(request)
+	contextWindow = m.contextWindow
 	if contextWindow <= 0 {
 		contextWindow = imodel.ResolveContextWindow(m.name)
 	}
@@ -621,9 +689,68 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 		}
 	}
 
+	// #region debug-point B:budget-result
+	// Instrumentation: log the final budget before tailoring
+	m.debugLog("B", "budget-result",
+		"location:openai.go:beforeTailorMessages",
+		map[string]any{
+			"finalMaxInputTokens": maxInputTokens,
+			"autoBudget":          autoBudget,
+			"contextWindow":       contextWindow,
+			"outputReserveTokens": outputReserveTokens,
+		})
+	// #endregion
+
 	// Apply token tailoring.
 	tailored, err := m.tailoringStrategy.TailorMessages(ctx, request.Messages, maxInputTokens)
 	if err != nil {
+		// #region debug-point C:overflow-detail
+		if len(tailored) > 0 {
+			msgCount := len(tailored)
+			var tailoredTokens int
+			if m.tokenCounter != nil {
+				tokens, countErr := m.tokenCounter.CountTokensRange(ctx, tailored, 0, msgCount)
+				if countErr == nil {
+					tailoredTokens = tokens
+				} else {
+					tailoredTokens = -1
+				}
+				// Log per-message token breakdown for overflow diagnosis.
+				msgBreakdown := make([]map[string]any, 0, msgCount)
+				for i, msg := range tailored {
+					t, _ := m.tokenCounter.CountTokens(ctx, msg)
+					msgBreakdown = append(msgBreakdown, map[string]any{
+						"idx":        i,
+						"role":       string(msg.Role),
+						"tokens":     t,
+						"contentLen": len(msg.Content),
+						"partsLen":   len(msg.ContentParts),
+						"tcLen":      len(msg.ToolCalls),
+					})
+				}
+				log.WarnfContext(ctx,
+					"token-tailoring-overflow-diagnosis: model=%s, maxInputTokens=%d, "+
+						"tailoredTokens=%d, tailoredMsgCount=%d, "+
+						"originalMsgCount=%d, err=%v, "+
+						"perMsgBreakdown=%v",
+					m.name, maxInputTokens, tailoredTokens, msgCount,
+					len(request.Messages), err,
+					msgBreakdown,
+				)
+			} else {
+				tailoredTokens = -2
+			}
+			m.debugLog("C", "overflow-detail",
+				"location:openai.go:overflowBranch",
+				map[string]any{
+					"err":              err.Error(),
+					"tailoredMsgCount": msgCount,
+					"tailoredTokens":   tailoredTokens,
+					"maxInputTokens":   maxInputTokens,
+				})
+		}
+		// #endregion
+
 		if len(tailored) > 0 {
 			log.WarnContext(
 				ctx,
@@ -642,7 +769,36 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 	}
 
 	request.Messages = tailored
+
+	// Record the final token estimate for calibration. This is the only
+	// place where we accumulate raw estimates, ensuring no double-counting
+	// from internal tailoring operations.
+	if m.tokenCounter != nil {
+		_, _ = m.tokenCounter.RecordEstimate(ctx, tailored)
+	}
 }
+
+// #region debug-point common:debugLog
+// debugLog sends a debug event to the debug server for runtime evidence collection.
+// This instrumentation is temporary and will be removed after debugging.
+func (m *Model) debugLog(hypothesisId, description, location string, data map[string]any) {
+	payload, _ := json.Marshal(map[string]any{
+		"sessionId":    "token-tailoring-overflow",
+		"runId":        "pre-fix",
+		"hypothesisId": hypothesisId,
+		"location":     location,
+		"msg":          "[DEBUG] " + hypothesisId + ":" + description,
+		"data":         data,
+		"ts":           time.Now().UnixMilli(),
+	})
+	// Best-effort async send
+	go func() {
+		http.Post("http://127.0.0.1:7777/event", "application/json",
+			bytes.NewReader(payload))
+	}()
+}
+
+// #endregion
 
 func (m *Model) effectiveOutputReserveTokens(request *model.Request) int {
 	reserve := m.reserveOutputTokens
@@ -658,6 +814,16 @@ func (m *Model) effectiveOutputReserveTokens(request *model.Request) int {
 	if request.ThinkingTokens != nil && *request.ThinkingTokens > reserve {
 		reserve = *request.ThinkingTokens
 	}
+	// #region debug-point D:output-reserve
+	m.debugLog("D", "output-reserve",
+		"location:openai.go:effectiveOutputReserveTokens",
+		map[string]any{
+			"cfgReserveOutputTokens": m.reserveOutputTokens,
+			"requestMaxTokens":       request.MaxTokens,
+			"requestThinkingTokens":  request.ThinkingTokens,
+			"effectiveReserve":       reserve,
+		})
+	// #endregion
 	return reserve
 }
 

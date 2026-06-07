@@ -107,7 +107,6 @@ var (
 			MaxInputTokensRatio:    imodel.DefaultMaxInputTokensRatio,
 		},
 		host:         defaultHost,
-		tokenCounter: model.NewSimpleTokenCounter(),
 	}
 )
 

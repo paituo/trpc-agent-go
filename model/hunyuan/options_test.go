@@ -158,6 +158,11 @@ func TestWithTokenTailoringConfig(t *testing.T) {
 
 func TestWithTokenCounter_Nil(t *testing.T) {
 	opt := defaultOptions
+	// Set a tokenCounter first, then verify WithTokenCounter(nil) does not clear it.
+	existing := model.NewSimpleTokenCounter()
+	WithTokenCounter(existing)(&opt)
+	assert.NotNil(t, opt.tokenCounter, "tokenCounter should be set")
 	WithTokenCounter(nil)(&opt)
-	assert.NotNil(t, opt.tokenCounter, "tokenCounter is nil")
+	assert.NotNil(t, opt.tokenCounter, "WithTokenCounter(nil) should not clear existing tokenCounter")
+	assert.Equal(t, existing, opt.tokenCounter, "tokenCounter should remain unchanged")
 }

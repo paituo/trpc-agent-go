@@ -17,8 +17,8 @@ import (
 	"strings"
 
 	"github.com/tiktoken-go/tokenizer"
-	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
 // Counter implements a tiktoken-based token counter compatible with model.TokenCounter.
@@ -80,7 +80,14 @@ func registerKnownModels() {
 			"tiktoken: failed to load o200k_base encoding: %v", err)
 	}
 
-	// DeepSeek → cl100k_base (vocab 129,024, close approximation for direct API)
+	// DeepSeek-V4 → o200k_base (better approximation for V4's custom tokenizer)
+	// Must be registered BEFORE the generic "deepseek" entry so that
+	// longest-prefix-match prefers "deepseek-v4" over "deepseek".
+	if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+		model.RegisterRegistryEntry("deepseek-v4", c)
+	}
+
+	// DeepSeek (pre-V4) → cl100k_base (vocab 129,024, close approximation for direct API)
 	if c, err := newWithEncoding(tokenizer.Cl100kBase); err == nil {
 		model.RegisterRegistryEntry("deepseek", c)
 		// Llama 3/4 → cl100k_base (vocab 128,256, close approximation)
@@ -155,6 +162,7 @@ func (c *Counter) CountTokens(_ context.Context, message model.Message) (int, er
 //   - hunyuan*                          → o200k_base (Qwen-compatible)
 //   - minimax*                          → o200k_base (Qwen-compatible)
 //   - claude*                           → o200k_base (close approximation)
+//   - deepseek-v4*                      → o200k_base (better approximation for V4's tokenizer)
 //   - deepseek*                         → cl100k_base (vocab 129,024, close approximation)
 //   - llama*                            → cl100k_base (vocab 128,256, close approximation)
 //   - yi-*                              → cl100k_base (vocab ~64,000, close approximation)
@@ -197,6 +205,10 @@ func NewTokenCounter(modelName string) model.TokenCounter {
 			return c
 		}
 	case strings.HasPrefix(name, "claude"):
+		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
+			return c
+		}
+	case strings.HasPrefix(name, "deepseek-v4"):
 		if c, err := newWithEncoding(tokenizer.O200kBase); err == nil {
 			return c
 		}
@@ -300,4 +312,10 @@ func (c *Counter) CountTokensRange(ctx context.Context, messages []model.Message
 		total += tokens
 	}
 	return total, nil
+}
+
+// RecordEstimate counts tokens for the given messages. tiktoken Counter
+// does not support calibration, so this simply delegates to CountTokensRange.
+func (c *Counter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return c.CountTokensRange(ctx, messages, 0, len(messages))
 }
