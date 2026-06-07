@@ -1698,8 +1698,8 @@ func TestModel_GenerateContentStreaming(t *testing.T) {
 				},
 				chatRequestCallback: func(ctx context.Context, chatRequest []*genai.Content) {
 				},
-				tokenCounter:      model.NewSimpleTokenCounter(),
-				tailoringStrategy: model.NewMiddleOutStrategy(model.NewSimpleTokenCounter()),
+				tokenCounter:      model.NewTokenCounter("gemini-test"),
+				tailoringStrategy: model.NewMiddleOutStrategy(model.NewTokenCounter("gemini-test")),
 			}
 			_, err := m.GenerateContent(tt.args.ctx, tt.args.request)
 			assert.Nil(t, err)

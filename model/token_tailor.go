@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"trpc.group/trpc-go/trpc-agent-go/log"
@@ -78,6 +79,18 @@ type TokenCounter interface {
 	// CountTokensRange returns the estimated token count for a range of messages.
 	// This is more efficient than calling CountTokens multiple times.
 	CountTokensRange(ctx context.Context, messages []Message, start, end int) (int, error)
+
+	// RecordEstimate counts tokens for the given messages and records the raw
+	// estimate for calibration purposes. Implementations that support
+	// calibration (e.g., CalibratingTokenCounter) accumulate the raw estimate
+	// so that CalibrateFromActual can compute a correction factor later.
+	// Implementations that do not support calibration simply delegate to
+	// CountTokensRange.
+	//
+	// Call this method when counting tokens for messages that are about to be
+	// sent to the API, NOT for internal operations like token tailoring or
+	// context compaction which may count the same messages multiple times.
+	RecordEstimate(ctx context.Context, messages []Message) (int, error)
 }
 
 // TailoringStrategy tailors messages to fit within a token budget.
@@ -220,6 +233,12 @@ func (c *SimpleTokenCounter) CountTokensRange(ctx context.Context, messages []Me
 	return total, nil
 }
 
+// RecordEstimate counts tokens for the given messages. SimpleTokenCounter
+// does not support calibration, so this simply delegates to CountTokensRange.
+func (c *SimpleTokenCounter) RecordEstimate(ctx context.Context, messages []Message) (int, error) {
+	return c.CountTokensRange(ctx, messages, 0, len(messages))
+}
+
 // MiddleOutStrategy removes messages from the middle until within token budget.
 //
 // Background (Lost-in-the-Middle):
@@ -256,6 +275,14 @@ func NewMiddleOutStrategy(counter TokenCounter) *MiddleOutStrategy {
 	return &MiddleOutStrategy{
 		tokenCounter: counter,
 	}
+}
+
+// SetTokenCounter replaces the token counter used by this strategy.
+func (s *MiddleOutStrategy) SetTokenCounter(counter TokenCounter) {
+	if counter == nil {
+		return
+	}
+	s.tokenCounter = counter
 }
 
 type userAnchoredRound struct {
@@ -773,7 +800,10 @@ const (
 // model-specific tokenizers for higher accuracy.
 type TokenCounterFromModel func(modelName string) TokenCounter
 
-var tokenCounterFromModel TokenCounterFromModel
+var (
+	tokenCounterFromModel     TokenCounterFromModel
+	tokenCounterFromModelOnce sync.Once
+)
 
 // SetTokenCounterFromModel registers a custom TokenCounter factory function.
 // This allows external packages (e.g., model/tiktoken) to provide model-aware
@@ -781,9 +811,14 @@ var tokenCounterFromModel TokenCounterFromModel
 //
 // The function should handle all model names; unrecognized models should
 // fall back to a SimpleTokenCounter.
+//
+// SetTokenCounterFromModel is safe for concurrent use. It uses sync.Once
+// to ensure the factory is set exactly once; subsequent calls are no-ops.
 func SetTokenCounterFromModel(fn TokenCounterFromModel) {
 	if fn != nil {
-		tokenCounterFromModel = fn
+		tokenCounterFromModelOnce.Do(func() {
+			tokenCounterFromModel = fn
+		})
 	}
 }
 
@@ -836,5 +871,3 @@ func newTokenCounterHeuristic(modelName string) TokenCounter {
 		return NewSimpleTokenCounter()
 	}
 }
-
-

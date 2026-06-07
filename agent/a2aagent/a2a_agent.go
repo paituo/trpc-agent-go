@@ -198,7 +198,8 @@ func (r *A2AAgent) Run(ctx context.Context, invocation *agent.Invocation) (<-cha
 		fmt.Sprintf("%s %s", itelemetry.OperationInvokeAgent, r.name),
 	)
 	if startedSpan {
-		itelemetry.TraceBeforeInvokeAgent(
+		ctx = itelemetry.TraceBeforeInvokeAgent(
+			ctx,
 			span,
 			invocation,
 			r.description,

@@ -112,6 +112,9 @@ func New(name string, opts ...Option) *Model {
 	// Create Ollama API client.
 	client := api.NewClient(baseURL, o.httpClient)
 
+	if o.tokenCounter == nil {
+		o.tokenCounter = model.NewTokenCounter(name)
+	}
 	if o.tailoringStrategy == nil {
 		o.tailoringStrategy = model.NewMiddleOutStrategy(o.tokenCounter)
 	}

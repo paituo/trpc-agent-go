@@ -2426,6 +2426,10 @@ func (testStubCounter) CountTokensRange(ctx context.Context, messages []model.Me
 	return end - start, nil
 }
 
+func (testStubCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return testStubCounter{}.CountTokensRange(ctx, messages, 0, len(messages))
+}
+
 // testStubStrategy implements model.TailoringStrategy for unit tests.
 type testStubStrategy struct{}
 
@@ -4922,7 +4926,7 @@ func TestOpenAI_TailoringStrategyInitialization(t *testing.T) {
 	}{
 		{
 			name:                      "with user provided tailoring strategy",
-			initialTailoringStrategy:  model.NewMiddleOutStrategy(model.NewSimpleTokenCounter()),
+			initialTailoringStrategy:  model.NewMiddleOutStrategy(model.NewTokenCounter("test-model")),
 			expectedTailoringStrategy: true,
 		},
 		{
@@ -10593,4 +10597,77 @@ func TestImageToURLOrBase64(t *testing.T) {
 			assert.Equal(t, tt.want, result)
 		})
 	}
+}
+
+func TestModel_SetTokenCounter(t *testing.T) {
+	t.Run("updates_model_token_counter", func(t *testing.T) {
+		m := New("test-model", WithAPIKey("test"))
+		originalCounter := m.Info().TokenCounter
+		require.NotNil(t, originalCounter)
+
+		newCounter := model.NewSimpleTokenCounter()
+		m.SetTokenCounter(newCounter)
+		require.Same(t, newCounter, m.Info().TokenCounter,
+			"SetTokenCounter should update the model's token counter")
+	})
+
+	t.Run("nil_counter_is_noop", func(t *testing.T) {
+		m := New("test-model", WithAPIKey("test"))
+		originalCounter := m.Info().TokenCounter
+		m.SetTokenCounter(nil)
+		require.Same(t, originalCounter, m.Info().TokenCounter,
+			"SetTokenCounter(nil) should not change the counter")
+	})
+
+	t.Run("propagates_to_middle_out_strategy", func(t *testing.T) {
+		m := New("test-model", WithAPIKey("test"), WithEnableTokenTailoring(true))
+		originalCounter := m.Info().TokenCounter
+		require.NotNil(t, originalCounter)
+
+		// Install a CalibratingTokenCounter wrapping the original.
+		cc := model.NewCalibratingTokenCounter(originalCounter)
+		m.SetTokenCounter(cc)
+
+		// Verify the model's counter is now the CalibratingTokenCounter.
+		require.Same(t, cc, m.Info().TokenCounter)
+
+		// Verify the tailoring strategy also uses the new counter
+		// by checking that RecordEstimate accumulates into the CalibratingTokenCounter.
+		msgs := []model.Message{model.NewUserMessage("hello world")}
+		_, err := cc.RecordEstimate(context.Background(), msgs)
+		require.NoError(t, err)
+		require.True(t, cc.AccumulatedRaw() > 0,
+			"RecordEstimate should accumulate raw estimates in CalibratingTokenCounter")
+	})
+}
+
+func TestModel_TokenCounterSharedWithTailoringStrategy(t *testing.T) {
+	// Verify that when no explicit TailoringStrategy is provided,
+	// the Model constructor creates a MiddleOutStrategy that shares
+	// the same TokenCounter instance.
+	m := New("test-model", WithAPIKey("test"), WithEnableTokenTailoring(true))
+
+	counter := m.Info().TokenCounter
+	require.NotNil(t, counter)
+
+	// When we call SetTokenCounter with a CalibratingTokenCounter,
+	// both the model and the tailoring strategy should use it.
+	cc := model.NewCalibratingTokenCounter(counter)
+	m.SetTokenCounter(cc)
+
+	// The model's Info().TokenCounter should now be the CalibratingTokenCounter.
+	require.Same(t, cc, m.Info().TokenCounter)
+
+	// RecordEstimate through the model's counter should accumulate.
+	msgs := []model.Message{model.NewUserMessage("test message for calibration")}
+	raw, err := cc.RecordEstimate(context.Background(), msgs)
+	require.NoError(t, err)
+	require.True(t, raw > 0, "RecordEstimate should return a positive count")
+	require.True(t, cc.AccumulatedRaw() > 0,
+		"accumulatedRaw should be > 0 after RecordEstimate")
+
+	// CalibrateFromActual should now succeed (accumulatedRaw > 0).
+	cc.CalibrateFromActual(raw * 2) // Simulate API returning 2x the estimate.
+	require.True(t, cc.Calibrated(), "counter should be calibrated after CalibrateFromActual")
+	require.NotEqual(t, 1.0, cc.Factor(), "factor should differ from 1.0 after calibration")
 }

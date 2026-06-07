@@ -22,23 +22,32 @@ import (
 //	factor = actualTokens / accumulatedRawEstimated
 //
 // The counter tracks the sum of raw (inner counter) estimates from
-// CountTokens/CountTokensRange calls. When CalibrateFromActual is called,
-// it computes the factor from the accumulated raw estimate and the actual
-// token count, then resets the accumulator for the next request cycle.
+// RecordEstimate calls. When CalibrateFromActual is called, it computes
+// the factor from the accumulated raw estimate and the actual token count,
+// then resets the accumulator for the next request cycle.
 //
-// Subsequent calls to CountTokens/CountTokensRange multiply the inner
-// counter's estimate by this factor. This compensates for tokenizer
-// mismatches caused by API gateways that use a different tokenizer than
-// the model name suggests.
+// Subsequent calls to CountTokens/CountTokensRange/RecordEstimate multiply
+// the inner counter's estimate by this factor. This compensates for tokenizer
+// mismatches caused by API gateways that use a different tokenizer than the
+// model name suggests.
+//
+// Accumulation control:
+//
+//	Only RecordEstimate accumulates raw estimates for calibration.
+//	CountTokens and CountTokensRange do NOT accumulate. This prevents
+//	double-counting when internal operations (token tailoring, context
+//	compaction) call CountTokens multiple times on the same messages.
+//	The caller should use RecordEstimate only when counting tokens for
+//	messages that are about to be sent to the API.
 //
 // CalibratingTokenCounter is safe for concurrent use.
 type CalibratingTokenCounter struct {
 	inner TokenCounter
 
-	mu               sync.RWMutex
-	factor           float64 // correction factor, 1.0 = no correction
-	calibrated       bool
-	accumulatedRaw   int // sum of raw (inner) estimates since last calibration
+	mu             sync.RWMutex
+	factor         float64 // correction factor, 1.0 = no correction
+	calibrated     bool
+	accumulatedRaw int // sum of raw (inner) estimates since last calibration
 }
 
 // NewCalibratingTokenCounter creates a CalibratingTokenCounter wrapping
@@ -56,7 +65,7 @@ func NewCalibratingTokenCounter(inner TokenCounter) *CalibratingTokenCounter {
 // Calibrate adjusts the correction factor based on an actual token count
 // from the API response (usage.prompt_tokens).
 //
-// estimatedTokens is the sum of CountTokens calls for the messages that
+// estimatedTokens is the sum of RecordEstimate calls for the messages that
 // were sent in the request. actualTokens is the prompt_tokens value from
 // the API response.
 //
@@ -91,9 +100,9 @@ func (c *CalibratingTokenCounter) Calibrate(estimatedTokens, actualTokens int) {
 // from the API response. After calibration, the accumulator is reset.
 //
 // This is the preferred method for automatic calibration: the counter
-// tracks raw estimates from CountTokens/CountTokensRange calls, and
-// CalibrateFromActual uses them to compute the correction factor without
-// requiring the caller to track estimated tokens separately.
+// tracks raw estimates from RecordEstimate calls, and CalibrateFromActual
+// uses them to compute the correction factor without requiring the caller
+// to track estimated tokens separately.
 //
 // If no raw estimates have been accumulated, the calibration is skipped.
 func (c *CalibratingTokenCounter) CalibrateFromActual(actualTokens int) {
@@ -126,6 +135,15 @@ func (c *CalibratingTokenCounter) Calibrated() bool {
 	return c.calibrated
 }
 
+// AccumulatedRaw returns the sum of raw (inner) estimates accumulated via
+// RecordEstimate since the last calibration. Returns 0 if no estimates
+// have been accumulated or if the accumulator was just reset by calibration.
+func (c *CalibratingTokenCounter) AccumulatedRaw() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.accumulatedRaw
+}
+
 // Factor returns the current correction factor.
 // Returns 1.0 if not yet calibrated.
 func (c *CalibratingTokenCounter) Factor() float64 {
@@ -135,18 +153,17 @@ func (c *CalibratingTokenCounter) Factor() float64 {
 }
 
 // CountTokens estimates tokens for a single message, applying the
-// correction factor if calibrated. The raw (inner counter) estimate
-// is accumulated for automatic calibration via CalibrateFromActual.
+// correction factor if calibrated. This method does NOT accumulate
+// the raw estimate for calibration; use RecordEstimate for that.
 func (c *CalibratingTokenCounter) CountTokens(ctx context.Context, message Message) (int, error) {
 	raw, err := c.inner.CountTokens(ctx, message)
 	if err != nil {
 		return raw, err
 	}
 
-	c.mu.Lock()
-	c.accumulatedRaw += raw
+	c.mu.RLock()
 	f := c.factor
-	c.mu.Unlock()
+	c.mu.RUnlock()
 
 	n := raw
 	if f != 1.0 && n > 0 {
@@ -156,10 +173,36 @@ func (c *CalibratingTokenCounter) CountTokens(ctx context.Context, message Messa
 }
 
 // CountTokensRange estimates tokens for a range of messages, applying the
-// correction factor if calibrated. The raw (inner counter) estimate
-// is accumulated for automatic calibration via CalibrateFromActual.
+// correction factor if calibrated. This method does NOT accumulate
+// the raw estimate for calibration; use RecordEstimate for that.
 func (c *CalibratingTokenCounter) CountTokensRange(ctx context.Context, messages []Message, start, end int) (int, error) {
 	raw, err := c.inner.CountTokensRange(ctx, messages, start, end)
+	if err != nil {
+		return raw, err
+	}
+
+	c.mu.RLock()
+	f := c.factor
+	c.mu.RUnlock()
+
+	n := raw
+	if f != 1.0 && n > 0 {
+		n = max(1, int(float64(n)*f))
+	}
+	return n, nil
+}
+
+// RecordEstimate counts tokens for the given messages and accumulates the
+// raw (inner counter) estimate for automatic calibration via
+// CalibrateFromActual. The correction factor is applied to the returned
+// count if the counter has been calibrated.
+//
+// Call this method when counting tokens for messages that are about to be
+// sent to the API. Do NOT call this for internal operations (token tailoring,
+// context compaction) that may count the same messages multiple times, as
+// that would cause double-counting in the accumulator.
+func (c *CalibratingTokenCounter) RecordEstimate(ctx context.Context, messages []Message) (int, error) {
+	raw, err := c.inner.RecordEstimate(ctx, messages)
 	if err != nil {
 		return raw, err
 	}

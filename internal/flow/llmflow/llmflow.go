@@ -89,6 +89,7 @@ type Options struct {
 	SyncSummaryIntraRun             bool
 	EnableContextCompaction         bool
 	ContextCompactionThresholdRatio float64
+	EnableDetailedMetrics           bool
 	ToolActivationApplier           ToolActivationApplier
 }
 
@@ -121,6 +122,7 @@ type Flow struct {
 	syncSummaryIntraRun             bool
 	enableContextCompaction         bool
 	contextCompactionThresholdRatio float64
+	enableDetailedMetrics           bool
 	toolActivationApplier           ToolActivationApplier
 }
 
@@ -165,6 +167,7 @@ func New(
 		modelSelector:           opts.ModelSelector,
 		syncSummaryIntraRun:     opts.SyncSummaryIntraRun,
 		enableContextCompaction: opts.EnableContextCompaction,
+		enableDetailedMetrics:   opts.EnableDetailedMetrics,
 		toolActivationApplier:   opts.ToolActivationApplier,
 		contextCompactionThresholdRatio: normalizeContextCompactionThresholdRatio(
 			opts.ContextCompactionThresholdRatio,
@@ -684,6 +687,19 @@ func (f *Flow) runOneStep(
 	}
 	// 1. Preprocess (prepare request).
 	rebuildPlan := f.preprocess(ctx, invocation, llmRequest, eventChan)
+
+	// Record initial state after preprocess.
+	if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
+		ctxTracker.RecordInitialState(llmRequest.Messages, f.tokenCounterForModel(callModel))
+
+		// Record tool definition tokens estimate (when detailed metrics is enabled).
+		if len(llmRequest.Tools) > 0 && f.enableDetailedMetrics {
+			toolDefTokens, tokenErr := estimateToolDefinitionTokens(llmRequest.Tools, f.tokenCounterForModel(callModel))
+			if tokenErr == nil {
+				ctxTracker.RecordToolDefinitionTokens(toolDefTokens)
+			}
+		}
+	}
 	if invocation.EndInvocation {
 		return lastEvent, nil
 	}
@@ -696,6 +712,14 @@ func (f *Flow) runOneStep(
 	)
 	if invocation.EndInvocation {
 		return lastEvent, nil
+	}
+	if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
+		contextWindow := 0
+		if callModel != nil {
+			contextWindow = callModel.Info().ContextWindow
+		}
+		ctxTracker.RecordPreTailoring(llmRequest.Messages, contextWindow, "", f.tokenCounterForModel(callModel))
+		ctxTracker.RecordPostTailoring(llmRequest.Messages, f.tokenCounterForModel(callModel))
 	}
 	observabilityInvocation := invocationViewForModel(invocation, callModel)
 	var span oteltrace.Span
@@ -2664,4 +2688,81 @@ func WaitEventTimeout(ctx context.Context) time.Duration {
 		return time.Until(deadline)
 	}
 	return eventCompletionTimeout
+}
+func (f *Flow) tokenCounter() model.TokenCounter {
+	for _, p := range f.requestProcessors {
+		if crp, ok := p.(*processor.ContentRequestProcessor); ok {
+			if crp.ContextCompactionConfig.TokenCounter != nil {
+				return crp.ContextCompactionConfig.TokenCounter
+			}
+		}
+	}
+	return nil
+}
+
+// tokenCounterForModel returns the TokenCounter to use for the given model.
+// It prefers the model's own TokenCounter (which is always set by the model
+// constructor) to ensure consistent counting across tailoring and compaction.
+// Falls back to the processor-configured counter, then to a default.
+func (f *Flow) tokenCounterForModel(mdl model.Model) model.TokenCounter {
+	if mdl != nil {
+		return model.TokenCounterForModel(mdl)
+	}
+	if tc := f.tokenCounter(); tc != nil {
+		return tc
+	}
+	return model.NewTokenCounter("")
+}
+
+func estimateToolDefinitionTokens(tools map[string]tool.Tool, counter model.TokenCounter) (int, error) {
+	if counter == nil {
+		return 0, errors.New("token counter is nil")
+	}
+	decls := make([]*tool.Declaration, 0, len(tools))
+	for _, t := range tools {
+		decls = append(decls, t.Declaration())
+	}
+	raw, err := json.Marshal(decls)
+	if err != nil {
+		return 0, err
+	}
+	tokens, err := counter.CountTokens(context.Background(), model.Message{
+		Role:    model.RoleSystem,
+		Content: string(raw),
+	})
+	if err != nil {
+		return 0, err
+	}
+	return tokens, nil
+}
+
+func (f *Flow) captureContextConfig() itelemetry.ContextConfigSnapshot {
+	config := itelemetry.ContextConfigSnapshot{
+		EnableCompaction:         f.enableContextCompaction,
+		SyncSummary:              f.syncSummaryIntraRun,
+		CompactionThresholdRatio: f.contextCompactionThresholdRatio,
+		EnableDetailedMetrics:    f.enableDetailedMetrics,
+	}
+	for _, p := range f.requestProcessors {
+		if crp, ok := p.(*processor.ContentRequestProcessor); ok {
+			config.AddSummary = crp.AddSessionSummary
+			config.MaxHistoryRuns = crp.MaxHistoryRuns
+			config.MessageFilterMode = string(crp.TimelineFilterMode)
+			config.ReasoningContentMode = crp.ReasoningContentMode
+			if crp.SessionSummaryInjectionMode == processor.SessionSummaryInjectionSystem {
+				config.SummaryInjectionMode = "system"
+			} else if crp.SessionSummaryInjectionMode == processor.SessionSummaryInjectionUser {
+				config.SummaryInjectionMode = "user"
+			} else {
+				config.SummaryInjectionMode = "none"
+			}
+			if crp.ContextCompactionConfig.Enabled {
+				config.ToolResultMaxTokens = crp.ContextCompactionConfig.ToolResultMaxTokens
+				config.OversizedToolResultMaxTokens = crp.ContextCompactionConfig.OversizedToolResultMaxTokens
+				config.KeepRecentRequests = crp.ContextCompactionConfig.KeepRecentRequests
+			}
+			break
+		}
+	}
+	return config
 }

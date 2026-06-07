@@ -31,6 +31,7 @@ import (
 	"github.com/openai/openai-go/packages/respjson"
 	"github.com/openai/openai-go/packages/ssestream"
 	"github.com/openai/openai-go/shared"
+
 	"trpc.group/trpc-go/trpc-agent-go/internal/fileref"
 	"trpc.group/trpc-go/trpc-agent-go/internal/modeltelemetry"
 	"trpc.group/trpc-go/trpc-agent-go/internal/toolorder"
@@ -402,7 +403,6 @@ var variantConfigs = map[Variant]variantConfig{
 	VariantVLLM: {
 		// vLLM handles thinking via chat_template_kwargs in buildChatRequest.
 	},
-	},
 }
 
 // Model implements the model.Model interface for OpenAI API.
@@ -583,6 +583,23 @@ func (m *Model) Info() model.Info {
 		Name:          m.name,
 		ContextWindow: m.contextWindow,
 		TokenCounter:  m.tokenCounter,
+	}
+}
+
+// SetTokenCounter replaces the token counter used for token tailoring.
+// This allows external callers (e.g., LLMAgent) to install a
+// CalibratingTokenCounter that wraps the original counter, ensuring
+// that RecordEstimate calls from applyTokenTailoring accumulate into
+// the calibrating counter for automatic calibration.
+func (m *Model) SetTokenCounter(counter model.TokenCounter) {
+	if counter == nil {
+		return
+	}
+	m.tokenCounter = counter
+	// Propagate the new counter to the tailoring strategy so that
+	// token counting remains consistent across tailoring operations.
+	if s, ok := m.tailoringStrategy.(*model.MiddleOutStrategy); ok {
+		s.SetTokenCounter(counter)
 	}
 }
 
@@ -807,6 +824,13 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 	}
 
 	modeltailoring.ApplyResult(ctx, "openai.Model", request, tailored)
+
+	// Record the final token estimate for calibration. This is the only
+	// place where we accumulate raw estimates, ensuring no double-counting
+	// from internal tailoring operations.
+	if m.tokenCounter != nil {
+		_, _ = m.tokenCounter.RecordEstimate(ctx, tailored)
+	}
 }
 
 // InputTokenBudget returns the same input budget used by token tailoring.
@@ -856,6 +880,7 @@ func (m *Model) InputTokenBudget(ctx context.Context, request *model.Request) in
 	}
 	return maxInputTokens
 }
+
 
 func (m *Model) effectiveOutputReserveTokens(request *model.Request) int {
 	reserve := m.reserveOutputTokens

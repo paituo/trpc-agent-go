@@ -112,7 +112,8 @@ func (a *ChainAgent) executeChainRun(
 		fmt.Sprintf("%s %s", itelemetry.OperationInvokeAgent, invocation.AgentName),
 	)
 	if startedSpan {
-		itelemetry.TraceBeforeInvokeAgent(
+		ctx = itelemetry.TraceBeforeInvokeAgent(
+			ctx,
 			span,
 			invocation,
 			"chain-agent",

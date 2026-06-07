@@ -12,11 +12,13 @@
 package telemetry
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -379,9 +381,11 @@ func resolveInvocationAgentIdentity(invoke *agent.Invocation) (string, string) {
 }
 
 // TraceBeforeInvokeAgent traces the before invocation of an agent.
-func TraceBeforeInvokeAgent(span trace.Span, invoke *agent.Invocation, agentDescription, instructions string, genConfig *model.GenerationConfig) {
+// It returns the context (potentially modified with Langfuse baggage for
+// early trace-level input visibility in the Langfuse list page).
+func TraceBeforeInvokeAgent(ctx context.Context, span trace.Span, invoke *agent.Invocation, agentDescription, instructions string, genConfig *model.GenerationConfig) context.Context {
 	if !span.IsRecording() {
-		return
+		return ctx
 	}
 	attrs := []attribute.KeyValue{
 		attribute.String(semconvtrace.KeyGenAISystem, semconvtrace.SystemTRPCGoAgent),
@@ -395,6 +399,14 @@ func TraceBeforeInvokeAgent(span trace.Span, invoke *agent.Invocation, agentDesc
 	}
 	span.SetAttributes(attrs...)
 	setInvokeAgentGenerationConfigAttributes(span, genConfig)
+	// Propagate langfuse.trace.input via baggage so that child spans exported
+	// before the root span still carry the trace-level input attribute. This
+	// makes the input visible in the Langfuse trace list page even while the
+	// trace is still running.
+	if invoke != nil {
+		ctx = withLangfuseTraceInputBaggage(ctx, invoke.Message)
+	}
+	return ctx
 }
 
 func traceBeforeInvokeAgentInvocation(span trace.Span, invoke *agent.Invocation) {
@@ -744,48 +756,48 @@ func responseErrorAttributes(respErr *model.ResponseError, fallback string) []at
 // TraceChatContextMetrics carries context control metrics data from the
 // ContextMetricsTracker to the TraceChat span attributes.
 type TraceChatContextMetrics struct {
-	InputTokens             int
-	WindowSize              int
-	UsageRatio              float64
-	InitialTokens           int
-	InitialMessageCount     int
-	TailoredTokens          int
-	TailoredMessages        int
-	CompactedTokens         int
-	MessageCount            int
-	CompactionTriggered     bool
-	TailoringTriggered      bool
-	SummaryTriggered        bool
-	ToolCompactionTriggered bool
-	OversizedTruncTriggered bool
-	HistoryTrimTriggered    bool
-	EnableCompaction        bool
-	EnableTokenTailoring    bool
-	SyncSummary             bool
-	SummaryInjectionMode    string
-	AddSummary              bool
-	TailoringStrategy       string
-	MessageFilterMode       string
-	ReasoningContentMode    string
+	InputTokens              int
+	WindowSize               int
+	UsageRatio               float64
+	InitialTokens            int
+	InitialMessageCount      int
+	TailoredTokens           int
+	TailoredMessages         int
+	CompactedTokens          int
+	MessageCount             int
+	CompactionTriggered      bool
+	TailoringTriggered       bool
+	SummaryTriggered         bool
+	ToolCompactionTriggered  bool
+	OversizedTruncTriggered  bool
+	HistoryTrimTriggered     bool
+	EnableCompaction         bool
+	EnableTokenTailoring     bool
+	SyncSummary              bool
+	SummaryInjectionMode     string
+	AddSummary               bool
+	TailoringStrategy        string
+	MessageFilterMode        string
+	ReasoningContentMode     string
 	CompactionThresholdRatio float64
-	ToolResultMaxTokens     int
-	OversizedToolMaxTokens  int
-	MaxHistoryRuns          int
-	KeepRecentRequests      int
-	CompletionTokens       int
-	TotalTokens            int
-	CachedTokens           int
-	CacheCreationTokens    int
-	CacheReadTokens        int
-	ReasoningTokens        int
-	ToolDefinitionTokens   int
-	ProtocolOverheadTokens int
-	UsageRatioByInitial    float64
-	EnableDetailedMetrics  bool
-	ReserveOutputTokens    int
-	InputTokensFloor       int
-	SafetyMarginRatio      float64
-	MaxInputTokensRatio    float64
+	ToolResultMaxTokens      int
+	OversizedToolMaxTokens   int
+	MaxHistoryRuns           int
+	KeepRecentRequests       int
+	CompletionTokens         int
+	TotalTokens              int
+	CachedTokens             int
+	CacheCreationTokens      int
+	CacheReadTokens          int
+	ReasoningTokens          int
+	ToolDefinitionTokens     int
+	ProtocolOverheadTokens   int
+	UsageRatioByInitial      float64
+	EnableDetailedMetrics    bool
+	ReserveOutputTokens      int
+	InputTokensFloor         int
+	SafetyMarginRatio        float64
+	MaxInputTokensRatio      float64
 }
 
 // buildContextMetricsAttributes builds context control metric attributes from TraceChatContextMetrics.
@@ -873,4 +885,67 @@ func NewGRPCConn(endpoint string) (*grpc.ClientConn, error) {
 	}
 
 	return conn, err
+}
+
+const (
+	// langfuseTraceInputKey is the baggage/span attribute key for trace-level
+	// input preview in Langfuse. Propagating it via baggage ensures child spans
+	// carry the attribute, making the input visible in the Langfuse trace list
+	// even before the root span is exported.
+	langfuseTraceInputKey = "langfuse.trace.input"
+	// langfuseTraceInputPreviewMaxBytes is the maximum byte length for the
+	// trace-level input preview propagated via baggage.
+	langfuseTraceInputPreviewMaxBytes = 256
+)
+
+// withLangfuseTraceInputBaggage sets langfuse.trace.input in the context
+// baggage with a truncated text preview extracted from the message.
+func withLangfuseTraceInputBaggage(ctx context.Context, msg model.Message) context.Context {
+	preview := extractMessageTextPreview(msg)
+	if preview == "" {
+		return ctx
+	}
+	member, err := baggage.NewMemberRaw(langfuseTraceInputKey, preview)
+	if err != nil {
+		return ctx
+	}
+	bag := baggage.FromContext(ctx)
+	bag, err = bag.SetMember(member)
+	if err != nil {
+		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// extractMessageTextPreview extracts a short text preview from a model.Message
+// for use as the Langfuse trace-level input.
+func extractMessageTextPreview(msg model.Message) string {
+	if msg.Content != "" {
+		return truncatePreviewString(msg.Content, langfuseTraceInputPreviewMaxBytes)
+	}
+	for _, part := range msg.ContentParts {
+		if part.Text != nil && *part.Text != "" {
+			return truncatePreviewString(*part.Text, langfuseTraceInputPreviewMaxBytes)
+		}
+	}
+	return ""
+}
+
+// truncatePreviewString truncates s to at most maxBytes, respecting UTF-8
+// boundaries, and appends an ellipsis marker when truncated.
+func truncatePreviewString(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	const marker = "…"
+	b := []byte(s)
+	end := maxBytes - len(marker)
+	if end <= 0 {
+		return marker
+	}
+	// Back up to a UTF-8 boundary.
+	for end > 0 && (b[end]&0xC0) == 0x80 {
+		end--
+	}
+	return string(b[:end]) + marker
 }
