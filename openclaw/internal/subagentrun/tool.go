@@ -54,6 +54,13 @@ const (
 	schemaTypeString  = "string"
 )
 
+// ToolsConfig configures the subagent tool set.
+type ToolsConfig struct {
+	// EnableSessionAlias registers the deprecated sessions_*
+	// tool names as compatibility aliases for subagents_*.
+	EnableSessionAlias bool
+}
+
 type Tools struct {
 	spawn  *spawnTool
 	list   *listTool
@@ -65,9 +72,11 @@ type Tools struct {
 	listAlias   *listTool
 	getAlias    *getTool
 	cancelAlias *cancelTool
+
+	cfg ToolsConfig
 }
 
-func NewTools(svc *Service) Tools {
+func NewTools(svc *Service, cfg ToolsConfig) Tools {
 	return Tools{
 		spawn:       &spawnTool{name: toolSubagentsSpawn, svc: svc},
 		list:        &listTool{name: toolSubagentsList, svc: svc},
@@ -78,6 +87,7 @@ func NewTools(svc *Service) Tools {
 		listAlias:   &listTool{name: toolSessionsList, alias: true, svc: svc},
 		getAlias:    &getTool{name: toolSessionsGet, alias: true, svc: svc},
 		cancelAlias: &cancelTool{name: toolSessionsCancel, alias: true, svc: svc},
+		cfg:         cfg,
 	}
 }
 
@@ -106,17 +116,22 @@ func (t *Tools) All() []tool.Tool {
 	if t == nil {
 		return nil
 	}
-	return []tool.Tool{
+	tools := []tool.Tool{
 		t.spawn,
 		t.list,
 		t.get,
 		t.cancel,
 		t.wait,
-		t.spawnAlias,
-		t.listAlias,
-		t.getAlias,
-		t.cancelAlias,
 	}
+	if t.cfg.EnableSessionAlias {
+		tools = append(tools,
+			t.spawnAlias,
+			t.listAlias,
+			t.getAlias,
+			t.cancelAlias,
+		)
+	}
+	return tools
 }
 
 type serviceAwareTool interface {
@@ -153,13 +168,13 @@ type waitTool struct {
 }
 
 type spawnInput struct {
-	Title             string `json:"title"`
-	Ref               string `json:"ref"`
-	Task              string `json:"task"`
-	Mode              string `json:"mode"`
-	Isolation         string `json:"isolation"`
-	TimeoutSeconds    int    `json:"timeout_seconds"`
-	WaitTimeoutSeconds int   `json:"wait_timeout_seconds"`
+	Title              string `json:"title"`
+	Ref                string `json:"ref"`
+	Task               string `json:"task"`
+	Mode               string `json:"mode"`
+	Isolation          string `json:"isolation"`
+	TimeoutSeconds     int    `json:"timeout_seconds"`
+	WaitTimeoutSeconds int    `json:"wait_timeout_seconds"`
 }
 
 type runIDInput struct {
