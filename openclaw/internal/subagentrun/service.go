@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -26,6 +26,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/outbound"
 	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type serviceOptions struct {
@@ -165,6 +167,13 @@ func (s *Service) Spawn(
 	}
 
 	runOptions := runOptionsFromContext(ctx, lease)
+	runOptions = append(runOptions,
+		agent.WithSpanAttributes(
+			attribute.String("langfuse.tag.user_id", req.OwnerUserID),
+			attribute.String("langfuse.tag.title", req.Title),
+			attribute.String("langfuse.tag.channel", req.Delivery.Channel),
+		),
+	)
 	runContext := runContextFromContext(ctx, lease)
 
 	var messages []model.Message
