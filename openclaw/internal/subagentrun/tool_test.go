@@ -36,7 +36,7 @@ func TestToolsSpawnListGetCancelWait(t *testing.T) {
 		require.NoError(t, svc.Close())
 	})
 
-	tools := NewTools(svc)
+	tools := NewTools(svc, ToolsConfig{EnableSessionAlias: true})
 	ctx := newInvocationContext(
 		"telegram:user",
 		"telegram:dm:321",
@@ -100,7 +100,7 @@ func TestSpawnToolSyncAndReviewModesWait(t *testing.T) {
 		require.NoError(t, svc.Close())
 	})
 
-	tools := NewTools(svc)
+	tools := NewTools(svc, ToolsConfig{EnableSessionAlias: true})
 	ctx := newInvocationContext(
 		"telegram:user",
 		"telegram:dm:321",
@@ -158,7 +158,7 @@ func TestSpawnToolSyncWaitTimeoutReturnsLatestRun(t *testing.T) {
 		require.NoError(t, svc.Close())
 	})
 
-	tools := NewTools(svc)
+	tools := NewTools(svc, ToolsConfig{EnableSessionAlias: true})
 	ctx := newInvocationContext(
 		"telegram:user",
 		"telegram:dm:321",
@@ -224,7 +224,7 @@ func TestSpawnToolRejectsNestedSubagent(t *testing.T) {
 		require.NoError(t, svc.Close())
 	})
 
-	tools := NewTools(svc)
+	tools := NewTools(svc, ToolsConfig{EnableSessionAlias: true})
 	ctx := newInvocationContext(
 		"user-a",
 		"session-a",
@@ -242,36 +242,49 @@ func TestSpawnToolRejectsNestedSubagent(t *testing.T) {
 func TestToolsAllAndDeclarations(t *testing.T) {
 	t.Parallel()
 
-	tools := NewTools(nil)
-	all := tools.All()
-	require.Len(t, all, 9)
+	t.Run("with_alias", func(t *testing.T) {
+		t.Parallel()
+		tools := NewTools(nil, ToolsConfig{EnableSessionAlias: true})
+		all := tools.All()
+		require.Len(t, all, 9)
 
-	svc := &Service{}
-	tools.SetService(svc)
-	for _, item := range all {
-		require.NotNil(t, item.Declaration())
-	}
-	require.NotNil(t, tools.wait.Declaration())
-	require.Contains(
-		t,
-		tools.spawn.Declaration().InputSchema.Properties,
-		argMode,
-	)
-	require.Contains(
-		t,
-		tools.spawn.Declaration().InputSchema.Properties,
-		argIsolation,
-	)
-	require.Contains(
-		t,
-		tools.spawn.Declaration().InputSchema.Properties,
-		argWaitSeconds,
-	)
-	require.Contains(
-		t,
-		tools.spawnAlias.Declaration().Description,
-		toolSubagentsSpawn,
-	)
+		svc := &Service{}
+		tools.SetService(svc)
+		for _, item := range all {
+			require.NotNil(t, item.Declaration())
+		}
+		require.NotNil(t, tools.wait.Declaration())
+		require.Contains(
+			t,
+			tools.spawn.Declaration().InputSchema.Properties,
+			argMode,
+		)
+		require.Contains(
+			t,
+			tools.spawn.Declaration().InputSchema.Properties,
+			argIsolation,
+		)
+		require.Contains(
+			t,
+			tools.spawn.Declaration().InputSchema.Properties,
+			argWaitSeconds,
+		)
+		require.Contains(
+			t,
+			tools.spawnAlias.Declaration().Description,
+			toolSubagentsSpawn,
+		)
+	})
+
+	t.Run("without_alias", func(t *testing.T) {
+		t.Parallel()
+		tools := NewTools(nil, ToolsConfig{EnableSessionAlias: false})
+		all := tools.All()
+		require.Len(t, all, 5)
+		for _, item := range all {
+			require.NotNil(t, item.Declaration())
+		}
+	})
 }
 
 func TestToolErrorPaths(t *testing.T) {
@@ -281,7 +294,7 @@ func TestToolErrorPaths(t *testing.T) {
 	require.Nil(t, nilTools.All())
 	nilTools.SetService(nil)
 
-	tools := NewTools(nil)
+	tools := NewTools(nil, ToolsConfig{})
 	ctx := newInvocationContext("user-a", "session-a", nil)
 
 	_, err := tools.spawn.Call(ctx, []byte(`{"task":"demo"}`))
