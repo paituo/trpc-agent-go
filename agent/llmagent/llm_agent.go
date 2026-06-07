@@ -40,6 +40,7 @@ import (
 	knowledgetool "trpc.group/trpc-go/trpc-agent-go/knowledge/tool"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/planner"
 	"trpc.group/trpc-go/trpc-agent-go/prompt"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
@@ -1519,7 +1520,8 @@ func (a *LLMAgent) Run(ctx context.Context, invocation *agent.Invocation) (e <-c
 	promptText := a.systemPromptForInvocation(invocation) +
 		a.instructionForInvocation(invocation)
 	if startedSpan {
-		itelemetry.TraceBeforeInvokeAgent(
+		ctx = itelemetry.TraceBeforeInvokeAgent(
+			ctx,
 			span,
 			invocation,
 			a.description,
@@ -2387,13 +2389,21 @@ func (a *LLMAgent) tokenCounterForCompaction(options *Options) model.TokenCounte
 	}
 	cc := model.NewCalibratingTokenCounter(base)
 	a.calibratingCounter = cc
+	// Install the CalibratingTokenCounter back onto the Model so that
+	// Model.applyTokenTailoring's RecordEstimate call accumulates into
+	// the calibrating counter, enabling automatic calibration.
+	if om, ok := a.model.(*openai.Model); ok {
+		om.SetTokenCounter(cc)
+	}
 	return cc
 }
 
 // contextCompactionTokenCounter returns a model-aware TokenCounter for context compaction.
 // When an explicit counter is provided, it is used directly.
 // When an override counter is provided, it is used next (bypassing model-name routing).
-// Otherwise, the counter is auto-detected from the model via model.TokenCounterForModel.
+// Otherwise, the counter is auto-detected from the model's TokenCounter.
+// If the model has no TokenCounter (e.g. mock models in tests), a default
+// counter is created from the model name.
 func contextCompactionTokenCounter(
 	explicitCounter model.TokenCounter,
 	overrideCounter model.TokenCounter,
@@ -2405,5 +2415,12 @@ func contextCompactionTokenCounter(
 	if overrideCounter != nil {
 		return overrideCounter
 	}
-	return model.TokenCounterForModel(mdl)
+	if mdl != nil && mdl.Info().TokenCounter != nil {
+		return mdl.Info().TokenCounter
+	}
+	name := ""
+	if mdl != nil {
+		name = mdl.Info().Name
+	}
+	return model.NewTokenCounter(name)
 }

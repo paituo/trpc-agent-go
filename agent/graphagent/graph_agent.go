@@ -193,7 +193,8 @@ func (ga *GraphAgent) runWithBarrier(ctx context.Context, invocation *agent.Invo
 	tracingEnabled := !invocation.RunOptions.DisableTracing
 	if tracingEnabled {
 		ctx, span = trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationInvokeAgent, invocation.AgentName))
-		itelemetry.TraceBeforeInvokeAgent(
+		ctx = itelemetry.TraceBeforeInvokeAgent(
+			ctx,
 			span,
 			invocation,
 			ga.description,

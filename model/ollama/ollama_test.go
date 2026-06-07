@@ -978,6 +978,10 @@ func (testStubCounter) CountTokensRange(ctx context.Context, messages []model.Me
 	return end - start, nil
 }
 
+func (testStubCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return testStubCounter{}.CountTokensRange(ctx, messages, 0, len(messages))
+}
+
 // testStubStrategy is a stub TailoringStrategy for testing.
 type testStubStrategy struct{}
 
