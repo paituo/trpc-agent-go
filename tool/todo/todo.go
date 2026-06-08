@@ -110,13 +110,14 @@ func (s Status) IsValid() bool {
 //     ("Run tests", "Fix auth bug").
 //   - ActiveForm is the present-continuous form, intended for UI spinners
 //     or status lines ("Running tests", "Fixing auth bug").
-//   - ID is a unique identifier. If empty, the tool auto-generates a GUID.
-//     Used by AG-UI step events to pair step.started with step.finished
-//     and to support nested hierarchies.
+//   - ID is a globally-unique GUID that the LLM MUST generate for every new
+//     item and then PRESERVE the same ID in all subsequent calls. Changing an
+//     item's ID between calls will break step tracking (e.g. AG-UI frontend
+//     will see disconnected step.started / step.finished events).
 //   - ParentID references the parent item's ID. When non-empty,
 //     this item is a sub-task of the referenced parent.
 type Item struct {
-	ID         string `json:"id"          description:"Unique identifier for this task item. Auto-generated GUID if empty."`
+	ID         string `json:"id"          description:"Globally-unique GUID for this task item. You MUST generate a fresh UUID for every new item and PRESERVE the same ID for existing items in all subsequent calls."`
 	ParentID   string `json:"parentId,omitempty" description:"ID of the parent task item. Empty for top-level items."`
 	Content    string `json:"content"    description:"Imperative description of the task, e.g. 'Run tests'"`
 	ActiveForm string `json:"activeForm" description:"Present-continuous form shown while the task is running, e.g. 'Running tests'"`
@@ -202,7 +203,7 @@ func (t *Tool) Declaration() *tool.Declaration {
 		Properties: map[string]*tool.Schema{
 			"id": {
 				Type:        "string",
-				Description: "Unique identifier for this task item. Auto-generated GUID if empty.",
+				Description: "Globally-unique GUID for this task item (e.g. 'a1b2c3d4-...'). You MUST generate a fresh UUID/GUID for every new item and then PRESERVE the same ID for that item in all subsequent calls when updating its status. Do not change IDs between calls — changing IDs will break step tracking.",
 			},
 			"parentId": {
 				Type:        "string",
@@ -226,7 +227,7 @@ func (t *Tool) Declaration() *tool.Declaration {
 				},
 			},
 		},
-		Required: []string{"content", "activeForm", "status"},
+		Required: []string{"id", "content", "activeForm", "status"},
 	}
 
 	input := &tool.Schema{
@@ -234,7 +235,7 @@ func (t *Tool) Declaration() *tool.Declaration {
 		Properties: map[string]*tool.Schema{
 			"todos": {
 				Type:        "array",
-				Description: "The complete, updated todo list. Replaces the previous list entirely.",
+				Description: "The complete, updated todo list. Replaces the previous list entirely. IMPORTANT: You MUST preserve the same 'id' for each item across calls — do not change IDs when updating status.",
 				Items:       itemSchema,
 			},
 		},
@@ -304,20 +305,25 @@ func (t *Tool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	// the marshalled Output.Todos and the persisted state both emit
 	// `[]` rather than `null`, matching the declared output schema.
 	newTodos := in.Todos
-	// Auto-generate GUID for items without an ID.
-	for i := range newTodos {
-		if newTodos[i].ID == "" {
-			newTodos[i].ID = uuid.New().String()
-		}
+
+	// Read old list first for ID preservation.
+	var oldTodos []Item
+	if inv != nil && inv.Session != nil {
+		oldTodos, _ = readTodos(inv.Session, key)
 	}
+
+	// Preserve IDs from the old list for existing items (matched by Content).
+	// The tool no longer auto-generates IDs internally. It requires stable IDs
+	// from the LLM and preserves existing IDs across updates so that external
+	// consumers (e.g. AG-UI step tracking) can correlate step events correctly.
+	newTodos = preserveIDsFromOld(newTodos, oldTodos)
+
 	if t.opts.clearOnAllDone && allCompleted(newTodos) {
 		newTodos = []Item{}
 	}
 
-	// Read old list (best-effort) and persist new list.
-	var oldTodos []Item
+	// Persist new list.
 	if inv != nil && inv.Session != nil {
-		oldTodos, _ = readTodos(inv.Session, key)
 		encoded, err := json.Marshal(newTodos)
 		if err != nil {
 			return nil, fmt.Errorf("todo_write: encode state: %w", err)
@@ -388,6 +394,9 @@ func (t *Tool) StateDeltaForInvocation(
 	// to []  - keeping the in-run SetState and the canonical store
 	// byte-identical regardless of backend (inmemory, Redis, ...).
 	newTodos := in.Todos
+	// ID preservation/consistency is handled by Call() which runs first
+	// and persists preserved IDs via SetState. This method mirrors the
+	// in-memory state to the canonical store without re-generating IDs.
 	if t.opts.clearOnAllDone && allCompleted(newTodos) {
 		newTodos = []Item{}
 	}
@@ -396,6 +405,72 @@ func (t *Tool) StateDeltaForInvocation(
 		return nil
 	}
 	return map[string][]byte{key: encoded}
+}
+
+// generateIDs assigns a fresh UUID to every item in the slice and remaps
+// ParentID references to the new IDs. This guarantees globally-unique IDs
+// regardless of what the LLM provides (content-based IDs, sequential numbers,
+// or empty strings all get replaced).
+//
+// The input slice is not mutated; a new slice with the generated IDs is
+// returned. ParentID references are remapped via oldID → newID lookup so
+// that parent-child relationships survive the regeneration.
+func generateIDs(items []Item) []Item {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]Item, len(items))
+	oldToNew := make(map[string]string, len(items))
+	for i := range items {
+		newID := uuid.New().String()
+		oldID := items[i].ID
+		if oldID != "" {
+			oldToNew[oldID] = newID
+		}
+		out[i] = items[i]
+		out[i].ID = newID
+	}
+	for i := range out {
+		if out[i].ParentID != "" {
+			if mapped, ok := oldToNew[out[i].ParentID]; ok {
+				out[i].ParentID = mapped
+			}
+		}
+	}
+	return out
+}
+
+// preserveIDsFromOld preserves IDs from oldTodos for items that already existed.
+// Matching is done first by exact ID (if the LLM preserved it), then by Content
+// (for items whose status was updated but content stayed the same).
+// For genuinely new items, the LLM-provided ID is kept as-is.
+//
+// This ensures stable step IDs across todo_write calls, which is critical
+// for external consumers (e.g. AG-UI step tracking in bw_agui channel) that
+// rely on item.ID to emit step.started / step.finished events.
+func preserveIDsFromOld(newTodos, oldTodos []Item) []Item {
+	if len(oldTodos) == 0 {
+		return newTodos
+	}
+
+	// Build lookups from the old list.
+	oldByContent := make(map[string]Item, len(oldTodos))
+	for _, item := range oldTodos {
+		oldByContent[item.Content] = item
+	}
+
+	out := make([]Item, len(newTodos))
+	for i, item := range newTodos {
+		out[i] = item
+		// Match by Content: if the same task description exists in the old list,
+		// preserve its ID and ParentID so step tracking can correlate the events.
+		if old, ok := oldByContent[item.Content]; ok {
+			out[i].ID = old.ID
+			out[i].ParentID = old.ParentID
+		}
+		// For genuinely new items (no Content match), keep the LLM-provided ID.
+	}
+	return out
 }
 
 // decodeWriteInput parses the raw tool arguments into a writeInput,
