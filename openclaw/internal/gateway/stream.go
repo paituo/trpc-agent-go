@@ -388,8 +388,8 @@ func writeSSEEvent(
 ) bool {
 	data, err := json.Marshal(evt)
 	if err != nil {
-		log.Warnf("gateway: marshal stream event: %v", err)
-		return false
+		log.Warnf("gateway: marshal stream event (type=%s): %v", evt.Type, err)
+		return true // 跳过编码失败的事件，不中断 SSE 流
 	}
 
 	if _, err := fmt.Fprintf(
@@ -536,8 +536,12 @@ func (s *Server) streamLocked(
 			for k, v := range evt.StateDelta {
 				if len(v) == 0 {
 					delta[k] = json.RawMessage("null")
-				} else {
+				} else if json.Valid(v) {
 					delta[k] = json.RawMessage(v)
+				} else {
+					// 非 JSON 值（如裸字符串），用 json.Marshal 包裹为 JSON 字符串
+					wrapped, _ := json.Marshal(string(v))
+					delta[k] = json.RawMessage(wrapped)
 				}
 			}
 			if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
