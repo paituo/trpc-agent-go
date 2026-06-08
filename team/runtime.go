@@ -11,6 +11,7 @@ package team
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -274,7 +275,7 @@ func (sr *swarmRuntime) saveTransferOwner(
 		teamName = string(teamNameBytes)
 	}
 	activeAgentKey := swarmActiveAgentKey(teamName)
-	activeAgentValue := []byte(target.AgentName)
+	activeAgentValue, _ := json.Marshal(target.AgentName)
 	state := session.StateMap{activeAgentKey: activeAgentValue}
 	root.SetState(activeAgentKey, activeAgentValue)
 	if sr.handoff.usesIsolatedSession() {
