@@ -149,6 +149,10 @@ func transformInvokeAgent(span *tracepb.Span) {
 		case semconvtrace.KeyGenAIUsageInputTokens, semconvtrace.KeyGenAIUsageOutputTokens,
 			semconvtrace.KeyGenAIUsageInputTokensCached, semconvtrace.KeyGenAIUsageInputTokensCacheRead,
 			semconvtrace.KeyGenAIUsageInputTokensCacheCreation:
+		// Skip trace-level input/output that may have been set via baggage
+		// propagation; they will be set explicitly below from the authoritative
+		// OTel message source.
+		case traceInput, traceOutput:
 		default:
 			newAttributes = append(newAttributes, attr)
 		}
@@ -158,6 +162,14 @@ func transformInvokeAgent(span *tracepb.Span) {
 	}
 	if output := otelObservationOutput(outputMessagesOTel); output != nil {
 		newAttributes = append(newAttributes, stringKV(observationOutput, *output))
+	}
+	// Set trace-level input/output so the Langfuse trace list page can show
+	// a preview. These are truncated to keep the list view readable.
+	if inputMessagesOTel != nil {
+		newAttributes = append(newAttributes, stringKV(traceInput, extractTracePreview(*inputMessagesOTel)))
+	}
+	if outputMessagesOTel != nil {
+		newAttributes = append(newAttributes, stringKV(traceOutput, extractTracePreview(*outputMessagesOTel)))
 	}
 	span.Attributes = newAttributes
 }
@@ -810,6 +822,36 @@ func (e *exporter) Start(ctx context.Context) error {
 	})
 
 	return err
+}
+
+// tracePreviewMaxBytes is the maximum byte length for trace-level input/output
+// preview values shown in the Langfuse trace list page.
+const tracePreviewMaxBytes = 256
+
+// extractTracePreview extracts a short text preview from OTel messages JSON
+// for display in the Langfuse trace list. It parses the messages array and
+// returns the text content of the first message, truncated to tracePreviewMaxBytes.
+func extractTracePreview(messagesJSON string) string {
+	var msgs []map[string]any
+	if err := json.Unmarshal([]byte(messagesJSON), &msgs); err == nil {
+		for _, msg := range msgs {
+			if content, ok := msg["content"].(string); ok && content != "" {
+				return truncateStringBytes(content, tracePreviewMaxBytes)
+			}
+			// OTel format uses "parts" array
+			if parts, ok := msg["parts"].([]any); ok {
+				for _, part := range parts {
+					if partMap, ok := part.(map[string]any); ok {
+						if text, ok := partMap["text"].(string); ok && text != "" {
+							return truncateStringBytes(text, tracePreviewMaxBytes)
+						}
+					}
+				}
+			}
+		}
+	}
+	// Fallback: truncate the raw JSON
+	return truncateStringBytes(messagesJSON, tracePreviewMaxBytes)
 }
 
 // MarshalLog is the marshaling function used by the logging system to represent this exporter.

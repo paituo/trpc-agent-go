@@ -50,6 +50,7 @@ func (p *baggageBatchSpanProcessor) OnStart(ctx context.Context, span sdktrace.R
 // https://langfuse.com/integrations/native/opentelemetry#propagating-attributes
 //
 // Propagated attributes:
+// - name: langfuse.trace.name
 // - userId: langfuse.user.id or user.id
 // - sessionId: langfuse.session.id or session.id
 // - metadata: langfuse.trace.metadata.* (top-level metadata keys)
@@ -59,10 +60,12 @@ func (p *baggageBatchSpanProcessor) OnStart(ctx context.Context, span sdktrace.R
 func defaultLangfuseTraceAttributeFilter(member baggage.Member) bool {
 	k := member.Key()
 	switch k {
-	case traceUserID, "user.id",
+	case traceName,
+		traceUserID, "user.id",
 		traceSessionID, "session.id",
 		version, release,
-		traceTags:
+		traceTags,
+		traceInput:
 		return true
 	default:
 		// Only propagate top-level metadata keys.

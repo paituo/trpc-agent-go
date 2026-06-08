@@ -15,7 +15,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,9 +107,9 @@ const (
 	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
 	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
 	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
+	flagEnableTokenCounterCalibration        = "enable-token-counter-calibration"
 	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
 	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
-	flagContextCompactionApproxRunesPerToken = "context-compaction-approx-runes-per-token"
 	flagContextWindow                        = "context-window"
 	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
 	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
@@ -181,6 +180,11 @@ const (
 	flagA2ADescription    = "a2a-description"
 )
 
+// subagentRunOptions holds the resolved subagent tool configuration.
+type subagentRunOptions struct {
+	EnableSessionAlias bool
+}
+
 type runOptions struct {
 	ConfigPath string
 
@@ -226,9 +230,9 @@ type runOptions struct {
 	ContextCompactionToolResultMaxTokens int
 	ContextCompactionKeepRecentRequests  int
 	EnableDetailedContextMetrics         bool
+	EnableTokenCounterCalibration        bool
 	ContextCompactionForceCleanToolNames string
 	ContextCompactionKeepToolNames       string
-	ContextCompactionApproxRunesPerToken float64
 	PlannerType                          string
 	PlannerConfig                        map[string]any
 	ModelContextWindow                   int
@@ -342,7 +346,6 @@ type runOptions struct {
 	SessionSummaryTokenCount                int
 	SessionSummaryIdleThreshold             time.Duration
 	SessionSummaryMaxWords                  int
-	SessionSummaryApproxRunesPerToken       float64
 	SessionSummaryContextThresholdRatio     float64
 	SessionSummaryContextThresholdMinTokens int
 
@@ -362,6 +365,7 @@ type runOptions struct {
 	HostExecMaxTimeout                 time.Duration
 	HostExecMaxYield                   time.Duration
 	HostExecMaxIdleWait                time.Duration
+	Subagent            subagentRunOptions
 
 	enableOpenClawToolsExplicit  bool
 	deferToolSurfaceModeExplicit bool
@@ -607,6 +611,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		false,
 		"Enable detailed context metrics",
 	)
+	fs.BoolVar(
+		&opts.EnableTokenCounterCalibration,
+		flagEnableTokenCounterCalibration,
+		false,
+		"Enable token counter calibration using API usage feedback",
+	)
 	fs.StringVar(
 		&opts.ContextCompactionForceCleanToolNames,
 		flagContextCompactionForceCleanToolNames,
@@ -618,14 +628,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagContextCompactionKeepToolNames,
 		"",
 		"Comma-separated tool names to keep during compaction",
-	)
-	fs.Float64Var(
-		&opts.ContextCompactionApproxRunesPerToken,
-		flagContextCompactionApproxRunesPerToken,
-		0,
-		"Approximate runes per token for context compaction token "+
-			"counter (0 uses framework default 4.0; "+
-			"set ~1.6-2.0 for Chinese-heavy content)",
 	)
 	fs.StringVar(
 		&opts.PlannerType,
@@ -1097,13 +1099,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Max summary words (0 means no limit)",
 	)
 	fs.Float64Var(
-		&opts.SessionSummaryApproxRunesPerToken,
-		"session-summary-approx-runes-per-token",
-		0,
-		"Approximate runes per token for summary token estimation "+
-			"(0 uses framework default 4.0; set ~2.0 for Chinese-heavy content)",
-	)
-	fs.Float64Var(
 		&opts.SessionSummaryContextThresholdRatio,
 		"session-summary-context-threshold-ratio",
 		0,
@@ -1135,6 +1130,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagEnableParallelTools,
 		false,
 		"Enable parallel tool calls (not supported by claude-code)",
+	)
+	fs.BoolVar(
+		&opts.Subagent.EnableSessionAlias,
+		"enable-session-alias",
+		false,
+		"Enable session_* alias tools for subagents (compatibility)",
 	)
 	fs.BoolVar(
 		&opts.RefreshToolSetsOnRun,
@@ -1425,9 +1426,9 @@ type agentRunConfig struct {
 	DisablePostToolPromptCamel         *bool   `yaml:"disablePostToolPrompt,omitempty"`
 
 	EnableDetailedContextMetrics         *bool    `yaml:"enable_detailed_context_metrics,omitempty"`
+	EnableTokenCounterCalibration        *bool    `yaml:"enable_token_counter_calibration,omitempty"`
 	ContextCompactionForceCleanToolNames []string `yaml:"context_compaction_force_clean_tool_names,omitempty"`
 	ContextCompactionKeepToolNames       []string `yaml:"context_compaction_keep_tool_names,omitempty"`
-	ContextCompactionApproxRunesPerToken *float64 `yaml:"context_compaction_approx_runes_per_token,omitempty"`
 
 	PlannerType   string         `yaml:"planner_type"`
 	PlannerConfig map[string]any `yaml:"planner_config"`
@@ -1644,6 +1645,8 @@ type toolsConfig struct {
 	HostExecMaxIdleWait           *string             `yaml:"host_exec_max_idle_wait,omitempty"`
 	HostExecMaxIdleWaitCamel      *string             `yaml:"hostExecMaxIdleWait,omitempty"`
 
+	Subagent *subagentToolsConfig `yaml:"subagent,omitempty"`
+
 	Providers []filePluginSpec `yaml:"providers,omitempty"`
 	ToolSets  []filePluginSpec `yaml:"toolsets,omitempty"`
 }
@@ -1694,6 +1697,11 @@ type sandboxShellEnvOptions struct {
 	Exclude              []string
 	IncludeOnly          []string
 	Set                  map[string]string
+}
+
+// subagentToolsConfig maps the YAML "tools.subagent" section.
+type subagentToolsConfig struct {
+	EnableSessionAlias *bool `yaml:"enable_session_alias,omitempty"`
 }
 
 type sessionConfig struct {
@@ -1806,7 +1814,6 @@ type summaryConfig struct {
 	TokenThreshold            *int     `yaml:"token_threshold,omitempty"`
 	IdleThreshold             *string  `yaml:"idle_threshold,omitempty"`
 	MaxWords                  *int     `yaml:"max_words,omitempty"`
-	ApproxRunesPerToken       *float64 `yaml:"approx_runes_per_token,omitempty"`
 	ContextThresholdRatio     *float64 `yaml:"context_threshold_ratio,omitempty"`
 	ContextThresholdMinTokens *int     `yaml:"context_threshold_min_tokens,omitempty"`
 }
@@ -2109,6 +2116,10 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, flagEnableDetailedContextMetrics) {
 			opts.EnableDetailedContextMetrics = *cfg.Agent.EnableDetailedContextMetrics
 		}
+		if cfg.Agent.EnableTokenCounterCalibration != nil &&
+			!flagWasSet(set, flagEnableTokenCounterCalibration) {
+			opts.EnableTokenCounterCalibration = *cfg.Agent.EnableTokenCounterCalibration
+		}
 		if !flagWasSet(set, flagContextCompactionForceCleanToolNames) {
 			opts.ContextCompactionForceCleanToolNames = strings.Join(
 				cfg.Agent.ContextCompactionForceCleanToolNames,
@@ -2120,10 +2131,6 @@ func (cfg *fileConfig) apply(
 				cfg.Agent.ContextCompactionKeepToolNames,
 				csvDelimiter,
 			)
-		}
-		if cfg.Agent.ContextCompactionApproxRunesPerToken != nil &&
-			!flagWasSet(set, flagContextCompactionApproxRunesPerToken) {
-			opts.ContextCompactionApproxRunesPerToken = *cfg.Agent.ContextCompactionApproxRunesPerToken
 		}
 		if cfg.Agent.PlannerType != "" &&
 			!flagWasSet(set, flagPlannerType) {
@@ -2523,6 +2530,12 @@ func (cfg *fileConfig) apply(
 		if cfg.Tools.EnableExecuteTools != nil &&
 			!flagWasSet(set, "enable-execute-tools") {
 			opts.EnableExecuteTools = *cfg.Tools.EnableExecuteTools
+		}
+		if cfg.Tools.Subagent != nil &&
+			cfg.Tools.Subagent.EnableSessionAlias != nil &&
+			!flagWasSet(set, "enable-session-alias") {
+			opts.Subagent.EnableSessionAlias =
+				*cfg.Tools.Subagent.EnableSessionAlias
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {
@@ -3235,10 +3248,6 @@ func applySessionSummary(
 	if cfg.MaxWords != nil && !flagWasSet(set, "session-summary-max-words") {
 		opts.SessionSummaryMaxWords = *cfg.MaxWords
 	}
-	if cfg.ApproxRunesPerToken != nil &&
-		!flagWasSet(set, "session-summary-approx-runes-per-token") {
-		opts.SessionSummaryApproxRunesPerToken = *cfg.ApproxRunesPerToken
-	}
 	if cfg.ContextThresholdRatio != nil &&
 		!flagWasSet(set, "session-summary-context-threshold-ratio") {
 		opts.SessionSummaryContextThresholdRatio = *cfg.ContextThresholdRatio
@@ -3385,12 +3394,6 @@ func finalizeRunOptions(opts *runOptions) error {
 	opts.LangfuseTraceURLTemplate = strings.TrimSpace(
 		opts.LangfuseTraceURLTemplate,
 	)
-	if v := opts.SessionSummaryApproxRunesPerToken; math.IsNaN(v) ||
-		math.IsInf(v, 0) || v < 0 {
-		return fmt.Errorf(
-			"invalid session-summary-approx-runes-per-token: %v", v,
-		)
-	}
 	if opts.DeferToolSurface {
 		opts.DeferToolSurfaceMode = deferToolSurfaceModeOn
 	} else {
@@ -3451,12 +3454,6 @@ func finalizeRunOptions(opts *runOptions) error {
 		normalizeStringList(splitCSV(opts.DeferToolSurfaceDirect)),
 		",",
 	)
-	if v := opts.ContextCompactionApproxRunesPerToken; math.IsNaN(v) ||
-		math.IsInf(v, 0) || v < 0 {
-		return fmt.Errorf(
-			"invalid context-compaction-approx-runes-per-token: %v", v,
-		)
-	}
 	normalizeA2AOptions(opts)
 	return nil
 }

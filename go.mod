@@ -1,6 +1,6 @@
 module trpc.group/trpc-go/trpc-agent-go
 
-go 1.21
+go 1.23
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.9.1
@@ -79,6 +79,8 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/vcaesar/cedar v0.20.2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
+	github.com/yuin/gopher-lua v1.1.2 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric v0.42.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
 	golang.org/x/oauth2 v0.26.0 // indirect

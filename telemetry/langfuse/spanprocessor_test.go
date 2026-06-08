@@ -121,3 +121,31 @@ func TestBaggageBatchSpanProcessor_NilNext_Noops(t *testing.T) {
 	require.NoError(t, p.Shutdown(ctx))
 	require.NoError(t, p.ForceFlush(ctx))
 }
+
+func TestNewSpanProcessor_PropagatesTraceName(t *testing.T) {
+	ctx := context.Background()
+
+	m, err := baggage.NewMemberRaw(traceName, "terminal user request")
+	require.NoError(t, err)
+	b, err := baggage.New(m)
+	require.NoError(t, err)
+	ctx = baggage.ContextWithBaggage(ctx, b)
+
+	exp := &recordingExporter{}
+	sp := newSpanProcessor(exp)
+
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sp))
+	defer func() { _ = tp.Shutdown(context.Background()) }()
+
+	tr := tp.Tracer("test")
+	_, span := tr.Start(ctx, "span")
+	span.End()
+
+	require.NoError(t, tp.ForceFlush(context.Background()))
+
+	spans := exp.snapshot()
+	require.Len(t, spans, 1)
+
+	want := attribute.String(traceName, "terminal user request")
+	assert.Contains(t, spans[0].Attributes(), want)
+}
