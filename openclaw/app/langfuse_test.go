@@ -253,6 +253,11 @@ func TestBuildLangfuseRunOptionResolver_SetsTraceID(t *testing.T) {
 		"msg-1",
 		bag.Member(langfuseMetadataMessageID).Value(),
 	)
+	require.Equal(
+		t,
+		"wecom msg-1",
+		bag.Member(langfuseTraceNameKey).Value(),
+	)
 
 	opts := &agent.RunOptions{}
 	for _, opt := range runOpts {
@@ -389,6 +394,11 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 	require.Equal(t, "v2", bag.Member(
 		langfuseMetadataProfileVersion,
 	).Value())
+	require.Equal(
+		t,
+		"wecom u1 req-1",
+		bag.Member(langfuseTraceNameKey).Value(),
+	)
 
 	opts := &agent.RunOptions{}
 	for _, opt := range runOpts {
@@ -399,7 +409,7 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 		if string(attr.Key) != langfuseTraceNameKey {
 			continue
 		}
-		require.Equal(t, "wecom req-1", attr.Value.AsString())
+		require.Equal(t, "wecom u1 req-1", attr.Value.AsString())
 		foundTraceName = true
 	}
 	require.True(t, foundTraceName)

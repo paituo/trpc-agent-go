@@ -265,21 +265,9 @@ func newSessionSummarizer(
 		return nil, errors.New("session summary requires a model")
 	}
 
-	// Token counter selection priority:
-	// 1. Explicit config (SessionSummaryApproxRunesPerToken) takes precedence.
-	// 2. Otherwise, auto-detect from model name via model.NewTokenCounter,
-	//    which routes qwen/deepseek/glm to appropriate counters.
-	if opts.SessionSummaryApproxRunesPerToken > 0 {
-		summary.SetTokenCounter(
-			model.NewSimpleTokenCounter(
-				model.WithApproxRunesPerToken(
-					opts.SessionSummaryApproxRunesPerToken,
-				),
-			),
-		)
-	} else {
-		summary.SetTokenCounterByModel(mdl.Info().Name)
-	}
+	// Use the Model's own TokenCounter for session summary, ensuring
+	// consistent counting across tailoring, compaction, and summary.
+	summary.SetTokenCounter(mdl.Info().TokenCounter)
 
 	options := make([]summary.Option, 0, 6)
 	options = append(options, summary.WithName(appName))
