@@ -13,6 +13,7 @@ package log
 import (
 	"context"
 	"os"
+	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -31,7 +32,9 @@ const (
 var (
 	zapLevel = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 
-	traceEnabled = false
+	traceEnabled  = false
+	fileCoreAdded = false
+	logFile       *os.File
 )
 
 // Default borrows logging utilities from zap.
@@ -81,6 +84,86 @@ func SetLevel(level string) {
 		// Default to info level if the level is not recognized
 		zapLevel.SetLevel(zapcore.InfoLevel)
 	}
+}
+
+// fileEncoderConfig is the encoder config for file-based log output.
+// It uses a stable, machine-readable format without colors.
+var fileEncoderConfig = zapcore.EncoderConfig{
+	TimeKey:        "ts",
+	LevelKey:       "level",
+	NameKey:        "logger",
+	CallerKey:      "caller",
+	MessageKey:     "msg",
+	StacktraceKey:  "stacktrace",
+	LineEnding:     zapcore.DefaultLineEnding,
+	EncodeLevel:    zapcore.LowercaseLevelEncoder,
+	EncodeTime:     zapcore.RFC3339NanoTimeEncoder,
+	EncodeDuration: zapcore.NanosDurationEncoder,
+	EncodeCaller:   zapcore.ShortCallerEncoder,
+}
+
+// AddFileOutput adds a file-based log output alongside the existing
+// stdout output. Logs are written in JSON format to the specified
+// directory. The file is named "openclaw.log" and is truncated on
+// each call so that every startup begins with a fresh log file.
+// This function is idempotent: calling it more than once has no
+// effect.
+func AddFileOutput(dir string) error {
+	if fileCoreAdded {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+
+	logPath := filepath.Join(dir, "openclaw.log")
+	file, err := os.OpenFile(logPath,
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+
+	fileCore := zapcore.NewCore(
+		zapcore.NewJSONEncoder(fileEncoderConfig),
+		zapcore.AddSync(file),
+		zapLevel,
+	)
+
+	// Replace Default with a tee that writes to both stdout and file.
+	if sugar, ok := Default.(*zap.SugaredLogger); ok {
+		teeCore := zapcore.NewTee(sugar.Desugar().Core(), fileCore)
+		Default = zap.New(teeCore,
+			zap.AddCaller(),
+			zap.AddCallerSkip(1),
+		).Sugar()
+	}
+
+	// Replace ContextDefault similarly.
+	if sugar, ok := ContextDefault.(*zap.SugaredLogger); ok {
+		teeCore := zapcore.NewTee(sugar.Desugar().Core(), fileCore)
+		ContextDefault = zap.New(teeCore,
+			zap.AddCaller(),
+			zap.AddCallerSkip(1),
+		).Sugar()
+	}
+
+	// Update the a2a-go log.Default reference.
+	log.Default = Default
+
+	logFile = file
+	fileCoreAdded = true
+	return nil
+}
+
+// CloseFileOutput closes the file-based log output if one was opened
+// by AddFileOutput. It is safe to call even if no file output was
+// configured. This is primarily useful for testing.
+func CloseFileOutput() {
+	if logFile != nil {
+		_ = logFile.Close()
+		logFile = nil
+	}
+	fileCoreAdded = false
 }
 
 var encoderConfig = zapcore.EncoderConfig{
