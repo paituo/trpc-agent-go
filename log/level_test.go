@@ -12,10 +12,14 @@ package log
 // ... existing code ...
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -107,3 +111,57 @@ func (s *stubLogger) Error(args ...any)                 {}
 func (s *stubLogger) Errorf(format string, args ...any) {}
 func (s *stubLogger) Fatal(args ...any)                 {}
 func (s *stubLogger) Fatalf(format string, args ...any) {}
+
+func TestAddFileOutput(t *testing.T) {
+	// Save and restore global state.
+	oldDefault := Default
+	oldCtxDefault := ContextDefault
+	t.Cleanup(func() {
+		Default = oldDefault
+		ContextDefault = oldCtxDefault
+		CloseFileOutput()
+	})
+
+	dir := t.TempDir()
+	err := AddFileOutput(dir)
+	require.NoError(t, err, "AddFileOutput should succeed")
+	assert.True(t, fileCoreAdded,
+		"fileCoreAdded should be true after AddFileOutput")
+
+	// Verify log file was created.
+	logPath := filepath.Join(dir, "openclaw.log")
+	_, statErr := os.Stat(logPath)
+	assert.NoError(t, statErr,
+		"log file should exist after AddFileOutput")
+
+	// Verify idempotency: second call should be a no-op.
+	err = AddFileOutput(dir)
+	require.NoError(t, err, "AddFileOutput should be idempotent")
+
+	// Verify that Default and ContextDefault are still SugaredLogger.
+	_, ok1 := Default.(*zap.SugaredLogger)
+	assert.True(t, ok1, "Default should be *zap.SugaredLogger")
+	_, ok2 := ContextDefault.(*zap.SugaredLogger)
+	assert.True(t, ok2, "ContextDefault should be *zap.SugaredLogger")
+
+	// Close the file before TempDir cleanup tries to remove it.
+	CloseFileOutput()
+}
+
+func TestAddFileOutput_BadDir(t *testing.T) {
+	oldFileCoreAdded := fileCoreAdded
+	t.Cleanup(func() {
+		fileCoreAdded = oldFileCoreAdded
+	})
+
+	// Use a path that cannot be created as a directory.
+	badDir := filepath.Join(t.TempDir(), "file-not-dir")
+	// Create a file where a directory is expected.
+	f, err := os.Create(badDir)
+	require.NoError(t, err)
+	f.Close()
+
+	err = AddFileOutput(filepath.Join(badDir, "subdir"))
+	assert.Error(t, err,
+		"AddFileOutput should fail when directory cannot be created")
+}
