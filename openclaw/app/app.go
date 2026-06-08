@@ -94,6 +94,7 @@ const (
 	csvDelimiter = ","
 
 	defaultDebugRecorderDir = "debug"
+	defaultLogsDir          = "logs"
 
 	defaultAgentName = "assistant"
 
@@ -979,6 +980,12 @@ func NewRuntimeWithOptions(
 	}
 	opts.StateDir = resolvedStateDir
 
+	// Always enable file-based log output to {state_dir}/logs/.
+	logDir := filepath.Join(resolvedStateDir, defaultLogsDir)
+	if err := log.AddFileOutput(logDir); err != nil {
+		log.Warnf("Failed to add file log output: %v", err)
+	}
+
 	ctx, debugRec, err := maybeEnableDebugRecorder(ctx, opts)
 	if err != nil {
 		return nil, &exitError{
@@ -1580,6 +1587,12 @@ func run(
 		}
 	}
 	opts.StateDir = resolvedStateDir
+
+	// Always enable file-based log output to {state_dir}/logs/.
+	logDir := filepath.Join(resolvedStateDir, defaultLogsDir)
+	if err := log.AddFileOutput(logDir); err != nil {
+		log.Warnf("Failed to add file log output: %v", err)
+	}
 
 	ctx, debugRec, err := maybeEnableDebugRecorder(ctx, opts)
 	if err != nil {
@@ -3687,8 +3700,11 @@ func maybeEnableDebugRecorder(
 		return ctx, nil, err
 	}
 
+	// Elevate log level to DEBUG when debug recorder is active.
+	log.SetLevel(log.LevelDebug)
+
 	log.Infof(
-		"Debug recorder enabled: dir = %s mode = %s",
+		"Debug recorder enabled: dir = %s mode = %s log_level = debug",
 		rec.Dir(),
 		rec.Mode(),
 	)
