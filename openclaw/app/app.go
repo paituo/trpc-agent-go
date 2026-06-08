@@ -1020,6 +1020,9 @@ func NewRuntimeWithOptions(
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
+		subagentrun.ToolsConfig{
+			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
+		},
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
@@ -1062,9 +1065,9 @@ func NewRuntimeWithOptions(
 			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
+			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
 			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
-			ContextCompactionApproxRunesPerToken: opts.ContextCompactionApproxRunesPerToken,
 			PlannerType:                          opts.PlannerType,
 			PlannerConfig:                        opts.PlannerConfig,
 			GenerationConfig:                     opts.GenerationConfig,
@@ -1548,6 +1551,9 @@ func run(
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
+		subagentrun.ToolsConfig{
+			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
+		},
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
@@ -1601,9 +1607,9 @@ func run(
 			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
 			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
+			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
 			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
-			ContextCompactionApproxRunesPerToken: opts.ContextCompactionApproxRunesPerToken,
 			PlannerType:                          opts.PlannerType,
 			PlannerConfig:                        opts.PlannerConfig,
 			GenerationConfig:                     opts.GenerationConfig,
@@ -2543,21 +2549,11 @@ func newAgent(
 			conversation.ProjectEventMessage,
 		),
 		llmagent.WithEnableParallelTools(cfg.EnableParallelTools),
+		llmagent.WithEnableTokenCounterCalibration(cfg.EnableTokenCounterCalibration),
 		llmagent.WithPostToolPrompt(openClawPostToolPrompt),
 		llmagent.WithSkillFilter(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
-	}
-	if cfg.ContextCompactionApproxRunesPerToken > 0 {
-		counter := model.NewSimpleTokenCounter(
-			model.WithApproxRunesPerToken(
-				cfg.ContextCompactionApproxRunesPerToken,
-			),
-		)
-		opts = append(
-			opts,
-			llmagent.WithContextCompactionTokenCounter(counter),
-		)
 	}
 	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
@@ -2848,9 +2844,9 @@ type agentConfig struct {
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
 	EnableDetailedContextMetrics                  bool
+	EnableTokenCounterCalibration                 bool
 	ContextCompactionForceCleanToolNames          []string
 	ContextCompactionKeepToolNames                []string
-	ContextCompactionApproxRunesPerToken          float64
 	PlannerType                                   string
 	PlannerConfig                                 map[string]any
 	GenerationConfig                              *model.GenerationConfig
@@ -2954,6 +2950,7 @@ func newRuntimeStores(stateDir string) (runtimeStores, error) {
 func buildOpenClawTools(
 	enabled bool,
 	enableExecuteTools bool,
+	subagentCfg subagentrun.ToolsConfig,
 	stateDir string,
 	uploadStore *uploads.Store,
 	memoryFileStore *memoryfile.Store,
@@ -2973,7 +2970,7 @@ func buildOpenClawTools(
 	)
 	router := outbound.NewRouter()
 	cronTool := cron.NewTool(nil)
-	subagentTools := subagentrun.NewTools(nil)
+	subagentTools := subagentrun.NewTools(nil, subagentCfg)
 	var depsReport *deps.Report
 	if sources, err := deps.SourcesForProfiles(deps.DefaultProfiles()); err ==
 		nil {
@@ -3235,12 +3232,10 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 		opts = append(
 			opts, openai.WithEnableTokenTailoring(true),
 		)
-		strategy := resolveTailoringStrategy(spec.TailoringStrategy, name)
-		if strategy != nil {
-			opts = append(
-				opts, openai.WithTailoringStrategy(strategy),
-			)
-		}
+		// Do not create a separate TailoringStrategy here; the Model
+		// constructor already creates a MiddleOutStrategy that shares
+		// the same TokenCounter instance, ensuring consistent token
+		// counting across tailoring and compaction.
 	}
 	return openai.New(name, opts...), nil
 }
@@ -3294,15 +3289,6 @@ func parseOpenAIVariant(
 		return variant, nil
 	default:
 		return "", fmt.Errorf("unsupported openai variant: %s", raw)
-	}
-}
-
-func resolveTailoringStrategy(name string, modelName string) model.TailoringStrategy {
-	switch strings.ToLower(name) {
-	case "middle_out":
-		return model.NewMiddleOutStrategy(model.NewTokenCounter(modelName))
-	default:
-		return nil
 	}
 }
 
