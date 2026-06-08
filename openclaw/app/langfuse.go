@@ -172,6 +172,9 @@ func buildLangfuseRunOptionResolver(
 		resolvedAppName := runtimeprofile.AppNameFromContext(ctx, appName)
 		traceName := buildLangfuseTraceName(resolvedAppName, input)
 		if traceName != "" {
+			// Propagate langfuse.trace.name via baggage so that child spans
+			// exported before the root span still carry the trace name.
+			ctx = withLangfuseTraceNameBaggage(ctx, traceName)
 			runOpts = append(
 				runOpts,
 				agent.WithSpanAttributes(
@@ -258,6 +261,17 @@ func withLangfuseBaggage(
 		langfuseMetadataMessageID,
 		input.Inbound.MessageID,
 	)
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// withLangfuseTraceNameBaggage adds langfuse.trace.name to the context baggage
+// so that the baggageBatchSpanProcessor propagates it to all child spans.
+func withLangfuseTraceNameBaggage(
+	ctx context.Context,
+	traceName string,
+) context.Context {
+	bag := baggage.FromContext(ctx)
+	bag = setLangfuseBaggageMember(bag, langfuseTraceNameKey, traceName)
 	return baggage.ContextWithBaggage(ctx, bag)
 }
 

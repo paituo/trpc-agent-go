@@ -23,6 +23,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 	"trpc.group/trpc-go/trpc-agent-go/tool/duckduckgo"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
+	"trpc.group/trpc-go/trpc-agent-go/tool/luaexec"
 	"trpc.group/trpc-go/trpc-agent-go/tool/mcp"
 
 	arxivsearch "trpc.group/trpc-go/trpc-agent-go/tool/arxivsearch"
@@ -34,6 +35,8 @@ import (
 
 	ocbrowser "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/browser"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
+
+	"trpc.group/trpc-go/trpc-agent-go/agent"
 )
 
 const (
@@ -48,6 +51,7 @@ const (
 	toolSetProviderWiki    = "wikipedia"
 	toolSetProviderArxiv   = "arxivsearch"
 	toolSetProviderEmail   = "email"
+	toolSetProviderLua     = "lua"
 
 	defaultHTTPTimeout = 30 * time.Second
 
@@ -100,6 +104,10 @@ func init() {
 	must(registry.RegisterToolSetProvider(
 		toolSetProviderEmail,
 		newEmailToolSet,
+	))
+	must(registry.RegisterToolSetProvider(
+		toolSetProviderLua,
+		newLuaToolSet,
 	))
 }
 
@@ -742,4 +750,77 @@ func overrideToolSetName(ts tool.ToolSet, name string) tool.ToolSet {
 		return ts
 	}
 	return toolSetNameOverride{name: v, tool: ts}
+}
+
+// --- Lua tool set provider ---
+
+type luaToolSetConfig struct {
+	DefaultTimeout int      `yaml:"default_timeout,omitempty"`
+	MaxOutputLen   int      `yaml:"max_output_len,omitempty"`
+	MaxErrorLen    int      `yaml:"max_error_len,omitempty"`
+	DeniedModules  []string `yaml:"denied_modules,omitempty"`
+	AllowIOLib     *bool    `yaml:"allow_io_lib,omitempty"`
+	AllowOSLib     *bool    `yaml:"allow_os_lib,omitempty"`
+	DeniedTools    []string `yaml:"denied_tools,omitempty"`
+}
+
+func newLuaToolSet(
+	_ registry.ToolSetProviderDeps,
+	spec registry.PluginSpec,
+) (tool.ToolSet, error) {
+	var cfg luaToolSetConfig
+	if err := registry.DecodeStrict(spec.Config, &cfg); err != nil {
+		return nil, err
+	}
+
+	opts := make([]luaexec.Option, 0, 8)
+	if name := strings.TrimSpace(spec.Name); name != "" {
+		opts = append(opts, luaexec.WithName(name))
+	}
+	if cfg.DefaultTimeout > 0 {
+		opts = append(opts, luaexec.WithDefaultTimeout(cfg.DefaultTimeout))
+	}
+	if cfg.MaxOutputLen > 0 {
+		opts = append(opts, luaexec.WithMaxOutputLen(cfg.MaxOutputLen))
+	}
+	if cfg.MaxErrorLen > 0 {
+		opts = append(opts, luaexec.WithMaxErrorLen(cfg.MaxErrorLen))
+	}
+	if len(cfg.DeniedModules) > 0 {
+		opts = append(opts, luaexec.WithDeniedModules(cfg.DeniedModules...))
+	}
+	if cfg.AllowIOLib != nil {
+		opts = append(opts, luaexec.WithAllowIOLib(*cfg.AllowIOLib))
+	}
+	if cfg.AllowOSLib != nil {
+		opts = append(opts, luaexec.WithAllowOSLib(*cfg.AllowOSLib))
+	}
+	if len(cfg.DeniedTools) > 0 {
+		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))
+	}
+
+	// Use ToolsProvider to dynamically obtain the tool list from
+	// InvocationContext at runtime, solving the chicken-and-egg problem
+	// where the full tool list is not yet available at ToolSet creation time.
+	opts = append(opts, luaexec.WithToolsProvider(toolsFromInvocationContext))
+
+	return luaexec.NewToolSet(opts...)
+}
+
+// toolsFromInvocationContext obtains the tool list from the GopherLua VM's context.
+//
+// Call chain:
+//
+//	L.Context() → agent.InvocationFromContext(ctx) → inv.Agent.Tools()
+//
+// GopherLua's L.Context() inherits the ctx parameter from lua_exec Call(),
+// which is wrapped by FunctionCallResponseProcessor via agent.NewInvocationContext,
+// so agent.InvocationFromContext can retrieve the Invocation,
+// and then Invocation.Agent.Tools() returns the current Agent's tool list.
+func toolsFromInvocationContext(ctx context.Context) []tool.Tool {
+	inv, ok := agent.InvocationFromContext(ctx)
+	if !ok || inv == nil || inv.Agent == nil {
+		return nil
+	}
+	return inv.Agent.Tools()
 }
