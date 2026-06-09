@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -636,6 +636,7 @@ func (s *Server) runOptions(
 type replyAccumulator struct {
 	Text         string
 	RequestID    string
+	ResponseID   string // LLM Response.ID，每次 LLM 调用唯一，用于区分不同轮次
 	Error        error
 	Usage        *gwproto.Usage
 	FinishReason string
@@ -655,6 +656,9 @@ func (a *replyAccumulator) Consume(evt *event.Event) {
 	}
 	if evt.RequestID != "" {
 		a.RequestID = evt.RequestID
+	}
+	if evt.Response != nil && evt.Response.ID != "" {
+		a.ResponseID = evt.Response.ID
 	}
 	if evt.Response == nil {
 		return

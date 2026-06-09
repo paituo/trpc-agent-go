@@ -584,6 +584,7 @@ func (s *Server) streamLocked(
 					result.RequestID,
 					run.requestID,
 				),
+				MessageID: result.ResponseID,
 				Delta: publicDelta,
 			}) {
 				return streamOutcome{
@@ -620,6 +621,7 @@ func (s *Server) streamLocked(
 				Type:               gwproto.StreamEventTypeThoughtDelta,
 				SessionID:          run.sessionID,
 				RequestID:          resolvedStreamRequestID(result.RequestID, run.requestID),
+				MessageID:          result.ResponseID,
 				Delta:              thoughtDelta,
 				ReasoningSignature: reasoningSignatureFromEvent(evt),
 			}) {
@@ -641,6 +643,7 @@ func (s *Server) streamLocked(
 				Type:               gwproto.StreamEventTypeThoughtCompleted,
 				SessionID:          run.sessionID,
 				RequestID:          resolvedStreamRequestID(result.RequestID, run.requestID),
+				MessageID:          result.ResponseID,
 				Reply:              thoughtReply,
 				ReasoningSignature: reasoningSignatureFromEvent(evt),
 			}) {
@@ -661,7 +664,7 @@ func (s *Server) streamLocked(
 		Type:      gwproto.StreamEventTypeMessageDelta,
 		SessionID: run.sessionID,
 		RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
-		MessageID: result.RequestID,
+		MessageID: result.ResponseID,
 		Delta:     delta,
 		Model:     modelFromEvent(evt),
 	}) {
@@ -745,7 +748,7 @@ func (s *Server) streamLocked(
 		Type:         gwproto.StreamEventTypeMessageCompleted,
 		SessionID:    run.sessionID,
 		RequestID:    requestID,
-		MessageID:    requestID,
+		MessageID:    result.ResponseID,
 		Reply:        reply,
 		Usage:        cloneGatewayUsage(result.Usage),
 		FinishReason: result.FinishReason,
