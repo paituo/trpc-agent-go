@@ -22,6 +22,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
+	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
@@ -43,6 +44,7 @@ type Options struct {
 	Observer  Observer
 	Finalizer Finalizer
 	Clock     func() time.Time
+	EventHook func(ctx context.Context, evt *event.Event)
 }
 
 // WithStore configures persistent storage for runs.
@@ -73,6 +75,13 @@ func WithClock(clock func() time.Time) Option {
 	}
 }
 
+// WithEventHook configures a callback invoked for each runner event.
+func WithEventHook(hook func(ctx context.Context, evt *event.Event)) Option {
+	return func(opts *Options) {
+		opts.EventHook = hook
+	}
+}
+
 // Service manages persistent background task runs.
 type Service struct {
 	runner    runner.Runner
@@ -80,6 +89,7 @@ type Service struct {
 	observer  Observer
 	finalizer Finalizer
 	clock     func() time.Time
+	eventHook func(ctx context.Context, evt *event.Event)
 
 	mu      sync.Mutex
 	runs    map[string]*Run
@@ -133,6 +143,7 @@ func NewService(r runner.Runner, opts ...Option) (*Service, error) {
 		observer:  options.Observer,
 		finalizer: options.Finalizer,
 		clock:     options.Clock,
+		eventHook: options.EventHook,
 		runs:      make(map[string]*Run, len(loaded)),
 		running:   make(map[string]*runningRun),
 		waiters:   make(map[string][]chan struct{}),
@@ -498,6 +509,9 @@ func (s *Service) runChild(
 		return err
 	}
 	for evt := range events {
+		if s.eventHook != nil && evt != nil {
+			s.eventHook(ctx, evt)
+		}
 		result.consume(evt)
 		if progress != nil && progress.consume(evt, s.clock()) {
 			s.updateProgress(run.ID, progress.snapshot())

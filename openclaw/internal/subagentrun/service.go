@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -16,13 +16,16 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	coretaskrun "trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
 	taskruninprocess "trpc.group/trpc-go/trpc-agent-go/agent/taskrun/inprocess"
+	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/internal/gitworktree"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/debugrecorder"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/outbound"
 	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
@@ -32,6 +35,7 @@ import (
 
 type serviceOptions struct {
 	worktrees worktreeManager
+	recorder  *debugrecorder.Recorder
 }
 
 // Option customizes the OpenClaw subagent service.
@@ -46,13 +50,29 @@ func WithWorktreeManager(manager worktreeManager) Option {
 	}
 }
 
+// WithDebugRecorder injects the debug recorder for trace logging.
+func WithDebugRecorder(rec *debugrecorder.Recorder) Option {
+	return func(opts *serviceOptions) {
+		opts.recorder = rec
+	}
+}
+
 type Service struct {
 	core      *taskruninprocess.Service
 	router    *outbound.Router
 	worktrees worktreeManager
+	recorder  *debugrecorder.Recorder
+
+	traceMu sync.Mutex
+	traces  map[string]*subagentTrace // runID → trace info
 
 	mu      sync.RWMutex
 	baseCtx context.Context
+}
+
+type subagentTrace struct {
+	trace     *debugrecorder.Trace
+	startedAt time.Time
 }
 
 func NewService(
@@ -86,12 +106,15 @@ func NewService(
 	svc := &Service{
 		router:    router,
 		worktrees: options.worktrees,
+		recorder:  options.recorder,
+		traces:    make(map[string]*subagentTrace),
 	}
 	core, err := taskruninprocess.NewService(
 		r,
 		taskruninprocess.WithStore(store),
 		taskruninprocess.WithObserver(svc),
 		taskruninprocess.WithFinalizer(svc),
+		taskruninprocess.WithEventHook(svc.recordRunnerEvent),
 	)
 	if err != nil {
 		return nil, err
@@ -174,7 +197,16 @@ func (s *Service) Spawn(
 			attribute.String("langfuse.tag.channel", req.Delivery.Channel),
 		),
 	)
-	runContext := runContextFromContext(ctx, lease)
+
+	// 创建子智能体专属 debug trace
+	trace, _ := s.startDebugTrace(
+		ctx,
+		runID,
+		req.OwnerUserID,
+		req.ParentSessionID,
+		req.Delivery.Channel,
+	)
+	runContext := runContextFromContext(ctx, lease, trace, s.recorder)
 
 	var messages []model.Message
 	if subagentInlineInstruction() {
@@ -216,6 +248,7 @@ func (s *Service) Spawn(
 	})
 	if err != nil {
 		s.cleanupUnspawnedWorktree(ctx, lease)
+		s.closeDebugTrace(runID, coretaskrun.StatusFailed, err.Error())
 		return openclawsubagent.Run{}, translateCoreError(err)
 	}
 	return projectRun(run), nil
@@ -285,6 +318,7 @@ func (s *Service) OnRunUpdate(ctx context.Context, run coretaskrun.Run) {
 	if s == nil || !run.Status.IsTerminal() {
 		return
 	}
+	s.closeDebugTrace(run.ID, run.Status, run.Error)
 	if run.Status == coretaskrun.StatusCanceled {
 		return
 	}
@@ -458,4 +492,95 @@ const envSubagentInlineInstruction = "OPENCLAW_SUBAGENT_INLINE_INSTRUCTION"
 func subagentInlineInstruction() bool {
 	v := strings.TrimSpace(os.Getenv(envSubagentInlineInstruction))
 	return v == "1" || strings.EqualFold(v, "true")
+}
+
+const debugTraceSourceSubagent = "subagent"
+
+// startDebugTrace creates a debug trace for the subagent run,
+// following the same pattern as the cron service.
+func (s *Service) startDebugTrace(
+	ctx context.Context,
+	runID string,
+	userID string,
+	parentSessionID string,
+	channel string,
+) (*debugrecorder.Trace, time.Time) {
+	recorder := s.recorder
+	if recorder == nil {
+		recorder = debugrecorder.RecorderFromContext(ctx)
+	}
+	if recorder == nil {
+		return nil, time.Time{}
+	}
+
+	startedAt := time.Now()
+	trace, err := recorder.Start(debugrecorder.TraceStart{
+		Channel:   channel,
+		UserID:    userID,
+		SessionID: parentSessionID,
+		RequestID: runID,
+		Source:    debugTraceSourceSubagent,
+	})
+	if err != nil {
+		log.Warnf("subagent: start debug trace: %v", err)
+		return nil, time.Time{}
+	}
+
+	_ = trace.Record(debugrecorder.KindSubagentRun, map[string]any{
+		"run_id":            runID,
+		"user_id":           userID,
+		"channel":           channel,
+		"parent_session_id": parentSessionID,
+	})
+
+	s.traceMu.Lock()
+	s.traces[runID] = &subagentTrace{
+		trace:     trace,
+		startedAt: startedAt,
+	}
+	s.traceMu.Unlock()
+
+	return trace, startedAt
+}
+
+// closeDebugTrace closes the debug trace for a completed run.
+func (s *Service) closeDebugTrace(
+	runID string,
+	status coretaskrun.Status,
+	runErr string,
+) {
+	s.traceMu.Lock()
+	info := s.traces[runID]
+	delete(s.traces, runID)
+	s.traceMu.Unlock()
+
+	if info == nil || info.trace == nil {
+		return
+	}
+
+	end := debugrecorder.TraceEnd{
+		Duration: time.Since(info.startedAt),
+	}
+	switch {
+	case status == coretaskrun.StatusCompleted:
+		end.Status = "ok"
+	case status == coretaskrun.StatusFailed:
+		end.Status = "error"
+		end.Error = runErr
+	case status == coretaskrun.StatusCanceled:
+		end.Status = "canceled"
+	default:
+		end.Status = string(status)
+	}
+	_ = info.trace.Close(end)
+}
+
+// recordRunnerEvent is the EventHook callback that records runner events
+// to the debug trace associated with the context.
+func (s *Service) recordRunnerEvent(ctx context.Context, evt *event.Event) {
+	trace := debugrecorder.TraceFromContext(ctx)
+	if trace == nil || evt == nil {
+		return
+	}
+	_ = trace.Record(debugrecorder.KindRunnerEvent, evt)
 }
