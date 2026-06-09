@@ -1329,6 +1329,7 @@ func NewRuntimeWithOptions(
 			resolvedStateDir,
 			r,
 			openClawTools.router,
+			subagentrun.WithDebugRecorder(debugRec),
 		)
 		if err != nil {
 			return nil, &exitError{
@@ -1889,6 +1890,7 @@ func run(
 			resolvedStateDir,
 			r,
 			openClawTools.router,
+			subagentrun.WithDebugRecorder(debugRec),
 		)
 		if err != nil {
 			if cronSvc != nil {

@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -1915,7 +1915,7 @@ func streamDeltaText(
 		}
 		return fullTextFromResponse(evt.Response)
 	default:
-		if evt.Object != "" && evt.Object != model.ObjectTypeToolResponse {
+		if evt.Object != "" && evt.Object != model.ObjectTypeToolResponse && evt.Object != model.ObjectTypeRunnerCompletion {
 			log.Debugf("gateway: unhandled event object type %q", evt.Object)
 		}
 		return ""

@@ -63,6 +63,7 @@ const (
 	KindGatewayRun     = "gateway.run.start"
 	KindCronRun        = "cron.run.start"
 	KindCronDelivery   = "cron.delivery"
+	KindSubagentRun    = "subagent.run.start"
 	KindRuntimeProfile = "runtime.profile"
 	KindModelReq       = "model.chat.request"
 	KindRunnerEvent    = "runner.event"
@@ -390,6 +391,14 @@ func (t *Trace) Mode() Mode {
 		return ""
 	}
 	return t.mode
+}
+
+// StartedAt returns the time at which the trace was created.
+func (t *Trace) StartedAt() time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return t.startedAt
 }
 
 type record struct {
