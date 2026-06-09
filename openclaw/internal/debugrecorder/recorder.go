@@ -40,8 +40,9 @@ const (
 	modeFull Mode = "full"
 	modeSafe Mode = "safe"
 
-	defaultDateDirLayout = "20060102"
-	defaultTimeLayout    = "150405"
+	defaultDateDirLayout    = "20060102"
+	defaultTimeLayout       = "150405"
+	defaultSessionTimeLayout = "20060102-150405"
 
 	defaultTraceDirPerm = 0o700
 	defaultFilePerm     = 0o600
@@ -280,12 +281,22 @@ func (r *Recorder) newTraceDir(
 }
 
 type traceRef struct {
+	TraceDir  string       `json:"trace_dir"`
+	StartedAt time.Time    `json:"started_at"`
+	Channel   string       `json:"channel,omitempty"`
+	SessionID string       `json:"session_id,omitempty"`
+	RequestID string       `json:"request_id,omitempty"`
+	MessageID string       `json:"message_id,omitempty"`
+	TraceID   string       `json:"trace_id,omitempty"`
+	ChildTraces []childTraceRef `json:"child_traces,omitempty"`
+}
+
+// childTraceRef records a reference to a sub-agent trace belonging to the same session.
+type childTraceRef struct {
 	TraceDir  string    `json:"trace_dir"`
 	StartedAt time.Time `json:"started_at"`
 	Channel   string    `json:"channel,omitempty"`
-	SessionID string    `json:"session_id,omitempty"`
 	RequestID string    `json:"request_id,omitempty"`
-	MessageID string    `json:"message_id,omitempty"`
 	TraceID   string    `json:"trace_id,omitempty"`
 }
 
@@ -330,6 +341,34 @@ func (r *Recorder) writeSessionIndex(
 	return refPath, nil
 }
 
+// AppendChildTrace adds a child trace reference to the parent session's trace.json.
+// This connects sub-agent traces to their parent session for unified browsing.
+func (r *Recorder) AppendChildTrace(parentRefPath string, childStart TraceStart, childDir string) error {
+	if parentRefPath == "" || childDir == "" {
+		return nil
+	}
+	data, err := os.ReadFile(parentRefPath)
+	if err != nil {
+		return fmt.Errorf("debug recorder: read parent trace ref: %w", err)
+	}
+	var ref traceRef
+	if err := json.Unmarshal(data, &ref); err != nil {
+		return fmt.Errorf("debug recorder: unmarshal parent trace ref: %w", err)
+	}
+	rel, err := filepath.Rel(filepath.Dir(parentRefPath), childDir)
+	if err != nil {
+		return fmt.Errorf("debug recorder: child trace rel: %w", err)
+	}
+	ref.ChildTraces = append(ref.ChildTraces, childTraceRef{
+		TraceDir:  rel,
+		StartedAt: time.Now(),
+		Channel:   strings.TrimSpace(childStart.Channel),
+		RequestID: strings.TrimSpace(childStart.RequestID),
+		TraceID:   strings.TrimSpace(childStart.TraceID),
+	})
+	return writeJSONFile(parentRefPath, ref)
+}
+
 func (r *Recorder) newSessionIndexDir(
 	now time.Time,
 	start TraceStart,
@@ -366,7 +405,7 @@ func sessionIndexComponent(start TraceStart) string {
 
 func sessionIndexBase(now time.Time, start TraceStart) string {
 	var parts []string
-	parts = append(parts, now.Format(defaultTimeLayout))
+	parts = append(parts, now.Format(defaultSessionTimeLayout))
 	if msg := safeComponent(start.MessageID); msg != "" {
 		parts = append(parts, msg)
 	} else if req := safeComponent(start.RequestID); req != "" {
@@ -378,7 +417,7 @@ func sessionIndexBase(now time.Time, start TraceStart) string {
 		base = base[:maxTraceBaseLen]
 	}
 	if base == "" {
-		return now.Format(defaultTimeLayout)
+		return now.Format(defaultSessionTimeLayout)
 	}
 	return base
 }
@@ -403,6 +442,14 @@ func (t *Trace) StartedAt() time.Time {
 		return time.Time{}
 	}
 	return t.startedAt
+}
+
+// TraceRefPath returns the path to this trace's session index file (trace.json).
+func (t *Trace) TraceRefPath() string {
+	if t == nil {
+		return ""
+	}
+	return t.traceRef
 }
 
 type record struct {

@@ -514,13 +514,14 @@ func (s *Service) startDebugTrace(
 	}
 
 	startedAt := time.Now()
-	trace, err := recorder.Start(debugrecorder.TraceStart{
+	childStart := debugrecorder.TraceStart{
 		Channel:   channel,
 		UserID:    userID,
 		SessionID: parentSessionID,
 		RequestID: runID,
 		Source:    debugTraceSourceSubagent,
-	})
+	}
+	trace, err := recorder.Start(childStart)
 	if err != nil {
 		log.Warnf("subagent: start debug trace: %v", err)
 		return nil, time.Time{}
@@ -532,6 +533,14 @@ func (s *Service) startDebugTrace(
 		"channel":           channel,
 		"parent_session_id": parentSessionID,
 	})
+
+	// Record child trace reference in parent session's trace.json.
+	if parentTrace := debugrecorder.TraceFromContext(ctx); parentTrace != nil {
+		parentRefPath := parentTrace.TraceRefPath()
+		if parentRefPath != "" && recorder != nil {
+			_ = recorder.AppendChildTrace(parentRefPath, childStart, trace.Dir())
+		}
+	}
 
 	s.traceMu.Lock()
 	s.traces[runID] = &subagentTrace{
