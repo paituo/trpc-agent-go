@@ -4362,7 +4362,7 @@ func TestStreamProgressHelpers(t *testing.T) {
 				},
 			}},
 		},
-	})
+	}, nil)
 	require.Len(t, updates, 1)
 	require.Equal(
 		t,
