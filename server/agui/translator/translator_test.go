@@ -3126,22 +3126,18 @@ func TestTranslateReasoningStreamClosesOnIDChange(t *testing.T) {
 	}
 	events, err := tr.Translate(context.Background(), &agentevent.Event{Response: next})
 	assert.NoError(t, err)
-	assert.Len(t, events, 5)
-	assert.IsType(t, (*aguievents.ReasoningMessageEndEvent)(nil), events[0])
-	assert.IsType(t, (*aguievents.ReasoningEndEvent)(nil), events[1])
-	assert.IsType(t, (*aguievents.ReasoningStartEvent)(nil), events[2])
-	assert.IsType(t, (*aguievents.ReasoningMessageStartEvent)(nil), events[3])
-	assert.IsType(t, (*aguievents.ReasoningMessageContentEvent)(nil), events[4])
+	// When already receiving reasoning and the upstream changes chunk.ID,
+	// we must NOT close the old stream and open a new one. Instead, we
+	// append the delta under the original message ID to avoid creating
+	// fragmented thinking messages (one per token).
+	assert.Len(t, events, 1)
+	assert.IsType(t, (*aguievents.ReasoningMessageContentEvent)(nil), events[0])
+	// The message ID should remain the original one, not the new chunk ID.
+	contentEvt, ok := events[0].(*aguievents.ReasoningMessageContentEvent)
+	assert.True(t, ok)
+	assert.Equal(t, "msg-1", contentEvt.MessageID)
 	assert.True(t, tr.receivingReasoning)
-	secondReasoningMessageID := tr.lastReasoningMessageID
-	assert.Equal(t, reasoningMessageID(next.ID), secondReasoningMessageID)
-	assert.NotEqual(t, firstReasoningMessageID, secondReasoningMessageID)
-	end, ok := events[0].(*aguievents.ReasoningMessageEndEvent)
-	require.True(t, ok)
-	assert.Equal(t, firstReasoningMessageID, end.MessageID)
-	start, ok := events[3].(*aguievents.ReasoningMessageStartEvent)
-	require.True(t, ok)
-	assert.Equal(t, secondReasoningMessageID, start.MessageID)
+	assert.Equal(t, "msg-1", tr.lastReasoningMessageID)
 }
 
 func TestTranslateReasoningStreamIDChangeKeepsPreviousMessageOpen(t *testing.T) {
