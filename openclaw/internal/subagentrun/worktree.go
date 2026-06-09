@@ -18,6 +18,7 @@ import (
 	coretaskrun "trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
 	"trpc.group/trpc-go/trpc-agent-go/internal/gitworktree"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/debugrecorder"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
 )
 
@@ -109,10 +110,12 @@ func runOptionsFromContext(
 func runContextFromContext(
 	ctx context.Context,
 	lease *gitworktree.Lease,
+	trace *debugrecorder.Trace,
+	recorder *debugrecorder.Recorder,
 ) func(context.Context) context.Context {
 	profile, hasProfile := profileFromContext(ctx, lease)
 	req, hasRequest := runtimeprofile.RequestFromContext(ctx)
-	if !hasProfile && !hasRequest {
+	if !hasProfile && !hasRequest && trace == nil && recorder == nil {
 		return nil
 	}
 	return func(base context.Context) context.Context {
@@ -124,6 +127,12 @@ func runContextFromContext(
 		}
 		if hasProfile {
 			base = runtimeprofile.WithProfile(base, profile)
+		}
+		if recorder != nil {
+			base = debugrecorder.WithRecorder(base, recorder)
+		}
+		if trace != nil {
+			base = debugrecorder.WithTrace(base, trace)
 		}
 		return base
 	}

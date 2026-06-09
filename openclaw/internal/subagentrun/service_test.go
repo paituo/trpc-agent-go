@@ -793,7 +793,7 @@ func TestRunContextFromContextWithLeaseOnly(t *testing.T) {
 	lease := &gitworktree.Lease{
 		Path: "/tmp/openclaw-worktree-profile-only",
 	}
-	wrap := runContextFromContext(context.Background(), lease)
+	wrap := runContextFromContext(context.Background(), lease, nil, nil)
 	require.NotNil(t, wrap)
 
 	ctx := wrap(nil)
