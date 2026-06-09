@@ -239,6 +239,12 @@ func buildDescription(cfg Config) string {
 	if !denied["re"] {
 		available = append(available, "re: match/find/gsub/matches(标准正则语法)")
 	}
+	if !denied["html"] {
+		available = append(available, "html: parse/find/find_all/select/select_all/get_text/get_attr/children/all_children/tag_name/parent(对齐BeautifulSoup,支持CSS选择器和方法式调用)")
+	}
+	if !denied["md"] {
+		available = append(available, "md: parse/extract_tables/parse_table/detect_merge(对齐Python markdown库,支持字符串直接传入)")
+	}
 	if len(available) > 0 {
 		desc += "【桥接模块——全局已注册，直接使用，禁止require】" + strings.Join(available, "; ") + "\n\n"
 	}

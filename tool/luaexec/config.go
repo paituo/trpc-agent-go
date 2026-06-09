@@ -46,7 +46,7 @@ type Config struct {
 	MaxErrorLen int
 
 	// DeniedModules lists bridge modules to disable.
-	// Available: "tool", "yaml", "json", "re", "io", "os".
+	// Available: "tool", "yaml", "json", "re", "html", "md", "io", "os".
 	// Default: empty (all enabled).
 	DeniedModules []string
 
