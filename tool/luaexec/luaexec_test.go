@@ -382,7 +382,7 @@ func TestRe_Matches(t *testing.T) {
 	})
 
 	args, _ := json.Marshal(map[string]any{
-		"script": `return re.matches("hello 123", "^hello")`,
+		"script": `return #re.matches("hello 123 world 456", "\\d+")`,
 	})
 
 	result, err := ct.Call(context.Background(), args)
@@ -390,7 +390,7 @@ func TestRe_Matches(t *testing.T) {
 
 	resp := result.(map[string]any)
 	assert.Equal(t, "success", resp["status"])
-	assert.Equal(t, true, resp["result"])
+	assert.Equal(t, float64(2), resp["result"])
 }
 
 func TestDeniedModules_Yaml(t *testing.T) {
@@ -1217,6 +1217,50 @@ func TestDetailedToolError_ArgsType(t *testing.T) {
 	assert.Equal(t, ErrTypeToolCall, errMap["type"])
 	assert.Equal(t, "test_tool", errMap["tool"])
 	assert.Equal(t, "args_type", errMap["phase"])
+}
+
+func TestDeniedModules_Html(t *testing.T) {
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithDeniedModules("html"),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	args, _ := json.Marshal(map[string]any{
+		"script": `return type(html)`,
+	})
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "nil", resp["result"])
+}
+
+func TestDeniedModules_Md(t *testing.T) {
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithDeniedModules("md"),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	args, _ := json.Marshal(map[string]any{
+		"script": `return type(md)`,
+	})
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "nil", resp["result"])
 }
 
 func TestToolNameToLuaIdent(t *testing.T) {

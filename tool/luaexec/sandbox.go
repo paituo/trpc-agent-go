@@ -74,6 +74,12 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 	if !denied["re"] {
 		registerReBridge(L)
 	}
+	if !denied["html"] {
+		registerHTMLBridge(L)
+	}
+	if !denied["md"] {
+		registerMDBridge(L)
+	}
 
 	return L, cancel
 }
