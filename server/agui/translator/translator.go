@@ -429,14 +429,31 @@ func (t *translator) reasoningEvents(rsp *model.Response) ([]aguievents.Event, e
 		switch rsp.Object {
 		case model.ObjectTypeChatCompletionChunk:
 			if rsp.Choices[0].Delta.ReasoningContent == "" {
+				// No reasoning content in this chunk. If we were receiving
+				// reasoning, close the stream before returning.
+				if t.receivingReasoning {
+					t.receivingReasoning = false
+					events = append(events,
+						aguievents.NewReasoningMessageEndEvent(t.lastReasoningMessageID),
+						aguievents.NewReasoningEndEvent(t.lastReasoningMessageID),
+					)
+					return events, nil
+				}
 				return nil, nil
 			}
+			// If we are already receiving reasoning content, some upstream
+			// providers (e.g. certain OpenAI-compatible APIs) emit a different
+			// chunk.ID for every streaming chunk. In that case we must NOT
+			// close the old reasoning stream and open a new one — doing so
+			// would create one REASONING_START/END pair per token, producing
+			// hundreds of fragmented thinking messages on the frontend.
+			// Instead, we keep the existing reasoning stream alive and simply
+			// append the new delta content under the original message ID.
 			if t.receivingReasoning {
 				events = append(events,
-					aguievents.NewReasoningMessageEndEvent(t.lastReasoningMessageID),
-					aguievents.NewReasoningEndEvent(t.lastReasoningMessageID),
+					aguievents.NewReasoningMessageContentEvent(t.lastReasoningMessageID, rsp.Choices[0].Delta.ReasoningContent),
 				)
-				t.receivingReasoning = false
+				return events, nil
 			}
 			t.lastReasoningMessageID = reasoningID
 			t.receivingReasoning = true
