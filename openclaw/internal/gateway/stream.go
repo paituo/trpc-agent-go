@@ -513,8 +513,7 @@ func (s *Server) streamLocked(
 			continue
 		}
 
-		if updates := progressUpdatesFromRunnerEvent(evt, noTruncateTools);
-			len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
+		if updates := progressUpdatesFromRunnerEvent(evt, noTruncateTools); len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
 			for _, update := range updates {
 				if !sendProgressUpdate(
 					ctx,
@@ -585,7 +584,7 @@ func (s *Server) streamLocked(
 					run.requestID,
 				),
 				MessageID: result.ResponseID,
-				Delta: publicDelta,
+				Delta:     publicDelta,
 			}) {
 				return streamOutcome{
 					status: traceStatusError,
@@ -606,7 +605,8 @@ func (s *Server) streamLocked(
 					result.RequestID,
 					run.requestID,
 				),
-				Reply: publicReply,
+				MessageID: result.ResponseID,
+				Reply:     publicReply,
 			}) {
 				return streamOutcome{
 					status: traceStatusError,
@@ -661,13 +661,13 @@ func (s *Server) streamLocked(
 		}
 		sentText = true
 		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
-		Type:      gwproto.StreamEventTypeMessageDelta,
-		SessionID: run.sessionID,
-		RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
-		MessageID: result.ResponseID,
-		Delta:     delta,
-		Model:     modelFromEvent(evt),
-	}) {
+			Type:      gwproto.StreamEventTypeMessageDelta,
+			SessionID: run.sessionID,
+			RequestID: resolvedStreamRequestID(result.RequestID, run.requestID),
+			MessageID: result.ResponseID,
+			Delta:     delta,
+			Model:     modelFromEvent(evt),
+		}) {
 			return streamOutcome{
 				status: traceStatusError,
 				errMsg: contextErrMessage(ctx),
@@ -808,6 +808,7 @@ type progressUpdate struct {
 	usage      *gwproto.Usage
 	model      string
 	toolCalls  []gwproto.StreamToolCall
+	messageID  string // LLM Response.ID，用于区分不同轮次
 }
 
 func progressUpdatesFromRunnerEvent(
@@ -817,6 +818,7 @@ func progressUpdatesFromRunnerEvent(
 	if evt == nil || evt.Response == nil {
 		return nil
 	}
+	responseID := evt.Response.ID
 	if evt.Response.IsToolCallResponse() {
 		toolCalls := allToolCalls(evt.Response)
 		if len(toolCalls) == 0 {
@@ -825,6 +827,7 @@ func progressUpdatesFromRunnerEvent(
 		updates := make([]progressUpdate, 0, len(toolCalls))
 		for _, tc := range toolCalls {
 			if u, ok := progressFromToolCall(tc); ok {
+				u.messageID = responseID
 				updates = append(updates, u)
 			}
 		}
@@ -832,6 +835,7 @@ func progressUpdatesFromRunnerEvent(
 	}
 	if evt.Object == model.ObjectTypeToolResponse {
 		u := progressFromToolResult(evt.Response, noTruncateTools)
+		u.messageID = responseID
 		return []progressUpdate{u}
 	}
 	return nil
@@ -1843,13 +1847,14 @@ func sendProgressUpdate(
 		Type:       gwproto.StreamEventTypeRunProgress,
 		SessionID:  run.sessionID,
 		RequestID:  run.requestID,
+		MessageID:  update.messageID,
 		Stage:      update.stage,
 		Summary:    update.summary,
 		ToolName:   update.toolName,
 		ToolDetail: update.toolDetail,
 		ToolResult: update.toolResult,
 		ToolCallID: update.toolCallID,
-		ToolCalls:   update.toolCalls,
+		ToolCalls:  update.toolCalls,
 		ToolStatus: update.toolStatus,
 		ElapsedMS:  time.Since(state.startedAt).Milliseconds(),
 		Usage:      update.usage,
