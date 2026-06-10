@@ -28,6 +28,7 @@ func registerYAMLBridge(L *lua.LState, allowIO bool) {
 	L.SetField(mod, "encode", L.NewFunction(bridgeYamlEncode))
 	if allowIO {
 		L.SetField(mod, "read_file", L.NewFunction(bridgeYamlReadFile))
+		L.SetField(mod, "read_file_auto", L.NewFunction(bridgeYamlReadFileAuto))
 		L.SetField(mod, "write_file", L.NewFunction(bridgeYamlWriteFile))
 	}
 	L.SetGlobal("yaml", mod)
@@ -160,6 +161,8 @@ func readFileWithEncoding(path, encoding string) (string, error) {
 			return "", err
 		}
 		return string(decoded), nil
+	case "auto":
+		return decodeAuto(raw)
 	default:
 		enc, _ := htmlindex.Get(encoding)
 		if enc == nil {
@@ -171,6 +174,89 @@ func readFileWithEncoding(path, encoding string) (string, error) {
 		}
 		return string(decoded), nil
 	}
+}
+
+// decodeAuto auto-detects encoding and decodes the raw bytes to UTF-8.
+// Detection order: BOM → UTF-8 validity → GBK fallback.
+func decodeAuto(raw []byte) (string, error) {
+	// Check BOM first.
+	if bytes.HasPrefix(raw, []byte{0xEF, 0xBB, 0xBF}) {
+		return string(bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})), nil
+	}
+	if bytes.HasPrefix(raw, []byte{0xFF, 0xFE}) || bytes.HasPrefix(raw, []byte{0xFE, 0xFF}) {
+		return "", fmt.Errorf("UTF-16 encoding detected but not supported")
+	}
+
+	// Try UTF-8 strict validation.
+	if isValidUTF8(raw) {
+		return string(raw), nil
+	}
+
+	// Fallback: try GBK decoding.
+	decoder := simplifiedchinese.GBK.NewDecoder()
+	decoded, err := decoder.Bytes(raw)
+	if err != nil {
+		return "", fmt.Errorf("auto-detect failed: not valid UTF-8 and GBK decode error: %v", err)
+	}
+	return string(decoded), nil
+}
+
+// isValidUTF8 checks if the byte slice is valid UTF-8.
+func isValidUTF8(data []byte) bool {
+	for i := 0; i < len(data); {
+		r, size := rune(data[i]), 1
+		switch {
+		case data[i] < 0x80: // ASCII
+			r = rune(data[i])
+		case data[i]&0xE0 == 0xC0: // 2-byte
+			if i+1 >= len(data) || data[i+1]&0xC0 != 0x80 {
+				return false
+			}
+			r = rune(data[i]&0x1F)<<6 | rune(data[i+1]&0x3F)
+			size = 2
+		case data[i]&0xF0 == 0xE0: // 3-byte
+			if i+2 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 {
+				return false
+			}
+			r = rune(data[i]&0x0F)<<12 | rune(data[i+1]&0x3F)<<6 | rune(data[i+2]&0x3F)
+			size = 3
+		case data[i]&0xF8 == 0xF0: // 4-byte
+			if i+3 >= len(data) || data[i+1]&0xC0 != 0x80 || data[i+2]&0xC0 != 0x80 || data[i+3]&0xC0 != 0x80 {
+				return false
+			}
+			r = rune(data[i]&0x07)<<18 | rune(data[i+1]&0x3F)<<12 | rune(data[i+2]&0x3F)<<6 | rune(data[i+3]&0x3F)
+			size = 4
+		default:
+			return false
+		}
+		// Check for overlong encodings and surrogates.
+		if r == 0xFFFD || (0xD800 <= r && r <= 0xDFFF) {
+			return false
+		}
+		i += size
+	}
+	return true
+}
+
+// bridgeYamlReadFileAuto implements yaml.read_file_auto(path).
+// It auto-detects encoding (UTF-8/GBK) and returns decoded YAML data.
+func bridgeYamlReadFileAuto(L *lua.LState) int {
+	path := L.CheckString(1)
+
+	content, err := readFileWithEncoding(path, "auto")
+	if err != nil {
+		pushEncodingError(L, path, "auto", err)
+		return 2
+	}
+
+	var data any
+	if err := yaml.Unmarshal([]byte(content), &data); err != nil {
+		pushBridgeError(L, fmt.Sprintf("yaml.read_file_auto(%s) decode failed: %v", path, err))
+		return 2
+	}
+
+	pushGoValue(L, data)
+	return 1
 }
 
 // readFileSafe reads a file safely (will be replaced with workspace-aware path in future).

@@ -755,13 +755,14 @@ func overrideToolSetName(ts tool.ToolSet, name string) tool.ToolSet {
 // --- Lua tool set provider ---
 
 type luaToolSetConfig struct {
-	DefaultTimeout int      `yaml:"default_timeout,omitempty"`
-	MaxOutputLen   int      `yaml:"max_output_len,omitempty"`
-	MaxErrorLen    int      `yaml:"max_error_len,omitempty"`
-	DeniedModules  []string `yaml:"denied_modules,omitempty"`
-	AllowIOLib     *bool    `yaml:"allow_io_lib,omitempty"`
-	AllowOSLib     *bool    `yaml:"allow_os_lib,omitempty"`
-	DeniedTools    []string `yaml:"denied_tools,omitempty"`
+	DefaultTimeout    int      `yaml:"default_timeout,omitempty"`
+	MaxOutputLen      int      `yaml:"max_output_len,omitempty"`
+	MaxErrorLen       int      `yaml:"max_error_len,omitempty"`
+	DeniedModules     []string `yaml:"denied_modules,omitempty"`
+	AllowIOLib        *bool    `yaml:"allow_io_lib,omitempty"`
+	AllowOSLib        *bool    `yaml:"allow_os_lib,omitempty"`
+	DeniedTools       []string `yaml:"denied_tools,omitempty"`
+	AllowedScriptDirs []string `yaml:"allowed_script_dirs,omitempty"`
 }
 
 func newLuaToolSet(
@@ -797,6 +798,9 @@ func newLuaToolSet(
 	}
 	if len(cfg.DeniedTools) > 0 {
 		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))
+	}
+	if len(cfg.AllowedScriptDirs) > 0 {
+		opts = append(opts, luaexec.WithAllowedScriptDirs(cfg.AllowedScriptDirs...))
 	}
 
 	// Use ToolsProvider to dynamically obtain the tool list from

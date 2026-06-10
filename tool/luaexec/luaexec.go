@@ -64,6 +64,12 @@ func WithDeniedTools(tools ...string) Option {
 	return func(c *Config) { c.DeniedTools = tools }
 }
 
+// WithAllowedScriptDirs sets the directories from which script_path can load
+// Lua scripts. If empty (default), script_path is disabled for security.
+func WithAllowedScriptDirs(dirs ...string) Option {
+	return func(c *Config) { c.AllowedScriptDirs = dirs }
+}
+
 // WithToolsProvider sets a dynamic tool provider function.
 // When set, Call() resolves it before creating the VM.
 // Takes precedence over WithTools.
