@@ -2545,12 +2545,21 @@ func newAgent(
 			runtimeprofile.SkillVisibilityFilterForRepository(repo),
 		),
 	}
+	// Always set a model-aware TokenCounter for context compaction.
+	// If the user explicitly configured approx_runes_per_token, use that;
+	// otherwise, use the heuristic based on the model name.
 	if cfg.ContextCompactionApproxRunesPerToken > 0 {
 		counter := model.NewSimpleTokenCounter(
 			model.WithApproxRunesPerToken(
 				cfg.ContextCompactionApproxRunesPerToken,
 			),
 		)
+		opts = append(
+			opts,
+			llmagent.WithContextCompactionTokenCounter(counter),
+		)
+	} else {
+		counter := model.NewTokenCounter(mdl.Info().Name)
 		opts = append(
 			opts,
 			llmagent.WithContextCompactionTokenCounter(counter),
@@ -3224,6 +3233,8 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 		opts = append(
 			opts, openai.WithEnableTokenTailoring(true),
 		)
+		tokenCounter := model.NewTokenCounter(name)
+		opts = append(opts, openai.WithTokenCounter(tokenCounter))
 		strategy := resolveTailoringStrategy(spec.TailoringStrategy, name)
 		if strategy != nil {
 			opts = append(
