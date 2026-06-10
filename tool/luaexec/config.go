@@ -77,6 +77,11 @@ type Config struct {
 	// lua_exec and agent-related tools are always denied automatically.
 	DeniedTools []string
 
+	// AllowedScriptDirs lists directories from which script_path can load
+	// Lua scripts. If empty, script_path is disabled. Paths are resolved
+	// to absolute paths and must be under one of these directories.
+	AllowedScriptDirs []string
+
 	// ToolsProvider returns the current tool list at runtime.
 	// When non-nil, Call() resolves it before creating the VM and
 	// merges the result into Tools. Takes precedence over static Tools.

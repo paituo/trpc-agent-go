@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -691,7 +692,7 @@ func TestLuaExec_EmptyScript(t *testing.T) {
 
 	_, err = ct.Call(context.Background(), args)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "script is required")
+	assert.Contains(t, err.Error(), "script or script_path is required")
 }
 
 func TestTruncateMessage(t *testing.T) {
@@ -1380,4 +1381,144 @@ func TestConfig_RegistrySizeAndCallStackSize(t *testing.T) {
 	m := result.(map[string]any)
 	assert.Equal(t, "success", m["status"])
 	assert.Equal(t, "ok", m["result"])
+}
+
+func TestLuaExec_ScriptPath(t *testing.T) {
+	// Create a temp directory and script file.
+	tmpDir := t.TempDir()
+	scriptContent := `return ARGS.x + ARGS.y`
+	scriptPath := filepath.Join(tmpDir, "add.lua")
+	require.NoError(t, osWriteFile(scriptPath, []byte(scriptContent), 0644))
+
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithAllowedScriptDirs(tmpDir),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	argsJSON, _ := json.Marshal(map[string]any{
+		"script_path": scriptPath,
+		"args":        map[string]any{"x": 10, "y": 20},
+	})
+	result, err := ct.Call(context.Background(), argsJSON)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, float64(30), resp["result"])
+}
+
+func TestLuaExec_ScriptPath_NoAllowedDirs(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	argsJSON, _ := json.Marshal(map[string]any{
+		"script_path": "/some/path/script.lua",
+	})
+	_, err = ct.Call(context.Background(), argsJSON)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no allowed_script_dirs configured")
+}
+
+func TestLuaExec_ScriptPath_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithAllowedScriptDirs(tmpDir),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// Attempt path traversal outside allowed dir.
+	argsJSON, _ := json.Marshal(map[string]any{
+		"script_path": filepath.Join(tmpDir, "..", "..", "etc", "passwd"),
+	})
+	_, err = ct.Call(context.Background(), argsJSON)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not under any allowed_script_dirs")
+}
+
+func TestLuaExec_ScriptPath_MutualExclusion(t *testing.T) {
+	tmpDir := t.TempDir()
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithAllowedScriptDirs(tmpDir),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// Both script and script_path provided.
+	argsJSON, _ := json.Marshal(map[string]any{
+		"script":      "return 1",
+		"script_path": filepath.Join(tmpDir, "test.lua"),
+	})
+	_, err = ct.Call(context.Background(), argsJSON)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "mutually exclusive")
+}
+
+func TestLuaExec_ScriptPath_NeitherProvided(t *testing.T) {
+	tmpDir := t.TempDir()
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithAllowedScriptDirs(tmpDir),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	argsJSON, _ := json.Marshal(map[string]any{})
+	_, err = ct.Call(context.Background(), argsJSON)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "script or script_path is required")
+}
+
+func TestResolveScriptPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Run("allowed path", func(t *testing.T) {
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir, "test.lua"), []string{tmpDir})
+		assert.NoError(t, err)
+		assert.Equal(t, filepath.Join(tmpDir, "test.lua"), resolved)
+	})
+
+	t.Run("path traversal blocked", func(t *testing.T) {
+		_, err := resolveScriptPath(filepath.Join(tmpDir, "..", "..", "etc", "passwd"), []string{tmpDir})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not under any allowed_script_dirs")
+	})
+
+	t.Run("no allowed dirs", func(t *testing.T) {
+		_, err := resolveScriptPath("/some/path.lua", nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no allowed_script_dirs configured")
+	})
+
+	t.Run("multiple allowed dirs", func(t *testing.T) {
+		tmpDir2 := t.TempDir()
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir2, "test.lua"), []string{tmpDir, tmpDir2})
+		assert.NoError(t, err)
+		assert.Equal(t, filepath.Join(tmpDir2, "test.lua"), resolved)
+	})
 }
