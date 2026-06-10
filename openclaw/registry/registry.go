@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -187,9 +187,10 @@ type ToolProviderFactory func(
 
 // ToolSetProviderDeps are dependencies passed to tool set factories.
 type ToolSetProviderDeps struct {
-	Model    model.Model
-	StateDir string
-	AppName  string
+	Model       model.Model
+	StateDir    string
+	AppName     string
+	SkillsRoots []string
 }
 
 // ToolSetProviderFactory creates a ToolSet (a dynamic tool collection).

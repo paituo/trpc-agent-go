@@ -51,9 +51,17 @@ func bridgeYamlDecode(L *lua.LState) int {
 // bridgeYamlEncode implements yaml.encode(table).
 func bridgeYamlEncode(L *lua.LState) int {
 	tbl := L.CheckTable(1)
-	goVal := lValueToGo(tbl)
+	goVal := lValueToGoOrdered(tbl)
 
-	out, err := yaml.Marshal(goVal)
+	// Use anyToYAMLNode to build a complete yaml.Node tree,
+	// which correctly handles *orderedMap in nested structures.
+	rootNode, err := anyToYAMLNode(goVal)
+	if err != nil {
+		pushBridgeError(L, fmt.Sprintf("yaml.encode failed: %v", err))
+		return 2
+	}
+
+	out, err := yaml.Marshal(rootNode)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("yaml.encode failed: %v", err))
 		return 2
@@ -88,9 +96,17 @@ func bridgeYamlReadFile(L *lua.LState) int {
 func bridgeYamlWriteFile(L *lua.LState) int {
 	path := L.CheckString(1)
 	tbl := L.CheckTable(2)
-	goVal := lValueToGo(tbl)
+	goVal := lValueToGoOrdered(tbl)
 
-	out, err := yaml.Marshal(goVal)
+	// Use anyToYAMLNode to build a complete yaml.Node tree,
+	// which correctly handles *orderedMap in nested structures.
+	rootNode, err := anyToYAMLNode(goVal)
+	if err != nil {
+		pushBridgeError(L, fmt.Sprintf("yaml.write_file failed: %v", err))
+		return 2
+	}
+
+	out, err := yaml.Marshal(rootNode)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("yaml.encode failed: %v", err))
 		return 2

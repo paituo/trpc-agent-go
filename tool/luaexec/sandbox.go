@@ -80,6 +80,12 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 	if !denied["md"] {
 		registerMDBridge(L)
 	}
+	if !denied["htmltable"] {
+		registerTableBridge(L)
+	}
+	if !denied["summarize"] {
+		registerSummarizeBridge(L)
+	}
 
 	return L, cancel
 }

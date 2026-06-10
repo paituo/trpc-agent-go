@@ -1115,11 +1115,21 @@ func NewRuntimeWithOptions(
 	if agentType == agentTypeClaudeCode {
 		ag, err = newClaudeCodeAgent(opts)
 	} else {
+		cwd, _ := os.Getwd()
+		skillRoots := resolveSkillRoots(cwd, agentConfig{
+			SkillsRoot:                opts.SkillsRoot,
+			SkillsExtraDirs:           splitCSV(opts.SkillsExtraDir),
+			SkillsProjectAgentsRoot:   opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot:  opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:         opts.SkillsManagedRoot,
+			StateDir:                  resolvedStateDir,
+		})
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
 			opts.ToolSets,
+			skillRoots,
 		)
 		if err != nil {
 			return nil, &exitError{
@@ -1756,11 +1766,21 @@ func run(
 	if agentType == agentTypeClaudeCode {
 		ag, err = newClaudeCodeAgent(opts)
 	} else {
+		cwd, _ := os.Getwd()
+		skillRoots := resolveSkillRoots(cwd, agentConfig{
+			SkillsRoot:                opts.SkillsRoot,
+			SkillsExtraDirs:           splitCSV(opts.SkillsExtraDir),
+			SkillsProjectAgentsRoot:   opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot:  opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:         opts.SkillsManagedRoot,
+			StateDir:                  resolvedStateDir,
+		})
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
 			opts.ToolSets,
+			skillRoots,
 		)
 		if err != nil {
 			return &exitError{
@@ -3248,15 +3268,17 @@ func toolSetsFromProviders(
 	appName string,
 	stateDir string,
 	specs []pluginSpec,
+	skillsRoots []string,
 ) ([]tool.ToolSet, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
 
 	deps := registry.ToolSetProviderDeps{
-		Model:    mdl,
-		StateDir: stateDir,
-		AppName:  appName,
+		Model:       mdl,
+		StateDir:    stateDir,
+		AppName:     appName,
+		SkillsRoots: skillsRoots,
 	}
 
 	out := make([]tool.ToolSet, 0, len(specs))

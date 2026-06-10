@@ -4963,7 +4963,7 @@ func TestToolSetsFromProviders_EmptySpecsReturnsNil(t *testing.T) {
 	mdl, err := modelFromOptions(runOptions{ModelMode: modeMock})
 	require.NoError(t, err)
 
-	sets, err := toolSetsFromProviders(mdl, "demo", "/state", nil)
+	sets, err := toolSetsFromProviders(mdl, "demo", "/state", nil, nil)
 	require.NoError(t, err)
 	require.Nil(t, sets)
 }
@@ -7126,6 +7126,7 @@ func TestToolSetsFromProviders_EmptyTypeFails(t *testing.T) {
 		"demo",
 		"/state",
 		[]pluginSpec{{Type: " "}},
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tools.toolsets[0].type is empty")
@@ -7142,6 +7143,7 @@ func TestToolSetsFromProviders_UnsupportedTypeFails(t *testing.T) {
 		"demo",
 		"/state",
 		[]pluginSpec{{Type: "nope"}},
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported toolset provider")
@@ -7169,6 +7171,7 @@ func TestToolSetsFromProviders_ProviderErrorWrapped(t *testing.T) {
 		"demo",
 		"/state",
 		[]pluginSpec{{Type: typeName}},
+		nil,
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "toolset provider")
