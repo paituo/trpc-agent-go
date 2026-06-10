@@ -1383,7 +1383,7 @@ func NewRuntimeWithOptions(
 			),
 			DynamicAgentTimeout: opts.DynamicAgentTimeout,
 		}
-		cwd, _ := os.Getwd()
+		cwd, _ = os.Getwd()
 		skillsProv = newScopedSkillRepositoryProvider(cwd, agentCfg)
 		agentCfg.SkillRepositoryProvider = skillsProv
 		agentCfg.ownedToolsSink = func(tools []tool.Tool) {
@@ -2197,7 +2197,7 @@ func run(
 			),
 			DynamicAgentTimeout: opts.DynamicAgentTimeout,
 		}
-		cwd, _ := os.Getwd()
+		cwd, _ = os.Getwd()
 		skillsProv = newScopedSkillRepositoryProvider(cwd, agentCfg)
 		agentCfg.SkillRepositoryProvider = skillsProv
 		agentCfg.ownedToolsSink = func(tools []tool.Tool) {
