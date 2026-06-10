@@ -11,11 +11,35 @@ package admin
 
 import (
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+func init() {
+	// Register common web file MIME types to ensure they are served with the
+	// correct Content-Type header. Go's mime.TypeByExtension relies on the
+	// OS registry on Windows, which may not have these mappings configured.
+	addMimeType(".css", "text/css")
+	addMimeType(".js", "text/javascript")
+	addMimeType(".mjs", "text/javascript")
+	addMimeType(".jsx", "text/javascript")
+	addMimeType(".ts", "text/javascript")
+	addMimeType(".tsx", "text/javascript")
+	addMimeType(".json", "application/json")
+	addMimeType(".svg", "image/svg+xml")
+	addMimeType(".woff", "font/woff")
+	addMimeType(".woff2", "font/woff2")
+	addMimeType(".wasm", "application/wasm")
+}
+
+func addMimeType(ext, typ string) {
+	if mime.TypeByExtension(ext) == "" {
+		mime.AddExtensionType(ext, typ)
+	}
+}
 
 // StaticMount maps a local directory to a URL path prefix.
 // When StaticMount is registered in Config, the admin service
