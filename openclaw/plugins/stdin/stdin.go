@@ -27,6 +27,7 @@ import (
 	occhannel "trpc.group/trpc-go/trpc-agent-go/openclaw/channel"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/gwclient"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/gwproto"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/commands"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/plugins/stdin/mdrenderer"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 )
@@ -73,6 +74,8 @@ type channelCfg struct {
 	UserLabel      string `yaml:"user_label,omitempty"`
 	AssistantLabel string `yaml:"assistant_label,omitempty"`
 	EnableMarkdown bool   `yaml:"enable_markdown,omitempty"`
+	CommandsDir    string `yaml:"commands_dir,omitempty"`
+	UserCommandsDir string `yaml:"user_commands_dir,omitempty"`
 }
 
 func newChannel(
@@ -112,6 +115,29 @@ func newChannel(
 		showReasoning = *cfg.ShowReasoning
 	}
 
+	// Initialize slash command registry.
+	cmdRepo := commands.NewRepository()
+	commands.RegisterBuiltinCommands(cmdRepo)
+
+	// Load project-level commands from .openclaw/commands/ or configured dir.
+	projectDir := strings.TrimSpace(cfg.CommandsDir)
+	if projectDir == "" {
+		projectDir = filepath.Join(".", ".openclaw", "commands")
+	}
+	_ = cmdRepo.LoadFromFlatDir(projectDir, commands.SourceProject)
+
+	// Load user-level commands from configured dir or ~/.openclaw/commands/.
+	userDir := strings.TrimSpace(cfg.UserCommandsDir)
+	if userDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			userDir = filepath.Join(homeDir, ".openclaw", "commands")
+		}
+	}
+	if userDir != "" {
+		_ = cmdRepo.LoadFromFlatDir(userDir, commands.SourceUser)
+	}
+
 	return &channel{
 		id:             id,
 		gw:             deps.Gateway,
@@ -126,6 +152,7 @@ func newChannel(
 		userLabel:      defaultLabel(cfg.UserLabel, defaultUserLabel),
 		assistantLabel: defaultLabel(cfg.AssistantLabel, defaultAssistantLabel),
 		enableMarkdown: cfg.EnableMarkdown,
+		cmdRepo:        cmdRepo,
 	}, nil
 }
 
@@ -145,6 +172,8 @@ type channel struct {
 
 	bufBytes     int
 	maxLineBytes int
+
+	cmdRepo *commands.Repository
 }
 
 func (c *channel) ID() string { return c.id }
@@ -152,6 +181,7 @@ func (c *channel) ID() string { return c.id }
 func (c *channel) Run(ctx context.Context) error {
 	fmt.Fprintln(os.Stdout, "STDIN channel started.")
 	fmt.Fprintln(os.Stdout, "Type /quit or /exit to stop.")
+	fmt.Fprintln(os.Stdout, "Type /help for available commands.")
 
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, c.bufBytes), c.maxLineBytes)
@@ -177,10 +207,63 @@ func (c *channel) Run(ctx context.Context) error {
 			return nil
 		}
 
+		// Handle slash commands locally before sending to gateway.
+		if commands.IsCommand(text) {
+			call := commands.ParseCall(text)
+			if call != nil {
+				if handled, reply, err := c.handleCommand(ctx, call); handled {
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "%s/error %s: %s%s\n", colorYellow, call.Name, err, colorReset)
+					} else if reply != "" {
+						c.printReply(reply)
+					}
+					continue
+				}
+			}
+		}
+
 		if err := c.processMessage(ctx, text); err != nil {
 			return err
 		}
 	}
+}
+
+// handleCommand processes slash commands. Returns (handled, reply, error).
+// If handled is false, the command should be forwarded as a regular message.
+func (c *channel) handleCommand(
+	ctx context.Context,
+	call *commands.CommandCall,
+) (bool, string, error) {
+	switch call.Name {
+	case "help":
+		return true, c.cmdRepo.HelpText(), nil
+	case "clear":
+		return true, "Conversation cleared.", nil
+	}
+
+	// Try to render the command as a prompt template.
+	cmd, ok := c.cmdRepo.Get(call.Name)
+	if !ok {
+		// Unknown command — forward as regular text so the agent can handle it.
+		return false, "", nil
+	}
+
+	// Commands with empty body are handled above (help, clear).
+	if strings.TrimSpace(cmd.Body) == "" {
+		return false, "", nil
+	}
+
+	// Render the command template with arguments.
+	rendered, err := c.cmdRepo.Render(call)
+	if err != nil {
+		return true, "", err
+	}
+
+	// Send the rendered prompt to the gateway as a regular message.
+	if err := c.processMessage(ctx, rendered); err != nil {
+		return true, "", err
+	}
+	return true, "", nil
 }
 
 func (c *channel) processMessage(ctx context.Context, text string) error {
