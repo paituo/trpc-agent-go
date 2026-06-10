@@ -90,6 +90,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/ClickHouse/ch-go v0.71.0 // indirect
+	github.com/DavidBelicza/TextRank/v2 v2.1.3 // indirect
 	github.com/JohannesKaufmann/dom v0.2.0 // indirect
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
@@ -110,7 +111,7 @@ require (
 	github.com/extrame/ole2 v0.0.0-20160812065207-d69429661ad7 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/getkin/kin-openapi v0.133.0 // indirect
-	github.com/go-ego/gse v1.0.0 // indirect
+	github.com/go-ego/gse v1.0.2 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -170,7 +171,7 @@ require (
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/tiktoken-go/tokenizer v0.7.0 // indirect
-	github.com/vcaesar/cedar v0.20.2 // indirect
+	github.com/vcaesar/cedar v0.30.0 // indirect
 	github.com/wneessen/go-mail v0.7.2 // indirect
 	github.com/woodsbury/decimal128 v1.3.0 // indirect
 	github.com/xuri/efp v0.0.0-20240408161823-9ad904a10d6d // indirect
