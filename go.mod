@@ -6,7 +6,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.9.1
 	github.com/bufbuild/protocompile v0.14.1
 	github.com/creack/pty v1.1.24
-	github.com/go-ego/gse v1.0.0
+	github.com/go-ego/gse v1.0.2
 	github.com/gomutex/godocx v0.1.5
 	github.com/gonfva/docxlib v0.0.0-20210517191039-d8f39cecf1ad
 	github.com/google/go-cmp v0.6.0
@@ -43,6 +43,7 @@ require (
 )
 
 require (
+	github.com/DavidBelicza/TextRank/v2 v2.1.3 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/clbanning/mxj v1.8.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -78,7 +79,7 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	github.com/vcaesar/cedar v0.20.2 // indirect
+	github.com/vcaesar/cedar v0.30.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yuin/gopher-lua v1.1.2 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric v0.42.0 // indirect
