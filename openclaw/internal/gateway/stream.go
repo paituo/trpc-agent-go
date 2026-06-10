@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -880,6 +880,22 @@ func firstToolResult(rsp *model.Response) (model.Message, bool) {
 	return model.Message{}, false
 }
 
+// safeJSONRawMessage returns the raw bytes as json.RawMessage when they
+// contain valid JSON, or wraps them in a JSON string (via json.Marshal)
+// otherwise. This ensures the parent JSON structure stays valid even when
+// LLM tool call arguments contain non-JSON text.
+func safeJSONRawMessage(raw []byte) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("{}")
+	}
+	if json.Valid(raw) {
+		return json.RawMessage(raw)
+	}
+	// Not valid JSON — wrap as a JSON string to prevent parent JSON breakage.
+	safe, _ := json.Marshal(string(raw))
+	return json.RawMessage(safe)
+}
+
 func progressFromToolCall(
 	toolCall model.ToolCall,
 ) (progressUpdate, bool) {
@@ -892,7 +908,7 @@ func progressFromToolCall(
 		toolCalls: []gwproto.StreamToolCall{{
 			ID:        strings.TrimSpace(toolCall.ID),
 			Name:      name,
-			Arguments: json.RawMessage(toolCall.Function.Arguments),
+			Arguments: safeJSONRawMessage(toolCall.Function.Arguments),
 		}},
 	}
 	switch name {
