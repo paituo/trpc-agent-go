@@ -13,13 +13,103 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	lua "github.com/yuin/gopher-lua"
+	"gopkg.in/yaml.v3"
 )
 
 // fmtS is a shorthand for fmt.Sprintf.
 func fmtS(format string, args ...any) string { return fmt.Sprintf(format, args...) }
+
+// orderedMapItem represents a key-value pair in an ordered map.
+type orderedMapItem struct {
+	Key   string
+	Value any
+}
+
+// orderedMap is a map that preserves insertion order and implements yaml.Marshaler
+// for ordered YAML serialization.
+type orderedMap struct {
+	items []orderedMapItem
+}
+
+// MarshalYAML implements yaml.Marshaler for ordered YAML output.
+func (om *orderedMap) MarshalYAML() (any, error) {
+	// Convert to yaml.Node for ordered output
+	var content []*yaml.Node
+	for _, item := range om.items {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: item.Key}
+		valNode, err := anyToYAMLNode(item.Value)
+		if err != nil {
+			return nil, err
+		}
+		content = append(content, keyNode, valNode)
+	}
+	return &yaml.Node{
+		Kind:    yaml.MappingNode,
+		Content: content,
+	}, nil
+}
+
+// anyToYAMLNode converts a Go value to a yaml.Node.
+func anyToYAMLNode(v any) (*yaml.Node, error) {
+	if v == nil {
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: "null"}, nil
+	}
+	switch val := v.(type) {
+	case bool:
+		n := &yaml.Node{Kind: yaml.ScalarNode}
+		n.Value = "false"
+		if val {
+			n.Value = "true"
+		}
+		return n, nil
+	case int, int64, float64:
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", val)}, nil
+	case string:
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: val, Tag: "!!str"}, nil
+	case *orderedMap:
+		node, err := val.MarshalYAML()
+		if err != nil {
+			return nil, err
+		}
+		if n, ok := node.(*yaml.Node); ok {
+			return n, nil
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", node)}, nil
+	case []any:
+		var content []*yaml.Node
+		for _, elem := range val {
+			node, err := anyToYAMLNode(elem)
+			if err != nil {
+				return nil, err
+			}
+			content = append(content, node)
+		}
+		return &yaml.Node{Kind: yaml.SequenceNode, Content: content}, nil
+	case map[string]any:
+		// Fallback: sort keys for deterministic output
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var content []*yaml.Node
+		for _, k := range keys {
+			keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: k}
+			valNode, err := anyToYAMLNode(val[k])
+			if err != nil {
+				return nil, err
+			}
+			content = append(content, keyNode, valNode)
+		}
+		return &yaml.Node{Kind: yaml.MappingNode, Content: content}, nil
+	default:
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", val)}, nil
+	}
+}
 
 // marshalStructFull 将任意 Go 值序列化为 JSON，对实现了 json.Marshaler
 // 的类型绕过自定义 MarshalJSON()，保留结构体完整字段。
@@ -104,6 +194,12 @@ func pushGoValue(L *lua.LState, v any) {
 			L.RawSetInt(tbl, i+1, toLValue(L, elem))
 		}
 		L.Push(tbl)
+	case *orderedMap:
+		tbl := L.NewTable()
+		for _, item := range val.items {
+			L.SetField(tbl, item.Key, toLValue(L, item.Value))
+		}
+		L.Push(tbl)
 	default:
 		// 通过 JSON 中转将任意 Go 值转为 map[string]any。
 		// 使用 marshalStructFull 绕过自定义 MarshalJSON()，
@@ -150,6 +246,12 @@ func toLValue(L *lua.LState, v any) lua.LValue {
 			L.RawSetInt(tbl, i+1, toLValue(L, elem))
 		}
 		return tbl
+	case *orderedMap:
+		tbl := L.NewTable()
+		for _, item := range val.items {
+			L.SetField(tbl, item.Key, toLValue(L, item.Value))
+		}
+		return tbl
 	default:
 		jsonBytes, err := marshalStructFull(v)
 		if err != nil {
@@ -171,6 +273,93 @@ func luaTableToMap(tbl *lua.LTable) map[string]any {
 		result[key] = lValueToGo(v)
 	})
 	return result
+}
+
+// yamlFieldOrder defines the preferred field order for YAML output.
+// Fields not in this list are sorted alphabetically after the listed fields.
+// Note: Go map deduplicates keys; if a field appears in multiple contexts,
+// use the same priority to ensure consistent ordering.
+var yamlFieldOrder = map[string]int{
+	// skeleton_index.yaml top-level
+	"skeleton_version": 1, "project_name": 2, "generated_date": 3, "description": 4,
+	"source_documents": 5, "node_tree": 6,
+	// node_tree elements (description shared with top-level, priority 4)
+	"node": 10, "status": 12, "sources": 13, "children": 14,
+	// sources elements (also used in fragment)
+	"document": 20, "document_path": 21, "chapter": 22, "fragment_id": 23,
+	"level": 24, "start_line": 25, "end_line": 26,
+	// fragment fields
+	"title": 30, "heading_level": 31, "heading_path": 32,
+	"preview": 36, "preview1": 37,
+	"tables": 38, "images": 39,
+	// source_documents elements
+	"name": 50, "path": 51, "type": 52, "total_lines": 53,
+	// table fields
+	"headers": 60, "rows": 61, "row_count": 63, "col_count": 64,
+	"merge_hints": 65, "nested_tables": 66, "has_error": 67, "error_message": 68,
+}
+
+// yamlFieldPriority returns a sort priority for a field name.
+// Known fields get their defined priority; unknown fields get 1000 + alphabetical order.
+func yamlFieldPriority(key string) int {
+	if p, ok := yamlFieldOrder[key]; ok {
+		return p
+	}
+	return 1000
+}
+
+// luaTableToOrderedMap converts a Lua table to *orderedMap,
+// sorting keys by predefined field priority for consistent YAML output.
+func luaTableToOrderedMap(tbl *lua.LTable) *orderedMap {
+	// Collect all key-value pairs first
+	type kv struct {
+		key   string
+		value lua.LValue
+	}
+	var entries []kv
+	tbl.ForEach(func(k, v lua.LValue) {
+		key := luaValueToString(k)
+		entries = append(entries, kv{key: key, value: v})
+	})
+
+	// Sort by predefined field priority
+	sort.SliceStable(entries, func(i, j int) bool {
+		pi := yamlFieldPriority(entries[i].key)
+		pj := yamlFieldPriority(entries[j].key)
+		if pi != pj {
+			return pi < pj
+		}
+		return entries[i].key < entries[j].key
+	})
+
+	// Build orderedMap with sorted entries
+	result := &orderedMap{}
+	for _, e := range entries {
+		result.items = append(result.items, orderedMapItem{Key: e.key, Value: lValueToGoOrdered(e.value)})
+	}
+	return result
+}
+
+// lValueToGoOrdered converts an LValue to a Go value using ordered maps (*orderedMap).
+// This is used by the YAML serialization path to preserve field order.
+func lValueToGoOrdered(v lua.LValue) any {
+	switch val := v.(type) {
+	case lua.LBool:
+		return bool(val)
+	case lua.LNumber:
+		return float64(val)
+	case lua.LString:
+		return string(val)
+	case *lua.LTable:
+		if isArrayTable(val) {
+			return lTableToSliceOrdered(val)
+		}
+		return luaTableToOrderedMap(val)
+	case *lua.LNilType:
+		return nil
+	default:
+		return v.String()
+	}
 }
 
 // lValueToGo converts an LValue to a Go value.
@@ -220,6 +409,20 @@ func lTableToSlice(tbl *lua.LTable) []any {
 	result := make([]any, n)
 	for i := 1; i <= n; i++ {
 		result[i-1] = lValueToGo(tbl.RawGetInt(i))
+	}
+	return result
+}
+
+// lTableToSliceOrdered converts a Lua array table to []any using lValueToGoOrdered
+// to preserve field order in nested maps.
+func lTableToSliceOrdered(tbl *lua.LTable) []any {
+	n := tbl.MaxN()
+	if n == 0 {
+		return nil
+	}
+	result := make([]any, n)
+	for i := 1; i <= n; i++ {
+		result[i-1] = lValueToGoOrdered(tbl.RawGetInt(i))
 	}
 	return result
 }

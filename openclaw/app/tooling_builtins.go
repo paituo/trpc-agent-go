@@ -855,18 +855,19 @@ func overrideToolSetName(ts tool.ToolSet, name string) tool.ToolSet {
 // --- Lua tool set provider ---
 
 type luaToolSetConfig struct {
-	DefaultTimeout    int      `yaml:"default_timeout,omitempty"`
-	MaxOutputLen      int      `yaml:"max_output_len,omitempty"`
-	MaxErrorLen       int      `yaml:"max_error_len,omitempty"`
-	DeniedModules     []string `yaml:"denied_modules,omitempty"`
-	AllowIOLib        *bool    `yaml:"allow_io_lib,omitempty"`
-	AllowOSLib        *bool    `yaml:"allow_os_lib,omitempty"`
-	DeniedTools       []string `yaml:"denied_tools,omitempty"`
-	AllowedScriptDirs []string `yaml:"allowed_script_dirs,omitempty"`
+	DefaultTimeout       int      `yaml:"default_timeout,omitempty"`
+	MaxOutputLen         int      `yaml:"max_output_len,omitempty"`
+	MaxErrorLen          int      `yaml:"max_error_len,omitempty"`
+	DeniedModules        []string `yaml:"denied_modules,omitempty"`
+	AllowIOLib           *bool    `yaml:"allow_io_lib,omitempty"`
+	AllowOSLib           *bool    `yaml:"allow_os_lib,omitempty"`
+	DeniedTools          []string `yaml:"denied_tools,omitempty"`
+	AllowedScriptDirs    []string `yaml:"allowed_script_dirs,omitempty"`
+	AddSkillScriptDirs   *bool    `yaml:"add_skill_script_dirs,omitempty"`
 }
 
 func newLuaToolSet(
-	_ registry.ToolSetProviderDeps,
+	deps registry.ToolSetProviderDeps,
 	spec registry.PluginSpec,
 ) (tool.ToolSet, error) {
 	var cfg luaToolSetConfig
@@ -899,8 +900,23 @@ func newLuaToolSet(
 	if len(cfg.DeniedTools) > 0 {
 		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))
 	}
-	if len(cfg.AllowedScriptDirs) > 0 {
-		opts = append(opts, luaexec.WithAllowedScriptDirs(cfg.AllowedScriptDirs...))
+
+	// Build the final allowed_script_dirs list.
+	// When add_skill_script_dirs is true (default), automatically append
+	// all skill roots to the explicitly configured allowed_script_dirs.
+	addSkillDirs := true // default
+	if cfg.AddSkillScriptDirs != nil {
+		addSkillDirs = *cfg.AddSkillScriptDirs
+	}
+
+	scriptDirs := make([]string, 0, len(cfg.AllowedScriptDirs)+len(deps.SkillsRoots))
+	scriptDirs = append(scriptDirs, cfg.AllowedScriptDirs...)
+	if addSkillDirs {
+		scriptDirs = append(scriptDirs, deps.SkillsRoots...)
+	}
+
+	if len(scriptDirs) > 0 {
+		opts = append(opts, luaexec.WithAllowedScriptDirs(scriptDirs...))
 	}
 
 	// Use ToolsProvider to dynamically obtain the tool list from
