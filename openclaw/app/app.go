@@ -1277,12 +1277,12 @@ func NewRuntimeWithOptions(
 	} else {
 		cwd, _ := os.Getwd()
 		skillRoots := resolveSkillRoots(cwd, agentConfig{
-			SkillsRoot:                opts.SkillsRoot,
-			SkillsExtraDirs:           splitCSV(opts.SkillsExtraDir),
-			SkillsProjectAgentsRoot:   opts.SkillsProjectAgentsRoot,
-			SkillsPersonalAgentsRoot:  opts.SkillsPersonalAgentsRoot,
-			SkillsManagedRoot:         opts.SkillsManagedRoot,
-			StateDir:                  resolvedStateDir,
+			SkillsRoot:               opts.SkillsRoot,
+			SkillsExtraDirs:          splitCSV(opts.SkillsExtraDir),
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
+			StateDir:                 resolvedStateDir,
 		})
 		toolSets, err = toolSetsFromProviders(
 			mdl,
@@ -2093,12 +2093,12 @@ func run(
 	} else {
 		cwd, _ := os.Getwd()
 		skillRoots := resolveSkillRoots(cwd, agentConfig{
-			SkillsRoot:                opts.SkillsRoot,
-			SkillsExtraDirs:           splitCSV(opts.SkillsExtraDir),
-			SkillsProjectAgentsRoot:   opts.SkillsProjectAgentsRoot,
-			SkillsPersonalAgentsRoot:  opts.SkillsPersonalAgentsRoot,
-			SkillsManagedRoot:         opts.SkillsManagedRoot,
-			StateDir:                  resolvedStateDir,
+			SkillsRoot:               opts.SkillsRoot,
+			SkillsExtraDirs:          splitCSV(opts.SkillsExtraDir),
+			SkillsProjectAgentsRoot:  opts.SkillsProjectAgentsRoot,
+			SkillsPersonalAgentsRoot: opts.SkillsPersonalAgentsRoot,
+			SkillsManagedRoot:        opts.SkillsManagedRoot,
+			StateDir:                 resolvedStateDir,
 		})
 		toolSets, err = toolSetsFromProviders(
 			mdl,
@@ -3279,6 +3279,15 @@ func newAgent(
 		llmagent.WithContextCompactionKeepRecentRequests(cfg.ContextCompactionKeepRecentRequests),
 		llmagent.WithEnableTokenCounterCalibration(cfg.EnableTokenCounterCalibration),
 	)
+	if len(cfg.ContextCompactionForceCleanToolNames) > 0 ||
+		len(cfg.ContextCompactionKeepToolNames) > 0 {
+		opts = append(opts, llmagent.WithToolResultCompactionConfig(
+			&llmagent.ToolResultCompactionConfig{
+				ForceCleanToolNames: cfg.ContextCompactionForceCleanToolNames,
+				KeepToolNames:       cfg.ContextCompactionKeepToolNames,
+			},
+		))
+	}
 	if cfg.ContextCompactionApproxRunesPerToken > 0 {
 		counter := model.NewSimpleTokenCounter(
 			model.WithApproxRunesPerToken(
@@ -4224,6 +4233,32 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 		opts = append(
 			opts, openai.WithEnableTokenTailoring(true),
 		)
+		// When context window is known, compute an adaptive SafetyMarginRatio:
+		// default 10%, but capped so that the absolute safety margin never
+		// exceeds maxSafetyMarginTokens. This prevents large context windows
+		// from wasting tokens on an unnecessarily large safety buffer.
+		if spec.ContextWindow > 0 {
+			const maxSafetyMarginTokens = 2048
+			const defaultSafetyMarginRatio = 0.10
+			const defaultProtocolOverheadTokens = 512
+			const defaultReserveOutputTokens = 2048
+			const defaultInputTokensFloor = 1024
+			const defaultMaxInputTokensRatio = 1.0
+			rawMargin := int(float64(spec.ContextWindow) * defaultSafetyMarginRatio)
+			actualRatio := defaultSafetyMarginRatio
+			if rawMargin > maxSafetyMarginTokens {
+				actualRatio = float64(maxSafetyMarginTokens) / float64(spec.ContextWindow)
+			}
+			opts = append(opts, openai.WithTokenTailoringConfig(
+				&model.TokenTailoringConfig{
+					SafetyMarginRatio:      actualRatio,
+					ProtocolOverheadTokens: defaultProtocolOverheadTokens,
+					ReserveOutputTokens:    defaultReserveOutputTokens,
+					InputTokensFloor:       defaultInputTokensFloor,
+					MaxInputTokensRatio:    defaultMaxInputTokensRatio,
+				},
+			))
+		}
 		// Do not create a separate TailoringStrategy here; the Model
 		// constructor already creates a MiddleOutStrategy that shares
 		// the same TokenCounter instance, ensuring consistent token
