@@ -501,6 +501,7 @@ func (s *Server) streamLocked(
 	lastPublicCompleted := ""
 	pendingThought := false
 	lastThoughtCompleted := ""
+	lastDeltaMessageID := ""
 	var noTruncateTools []string
 	if run.streamOptions != nil {
 		noTruncateTools = run.streamOptions.NoTruncateTools
@@ -660,6 +661,7 @@ func (s *Server) streamLocked(
 			continue
 		}
 		sentText = true
+		lastDeltaMessageID = result.ResponseID
 		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
 			Type:      gwproto.StreamEventTypeMessageDelta,
 			SessionID: run.sessionID,
@@ -744,11 +746,15 @@ func (s *Server) streamLocked(
 		reply = emptyReplyFallbackText
 	}
 	recordPromptCacheUsage(trace, run.sessionID, requestID, result.Usage)
+	msgCompletedID := lastDeltaMessageID
+	if msgCompletedID == "" {
+		msgCompletedID = result.ResponseID
+	}
 	if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
 		Type:         gwproto.StreamEventTypeMessageCompleted,
 		SessionID:    run.sessionID,
 		RequestID:    requestID,
-		MessageID:    result.ResponseID,
+		MessageID:    msgCompletedID,
 		Reply:        reply,
 		Usage:        cloneGatewayUsage(result.Usage),
 		FinishReason: result.FinishReason,
