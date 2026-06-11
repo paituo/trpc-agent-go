@@ -29,23 +29,24 @@ type listFileRequest struct {
 	Path string `json:"path" jsonschema:"description=Relative directory path under base_directory or workspace:// directory ref; empty means the base directory"`
 
 	// WithSize returns the size of the files.
-	WithSize bool `json:"with_size" jsonschema:"description=Whether to include file sizes in files_with_size"`
+	WithSize bool `json:"with_size" jsonschema:"description=Whether to include file sizes in the file list"`
+
+	// Recursive lists files recursively in all subdirectories.
+	Recursive bool `json:"recursive" jsonschema:"description=Whether to recursively list files in all subdirectories"`
 }
 
 // listFileResponse represents the output from the list file operation.
 type listFileResponse struct {
-	BaseDirectory string   `json:"base_directory"`
-	Path          string   `json:"path"`
-	Files         []string `json:"files"`
-	Folders       []string `json:"folders"`
-	Message       string   `json:"message"`
-
-	FilesWithSize []fileInfo `json:"files_with_size"`
+	BaseDirectory string     `json:"base_directory"`
+	Path          string     `json:"path"`
+	Files         []fileInfo `json:"files"`
+	Folders       []string   `json:"folders"`
+	Message       string     `json:"message"`
 }
 
 type fileInfo struct {
 	Name string `json:"name"`
-	Size int64  `json:"size"`
+	Size int64  `json:"size,omitempty"`
 }
 
 // listFile performs the list file operation.
@@ -69,7 +70,11 @@ func (f *fileToolSet) listFile(
 	}
 	if ref.Scheme == fileref.SchemeWorkspace {
 		rsp.Path = fileref.WorkspaceRef(ref.Path)
-		rsp.Files, rsp.Folders = listWorkspaceEntries(ctx, ref.Path)
+		if req.Recursive {
+			rsp.Files, rsp.Folders = listWorkspaceEntriesRecursive(ctx, ref.Path)
+		} else {
+			rsp.Files, rsp.Folders = listWorkspaceEntries(ctx, ref.Path)
+		}
 		rsp.Message = listFileSummary(
 			len(rsp.Files),
 			len(rsp.Folders),
@@ -125,33 +130,70 @@ func (f *fileToolSet) listFile(
 			reqPath,
 		)
 	}
-	// If the target is a directory, list its contents.
-	entries, err := os.ReadDir(targetPath)
-	if err != nil {
-		rsp.Message = fmt.Sprintf(
-			"Error: cannot read directory '%s': %v",
-			reqPath,
-			err,
-		)
-		return rsp, fmt.Errorf(
-			"reading directory '%s': %w",
-			reqPath,
-			err,
-		)
-	}
-	// Collect files and folders.
-	for _, entry := range entries {
-		if entry.IsDir() {
-			rsp.Folders = append(rsp.Folders, entry.Name())
-		} else {
-			rsp.Files = append(rsp.Files, entry.Name())
+
+	if req.Recursive {
+		// Recursively list files in all subdirectories.
+		err = filepath.WalkDir(targetPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if path == targetPath {
+				return nil
+			}
+			relPath, _ := filepath.Rel(targetPath, path)
+			relPath = filepath.ToSlash(relPath)
+			if d.IsDir() {
+				rsp.Folders = append(rsp.Folders, relPath)
+				return nil
+			}
+			fi := fileInfo{Name: relPath}
 			if req.WithSize {
-				if info, _ := entry.Info(); info != nil {
-					rsp.FilesWithSize = append(rsp.FilesWithSize, fileInfo{
-						Name: entry.Name(),
-						Size: info.Size(),
-					})
+				if info, _ := d.Info(); info != nil {
+					fi.Size = info.Size()
 				}
+			}
+			rsp.Files = append(rsp.Files, fi)
+			return nil
+		})
+		if err != nil {
+			rsp.Message = fmt.Sprintf(
+				"Error: cannot recursively read directory '%s': %v",
+				reqPath,
+				err,
+			)
+			return rsp, fmt.Errorf(
+				"recursively reading directory '%s': %w",
+				reqPath,
+				err,
+			)
+		}
+	} else {
+		// If the target is a directory, list its contents.
+		entries, err := os.ReadDir(targetPath)
+		if err != nil {
+			rsp.Message = fmt.Sprintf(
+				"Error: cannot read directory '%s': %v",
+				reqPath,
+				err,
+			)
+			return rsp, fmt.Errorf(
+				"reading directory '%s': %w",
+				reqPath,
+				err,
+			)
+		}
+		// Collect files and folders.
+		for _, entry := range entries {
+			if entry.IsDir() {
+				rsp.Folders = append(rsp.Folders, entry.Name())
+			} else {
+				fi := fileInfo{Name: entry.Name()}
+				if req.WithSize {
+					if info, _ := entry.Info(); info != nil {
+						fi.Size = info.Size()
+					}
+				}
+				rsp.Files = append(rsp.Files, fi)
 			}
 		}
 	}
@@ -183,7 +225,7 @@ func listFileSummary(files, folders int, desc string) string {
 func listWorkspaceEntries(
 	ctx context.Context,
 	dir string,
-) ([]string, []string) {
+) ([]fileInfo, []string) {
 	sep := string(filepath.Separator)
 	prefix := filepath.Clean(strings.TrimSpace(dir))
 	if prefix == "." {
@@ -193,7 +235,7 @@ func listWorkspaceEntries(
 		prefix += sep
 	}
 
-	filesSet := make(map[string]struct{})
+	fileSet := make(map[string]struct{})
 	foldersSet := make(map[string]struct{})
 
 	for _, f := range fileref.WorkspaceFiles(ctx) {
@@ -210,23 +252,95 @@ func listWorkspaceEntries(
 		if name == "" || name == "." {
 			continue
 		}
-		head, _, found := strings.Cut(name, sep)
+		name = filepath.ToSlash(name)
+		head, _, found := strings.Cut(name, "/")
+		prefixSlash := filepath.ToSlash(prefix)
 		if !found {
-			filesSet[prefix+head] = struct{}{}
+			fileSet[prefixSlash+head] = struct{}{}
 			continue
 		}
-		foldersSet[prefix+head] = struct{}{}
+		foldersSet[prefixSlash+head] = struct{}{}
 	}
 
-	files := make([]string, 0, len(filesSet))
-	for n := range filesSet {
-		files = append(files, fileref.WorkspaceRef(n))
+	files := make([]fileInfo, 0, len(fileSet))
+	names := make([]string, 0, len(fileSet))
+	for n := range fileSet {
+		names = append(names, fileref.WorkspaceRef(n))
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		files = append(files, fileInfo{Name: n})
 	}
 	folders := make([]string, 0, len(foldersSet))
 	for n := range foldersSet {
 		folders = append(folders, fileref.WorkspaceRef(n))
 	}
-	slices.Sort(files)
+	slices.Sort(folders)
+	return files, folders
+}
+
+func listWorkspaceEntriesRecursive(
+	ctx context.Context,
+	dir string,
+) ([]fileInfo, []string) {
+	sep := string(filepath.Separator)
+	prefix := filepath.Clean(strings.TrimSpace(dir))
+	if prefix == "." {
+		prefix = ""
+	}
+	if prefix != "" {
+		prefix += sep
+	}
+
+	fileSet := make(map[string]struct{})
+	foldersSet := make(map[string]struct{})
+
+	for _, f := range fileref.WorkspaceFiles(ctx) {
+		name := filepath.Clean(strings.TrimSpace(f.Name))
+		if name == "" || name == "." {
+			continue
+		}
+		if prefix != "" {
+			if !strings.HasPrefix(name, prefix) {
+				continue
+			}
+			name = strings.TrimPrefix(name, prefix)
+		}
+		if name == "" || name == "." {
+			continue
+		}
+		// In recursive mode, keep the full relative path for files.
+		name = filepath.ToSlash(name)
+		head, tail, found := strings.Cut(name, "/")
+		prefixSlash := filepath.ToSlash(prefix)
+		if !found {
+			fileSet[prefixSlash+name] = struct{}{}
+		} else if tail == "" {
+			foldersSet[prefixSlash+head] = struct{}{}
+		} else {
+			fileSet[prefixSlash+name] = struct{}{}
+			// Collect all parent directories.
+			parts := strings.Split(name, "/")
+			for i := 1; i < len(parts); i++ {
+				dirPath := strings.Join(parts[:i], "/")
+				foldersSet[prefixSlash+dirPath] = struct{}{}
+			}
+		}
+	}
+
+	files := make([]fileInfo, 0, len(fileSet))
+	names := make([]string, 0, len(fileSet))
+	for n := range fileSet {
+		names = append(names, fileref.WorkspaceRef(n))
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		files = append(files, fileInfo{Name: n})
+	}
+	folders := make([]string, 0, len(foldersSet))
+	for n := range foldersSet {
+		folders = append(folders, fileref.WorkspaceRef(n))
+	}
 	slices.Sort(folders)
 	return files, folders
 }
@@ -237,7 +351,9 @@ func (f *fileToolSet) listFileTool() tool.CallableTool {
 		f.listFile,
 		function.WithName("list_file"),
 		function.WithDescription(
-			"List files under base_directory. Supports workspace:// paths.",
+			"List files and folders under base_directory. Supports workspace:// paths. "+
+				"Set recursive=true to list files in all subdirectories recursively. "+
+				"Set with_size=true to include file sizes in the file list.",
 		),
 	)
 }
