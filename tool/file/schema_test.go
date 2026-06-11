@@ -46,7 +46,8 @@ func TestFileTool_InputSchemaDescriptions(t *testing.T) {
 		},
 		"list_file": {
 			"path":      "Relative directory path under base_directory or workspace:// directory ref; empty means the base directory",
-			"with_size": "Whether to include file sizes in files_with_size",
+			"with_size": "Whether to include file sizes in the file list",
+			"recursive": "Whether to recursively list files in all subdirectories",
 		},
 		"search_file": {
 			"path":           "Relative directory path under base_directory or workspace:// directory ref; empty means the base directory",
