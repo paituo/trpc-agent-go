@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -708,6 +708,8 @@ type luaToolSetConfig struct {
 	DeniedTools          []string `yaml:"denied_tools,omitempty"`
 	AllowedScriptDirs    []string `yaml:"allowed_script_dirs,omitempty"`
 	AddSkillScriptDirs   *bool    `yaml:"add_skill_script_dirs,omitempty"`
+	EnableDebug          *bool    `yaml:"enable_debug,omitempty"`
+	MaxLogEntries        int      `yaml:"max_log_entries,omitempty"`
 }
 
 func newLuaToolSet(
@@ -743,6 +745,12 @@ func newLuaToolSet(
 	}
 	if len(cfg.DeniedTools) > 0 {
 		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))
+	}
+	if cfg.EnableDebug != nil {
+		opts = append(opts, luaexec.WithEnableDebug(*cfg.EnableDebug))
+	}
+	if cfg.MaxLogEntries > 0 {
+		opts = append(opts, luaexec.WithMaxLogEntries(cfg.MaxLogEntries))
 	}
 
 	// Build the final allowed_script_dirs list.
