@@ -347,6 +347,111 @@ return #tables
 	assert.Equal(t, float64(2), resp["result"])
 }
 
+func TestHTML_StripTagsViaGetText(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	t.Run("table_html_extract_text", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"script": `
+local doc = html.parse("<table><tr><td>名称</td><td>值</td></tr></table>")
+local text = html.get_text(doc)
+-- html.get_text returns text with space separator by default
+return text
+`,
+		})
+		result, err := ct.Call(context.Background(), args)
+		require.NoError(t, err)
+		resp := result.(map[string]any)
+		assert.Equal(t, "success", resp["status"])
+		assert.Contains(t, resp["result"].(string), "名称")
+		assert.Contains(t, resp["result"].(string), "值")
+	})
+
+	t.Run("complex_html_strip_tags", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"script": `
+local html_str = "<div><p>hello <b>world</b></p><ul><li>item1</li><li>item2</li></ul></div>"
+local doc = html.parse(html_str)
+local text = html.get_text(doc)
+-- Should contain all text content without HTML tags
+return text
+`,
+		})
+		result, err := ct.Call(context.Background(), args)
+		require.NoError(t, err)
+		resp := result.(map[string]any)
+		assert.Equal(t, "success", resp["status"])
+		text := resp["result"].(string)
+		assert.Contains(t, text, "hello")
+		assert.Contains(t, text, "world")
+		assert.Contains(t, text, "item1")
+		assert.Contains(t, text, "item2")
+	})
+
+	t.Run("fallback_regex_strip", func(t *testing.T) {
+		// Use re.gsub to strip tags (fallback path when html.parse fails)
+		args, _ := json.Marshal(map[string]any{
+			"script": `
+local html_str = "<p>hello <b>world</b></p>"
+local text = re.gsub(html_str, "<[^>]+>", "")
+return text
+`,
+		})
+		result, err := ct.Call(context.Background(), args)
+		require.NoError(t, err)
+		resp := result.(map[string]any)
+		assert.Equal(t, "success", resp["status"])
+		assert.Equal(t, "hello world", resp["result"])
+	})
+
+	t.Run("empty_html_string", func(t *testing.T) {
+		args, _ := json.Marshal(map[string]any{
+			"script": `
+local doc = html.parse("")
+local text = html.get_text(doc)
+return text
+`,
+		})
+		result, err := ct.Call(context.Background(), args)
+		require.NoError(t, err)
+		resp := result.(map[string]any)
+		assert.Equal(t, "success", resp["status"])
+	})
+
+	t.Run("html_with_attributes_strip", func(t *testing.T) {
+		// Simulate the exact pattern used in html_to_plain_text:
+		// table.insert(processed, strip_html_tags(before))
+		args, _ := json.Marshal(map[string]any{
+			"script": `
+local before = "<span class='x'>some text</span> before table"
+local ok, doc = pcall(html.parse, before)
+if ok and doc then
+  local ok2, text = pcall(html.get_text, doc)
+  if ok2 and text then
+    return text
+  end
+end
+return nil
+`,
+		})
+		result, err := ct.Call(context.Background(), args)
+		require.NoError(t, err)
+		resp := result.(map[string]any)
+		assert.Equal(t, "success", resp["status"])
+		if resp["result"] != nil {
+			text := resp["result"].(string)
+			assert.Contains(t, text, "some text")
+			assert.Contains(t, text, "before table")
+		}
+	})
+}
+
 func TestHTML_FindWithAttrs(t *testing.T) {
 	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
 	require.NoError(t, err)

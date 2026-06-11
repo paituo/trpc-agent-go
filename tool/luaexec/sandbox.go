@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -18,7 +18,7 @@ import (
 )
 
 // newState creates a new GopherLua VM with sandbox configuration.
-func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.CancelFunc) {
+func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.CancelFunc, *LogCollector) {
 	timeout := time.Duration(cfg.DefaultTimeout) * time.Second
 	if timeout <= 0 {
 		timeout = 300 * time.Second
@@ -87,7 +87,14 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 		registerSummarizeBridge(L)
 	}
 
-	return L, cancel
+	// Register log bridge module (always enabled, debug level gated by EnableDebug).
+	if !denied["log"] {
+		lc := newLogCollector(cfg.MaxLogEntries, cfg.EnableDebug)
+		registerLogBridge(L, lc)
+		return L, cancel, lc
+	}
+
+	return L, cancel, nil
 }
 
 // openSafeLibs loads the safe standard libraries: base, package, string, table, math.

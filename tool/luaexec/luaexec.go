@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -85,6 +85,16 @@ func WithMaxOutputLen(n int) Option {
 // WithMaxErrorLen sets the maximum length of a single error message.
 func WithMaxErrorLen(n int) Option {
 	return func(c *Config) { c.MaxErrorLen = n }
+}
+
+// WithEnableDebug controls whether log.debug() outputs are collected.
+func WithEnableDebug(enable bool) Option {
+	return func(c *Config) { c.EnableDebug = enable }
+}
+
+// WithMaxLogEntries sets the maximum number of log entries per execution.
+func WithMaxLogEntries(n int) Option {
+	return func(c *Config) { c.MaxLogEntries = n }
 }
 
 // NewToolSet creates a Lua script execution tool set.

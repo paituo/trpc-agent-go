@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 
@@ -91,7 +92,7 @@ func (t *luaExecTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 		cfg.Tools = cfg.ToolsProvider(ctx)
 	}
 
-	L, cancel := newState(&cfg, ctx)
+	L, cancel, lc := newState(&cfg, ctx)
 	defer cancel()
 
 	// Inject ARGS global variable if args are provided.
@@ -107,12 +108,14 @@ func (t *luaExecTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	redirectPrint(L, &stdout)
 
 	// Execute the script.
+	startTime := time.Now()
 	result, execErr := executeScript(L, script, &cfg)
+	durationMs := time.Since(startTime).Milliseconds()
 
 	if execErr != nil {
-		return buildErrorResponse(execErr, &cfg), nil
+		return buildErrorResponse(execErr, &cfg, durationMs, lc, stdout.String()), nil
 	}
-	return buildSuccessResponse(result, stdout.String(), &cfg), nil
+	return buildSuccessResponse(result, &cfg, durationMs, lc, stdout.String()), nil
 }
 
 // resolveScriptPath validates that scriptPath is under one of the allowed
@@ -206,21 +209,23 @@ func executeScript(L *lua.LState, script string, cfg *Config) (result any, err e
 }
 
 // buildSuccessResponse constructs a success response.
-func buildSuccessResponse(result any, stdout string, cfg *Config) map[string]any {
+// diagnostics holds print output and log entries, separate from the business result.
+func buildSuccessResponse(result any, cfg *Config, durationMs int64, lc *LogCollector, stdout string) map[string]any {
 	resp := map[string]any{
-		"status": "success",
+		"status":      "success",
+		"duration_ms": durationMs,
 	}
 	if result != nil {
 		resp["result"] = result
 	}
-	if stdout != "" {
-		resp["stdout"] = truncateMessage(stdout, cfg.MaxOutputLen)
+	if diag := buildDiagnostics(cfg, lc, stdout); diag != nil {
+		resp["diagnostics"] = diag
 	}
 	return resp
 }
 
 // buildErrorResponse constructs an error response.
-func buildErrorResponse(err error, cfg *Config) map[string]any {
+func buildErrorResponse(err error, cfg *Config, durationMs int64, lc *LogCollector, stdout string) map[string]any {
 	luaErr := &luaExecError{}
 	if !asLuaExecError(err, luaErr) {
 		luaErr = &luaExecError{Type: ErrTypeRuntime, Err: err}
@@ -236,10 +241,36 @@ func buildErrorResponse(err error, cfg *Config) map[string]any {
 		luaErrors[0].Line = line
 	}
 
-	return map[string]any{
-		"status": "error",
-		"errors": luaErrors,
+	resp := map[string]any{
+		"status":      "error",
+		"duration_ms": durationMs,
+		"errors":      luaErrors,
 	}
+	if diag := buildDiagnostics(cfg, lc, stdout); diag != nil {
+		resp["diagnostics"] = diag
+	}
+	return resp
+}
+
+// buildDiagnostics constructs the diagnostics node containing print output and log entries.
+// Returns nil if there is nothing to report.
+func buildDiagnostics(cfg *Config, lc *LogCollector, stdout string) map[string]any {
+	diag := map[string]any{}
+	hasContent := false
+	if stdout != "" {
+		diag["stdout"] = truncateMessage(stdout, cfg.MaxOutputLen)
+		hasContent = true
+	}
+	if lc != nil {
+		if entries := lc.collect(); len(entries) > 0 {
+			diag["logs"] = entries
+			hasContent = true
+		}
+	}
+	if !hasContent {
+		return nil
+	}
+	return diag
 }
 
 // luaExecError wraps a Lua execution error with a type.
@@ -294,7 +325,7 @@ func buildDescription(cfg Config) string {
 	if !denied["yaml"] {
 		available = append(available, "yaml: decode/encode")
 		if cfg.AllowIOLib {
-			available[len(available)-1] += "/read_file/write_file/read_file_auto(自动检测UTF-8/GBK编码)"
+			available[len(available)-1] += "/read_file/write_file/read_file_auto(自动检测UTF-8/GBK编码)/read_text_file(读取文本文件，支持编码转换，不解析YAML)"
 		}
 	}
 	if !denied["json"] {
@@ -308,6 +339,10 @@ func buildDescription(cfg Config) string {
 	}
 	if !denied["md"] {
 		available = append(available, "md: parse/extract_tables/parse_table/detect_merge")
+	}
+	if !denied["log"] {
+		logDesc := "log: info/warn/error/debug(需配置enable_debug开启)"
+		available = append(available, logDesc)
 	}
 	if len(available) > 0 {
 		desc += "【桥接模块——全局已注册，直接使用，禁止require】" + strings.Join(available, "; ") + "\n\n"
@@ -353,7 +388,16 @@ func buildDescription(cfg Config) string {
 	desc += "② yaml.encode(table) 将Lua table序列化为YAML字符串\n"
 	desc += "③ yaml.read_file(path) 读取YAML文件为Lua table（需AllowIOLib）\n"
 	desc += "④ yaml.write_file(path, table) 将Lua table写入YAML文件（需AllowIOLib，自动创建父目录）\n"
-	desc += "⑤ yaml.read_file_auto(path) 自动检测编码(UTF-8/GBK)读取文件（需AllowIOLib）\n\n"
+	desc += "⑤ yaml.read_file_auto(path) 自动检测编码(UTF-8/GBK)读取YAML文件（需AllowIOLib）\n"
+	desc += "⑥ yaml.read_text_file(path [, encoding]) 读取文本文件为字符串，支持编码转换但不解析YAML（需AllowIOLib）。encoding: utf-8/utf-8-bom/gbk/auto(默认)。适用于读取Markdown等非YAML文本文件。\n\n"
+
+	desc += "【log模块关键API说明——脚本执行日志】\n"
+	desc += "① log.info(...) 输出INFO级别日志，可接受多个参数\n"
+	desc += "② log.warn(...) 输出WARN级别日志\n"
+	desc += "③ log.error(...) 输出ERROR级别日志\n"
+	desc += "④ log.debug(...) 输出DEBUG级别日志（需配置enable_debug=true，默认关闭）\n"
+	desc += "⑤ 日志输出与print()输出均存放在响应的diagnostics节点中（logs数组+stdout字符串），与脚本return的业务结果result完全分离，不会混杂\n"
+	desc += "⑥ 例: log.info(\"开始处理文件:\", filename); log.warn(\"配置缺失，使用默认值\")\n\n"
 
 	desc += "【GopherLua闭包与变量作用域注意事项】\n"
 	desc += "① 局部变量必须在使用前声明：local x = {} 必须在引用x的函数定义之前\n"
@@ -367,6 +411,13 @@ func buildDescription(cfg Config) string {
 	if len(cfg.AllowedScriptDirs) > 0 {
 		desc += "【脚本文件执行】支持script_path参数指定白名单目录下的.lua文件路径，避免回显完整脚本内容。script和script_path二选一，不可同时提供。例: lua_exec(script_path=\"/scripts/validate.lua\", args={category=\"基础组件\"})\n\n"
 	}
+
+	desc += "【错误处理要求——必须遵守】\n"
+	desc += "① yaml.write_file/yaml.read_file 等桥接函数失败时返回 nil, {type=\"bridge\", message=\"原因\"}，必须检查返回值：local ok, err = yaml.write_file(path, data); if not ok then error(\"写入失败: \" .. (err and err.message or \"unknown\")) end\n"
+	desc += "② io.lines(path) 文件不存在时会抛出运行时错误，必须用pcall包裹：local ok, iter = pcall(io.lines, path); if not ok then error(\"文件不可读: \" .. path) end\n"
+	desc += "③ 脚本末尾必须return执行结果（至少包含status字段），禁止无return结束。例: return { status=\"success\", stats={...} }\n"
+	desc += "④ pcall捕获的错误不要静默忽略，至少用print输出WARNING：if not ok then print(\"WARNING: \" .. tostring(err)) end\n"
+	desc += "⑤ 工具调用失败时返回 nil, {type=\"tool_call\", ...}，必须检查第一个返回值是否为nil\n\n"
 
 	desc += "【常见错误】\n"
 	desc += "- attempt to call a nil value: 变量未定义或拼写错误，检查工具名/函数名是否正确\n"
@@ -422,6 +473,10 @@ func buildOutputSchema() *tool.Schema {
 				Type:        "string",
 				Description: "success 或 error",
 			},
+			"duration_ms": {
+				Type:        "integer",
+				Description: "脚本执行耗时（毫秒）",
+			},
 			"result": {
 				Description: "Lua脚本return的值（自动转换为JSON兼容结构）。仅status=success时存在。",
 			},
@@ -437,9 +492,27 @@ func buildOutputSchema() *tool.Schema {
 					},
 				},
 			},
-			"stdout": {
-				Type:        "string",
-				Description: "Lua print()输出（截断至MaxOutputLen）",
+			"diagnostics": {
+				Type:        "object",
+				Description: "诊断信息节点，包含print输出和log日志，与业务返回result分离",
+				Properties: map[string]*tool.Schema{
+					"stdout": {
+						Type:        "string",
+						Description: "Lua print()输出（截断至MaxOutputLen）",
+					},
+					"logs": {
+						Type:        "array",
+						Description: "log模块输出的日志条目",
+						Items: &tool.Schema{
+							Type: "object",
+							Properties: map[string]*tool.Schema{
+								"level":     {Type: "string", Description: "日志级别：info/warn/error/debug"},
+								"timestamp": {Type: "string", Description: "ISO 8601时间戳"},
+								"message":   {Type: "string", Description: "日志消息"},
+							},
+						},
+					},
+				},
 			},
 			"tool_calls": {
 				Type:        "array",

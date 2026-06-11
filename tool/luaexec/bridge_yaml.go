@@ -29,6 +29,7 @@ func registerYAMLBridge(L *lua.LState, allowIO bool) {
 	if allowIO {
 		L.SetField(mod, "read_file", L.NewFunction(bridgeYamlReadFile))
 		L.SetField(mod, "read_file_auto", L.NewFunction(bridgeYamlReadFileAuto))
+		L.SetField(mod, "read_text_file", L.NewFunction(bridgeYamlReadTextFile))
 		L.SetField(mod, "write_file", L.NewFunction(bridgeYamlWriteFile))
 	}
 	L.SetGlobal("yaml", mod)
@@ -272,6 +273,25 @@ func bridgeYamlReadFileAuto(L *lua.LState) int {
 	}
 
 	pushGoValue(L, data)
+	return 1
+}
+
+// bridgeYamlReadTextFile implements yaml.read_text_file(path [, encoding]).
+// It reads a text file with encoding conversion and returns the content as a
+// Lua string (not parsed as YAML). This is useful for reading non-YAML text
+// files (e.g. Markdown) that may need encoding conversion.
+// Supported encodings: utf-8, utf-8-bom, gbk, auto (default).
+func bridgeYamlReadTextFile(L *lua.LState) int {
+	path := L.CheckString(1)
+	encoding := L.OptString(2, "auto")
+
+	content, err := readFileWithEncoding(path, encoding)
+	if err != nil {
+		pushEncodingError(L, path, encoding, err)
+		return 2
+	}
+
+	L.Push(lua.LString(content))
 	return 1
 }
 
