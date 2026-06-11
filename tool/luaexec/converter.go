@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 	"gopkg.in/yaml.v3"
@@ -69,7 +70,7 @@ func anyToYAMLNode(v any) (*yaml.Node, error) {
 	case int, int64, float64:
 		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", val)}, nil
 	case string:
-		return &yaml.Node{Kind: yaml.ScalarNode, Value: val, Tag: "!!str"}, nil
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: sanitizeUTF8(val), Tag: "!!str"}, nil
 	case *orderedMap:
 		node, err := val.MarshalYAML()
 		if err != nil {
@@ -437,4 +438,26 @@ func luaValueToString(v lua.LValue) string {
 	default:
 		return v.String()
 	}
+}
+
+// sanitizeUTF8 replaces invalid UTF-8 byte sequences with the Unicode
+// replacement character (U+FFFD). This prevents yaml.v3 from failing
+// with "cannot marshal invalid UTF-8 data as !!str" when source files
+// contain mixed or corrupted encoding.
+func sanitizeUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteString("\uFFFD")
+		} else {
+			b.WriteString(s[i : i+size])
+		}
+		i += size
+	}
+	return b.String()
 }

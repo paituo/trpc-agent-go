@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -296,7 +296,8 @@ func TestWithMaxOutputLen(t *testing.T) {
 	require.NoError(t, err)
 
 	resp := result.(map[string]any)
-	stdout := resp["stdout"].(string)
+	diag := resp["diagnostics"].(map[string]any)
+	stdout := diag["stdout"].(string)
 	assert.LessOrEqual(t, len(stdout), 13) // 10 + "..."\n
 }
 
@@ -597,7 +598,8 @@ func TestLuaExec_PrintOutput(t *testing.T) {
 
 	resp := result.(map[string]any)
 	assert.Equal(t, "success", resp["status"])
-	assert.Contains(t, resp["stdout"], "hello")
+	diag := resp["diagnostics"].(map[string]any)
+	assert.Contains(t, diag["stdout"], "hello")
 }
 
 func TestLuaExec_SyntaxError(t *testing.T) {
