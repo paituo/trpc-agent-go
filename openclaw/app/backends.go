@@ -307,6 +307,11 @@ func newSessionSummarizer(
 				opts.SessionSummaryContextThresholdMinTokens,
 			))
 		}
+		if opts.SessionSummaryContextThresholdFallbackWindow > 0 {
+			cto = append(cto, summary.WithContextThresholdFallbackWindow(
+				opts.SessionSummaryContextThresholdFallbackWindow,
+			))
+		}
 		options = append(options, summary.WithContextThreshold(cto...))
 	case summaryModeManual, "":
 		// Manual thresholds (original behavior).
@@ -336,7 +341,7 @@ func newSessionSummarizer(
 			)
 		}
 
-		// Add context-threshold check when ratio or min-tokens is configured.
+		// Add context-threshold check when ratio, min-tokens, or fallback-window is configured.
 		var hasContextCheck bool
 		var cto []summary.ContextThresholdOption
 		if opts.SessionSummaryContextThresholdRatio > 0 {
@@ -348,6 +353,12 @@ func newSessionSummarizer(
 		if opts.SessionSummaryContextThresholdMinTokens > 0 {
 			cto = append(cto, summary.WithContextThresholdMinTokens(
 				opts.SessionSummaryContextThresholdMinTokens,
+			))
+			hasContextCheck = true
+		}
+		if opts.SessionSummaryContextThresholdFallbackWindow > 0 {
+			cto = append(cto, summary.WithContextThresholdFallbackWindow(
+				opts.SessionSummaryContextThresholdFallbackWindow,
 			))
 			hasContextCheck = true
 		}
