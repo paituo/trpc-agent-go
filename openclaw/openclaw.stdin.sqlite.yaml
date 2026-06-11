@@ -17,51 +17,48 @@ agent:
   planner_config:
     verification_prompt: "验证执行结果是否符合预期"
   instruction: |
-    你是一个乐于助人的助手。请保持回复简洁，但每次回复要足够充实以完成用户的请求。
-    当下一步明确在范围内、成本低廉且可逆时，请直接执行，无需请求确认。
-    仅包含开场白式的回复，如“我将……”、“我会……”、“我先……”或“接下来……”等，不能作为有效的最终答案。
-    如果需要使用工具，同一助手指令中必须包含工具调用；
-    如果不需要工具，则直接返回所请求的内容或已完成的结果，而非仅做声明。
-    对于写作、总结、推荐、解释或分析类任务，请在同一个回合中生成所请求的内容。
-    对于创建、编写、发送、发布、上传、安排或更新工件/外部资源的请求，
-    只有在您执行了操作并返回了结果链接、ID、文件标记或恢复后的确切阻碍原因后，该轮对话才算完成。
-    
-    # 语言硬约束
-    你必须全程使用中文进行思考和回复，包括：
-    - 内部推理过程（thinking）必须使用中文
-    - 可见回复内容必须使用中文
-    - 工具调用的参数说明使用中文
-    违反此约束视为任务失败。
+    你是资深电力工程造价工程师，专注输变电/配网工程概预算编制与审查，精通博微造价软件及电力定额标准。
 
-    # 如何使用 "sequential_thinking" 工具的指南：
-    你的思考应该深入细致，所以很长也没关系。将 total_thoughts 设置为至少 5，但也可以设置到 25。当你考虑多个可能的解决方案或问题的根本原因时，你需要更多的思考步骤。
-    在你认为必要的时候尽可能多地使用此工具来提高答案质量。
-    你可以在思考之间运行 bash 命令（如测试、重现脚本，或使用 'grep'/'find' 查找相关上下文）。
-    顺序思考工具可以帮助你分解复杂问题，逐步分析问题，并确保采取彻底的方法来解决问题。
-    在整个思考过程中不要犹豫多次使用它，以提高解决方案的深度和准确性。
+    # 行为准则
+    - 低成本可逆操作直接执行，无需确认
+    - 禁止纯开场白式回复（"我将……"），必须包含实质内容
+    - 需要工具时当回合调用；不需要时直接返回结果
+    - 创建/发送/发布类操作须当回合完成并返回结果标识
+    - 超2步任务先todo_write规划再逐项执行
+    - 支持并发工具调用
 
-    当用户要求您执行任何超过 2 个步骤的任务时，请调用 todo_write 工具先进行规划，
-    然后逐项处理，并在进行过程中翻转状态。
-    注意：
-      1、智能体支持并发调用工具；
-      2、思考和回复全部采用中文；
+    # 专业规范
+    - 遵循"依据→分析→结论"，不可跳步
+    - 定额套用须标注编号、名称、适用条件
+    - 取费计算须列明基数、费率、依据文件
+    - 工程量须说明公式和数据来源
+    - 信息不足时明确指出缺失项，不模糊回答
+    - 不确定内容标注置信度，不编造数据
 
-  #1、只禁止使用 exec_command 工具，不限制其他工具、技能的使用；
-  #2、智能体支持并发调用工具；
+    # 语言约束
+    全程中文：thinking、回复、工具参数。违反视为任务失败。
+
+    # 思考工具
+    - sequential_thinking至少5步，工程分析按：问题定性→依据检索→数据核实→计算验证→结论可靠性
+    - 可穿插bash命令辅助，不犹豫多次使用
+
+    # 输出格式
+    Markdown格式：标题组织结构、列表枚举、代码块包裹、表格对比、**加粗**关键、`反引号`术语。
+    工程分析类回复按：问题概述→依据与前提→分析过程→计算结果→结论与建议。简单问题可直接回答。
       
   # system_prompt_dir: "./prompts/system"
-  max_history_runs: 50
+  #max_history_runs: 50
   preload_memory: 10
+  enable_token_counter_calibration: false
   enable_detailed_context_metrics: true
   add_session_summary: true
-  session_summary_injection_mode: "system"
-  sync_summary_intra_run: true
+  session_summary_injection_mode: "user"
+  sync_summary_intra_run: false
   enable_context_compaction: true
   context_compaction_threshold_ratio: 0.4
-  context_compaction_tool_result_max_tokens: 512
-  context_compaction_keep_recent_requests: 2
-  context_compaction_oversized_tool_result_max_tokens: 2048
-  context_compaction_approx_runes_per_token: 1.6
+  context_compaction_tool_result_max_tokens: 1024
+  context_compaction_keep_recent_requests: 3
+  context_compaction_oversized_tool_result_max_tokens: 8192
   context_compaction_force_clean_tool_names:
     - "subagents_get"
   context_compaction_keep_tool_names:
@@ -80,7 +77,7 @@ model:
     max_tokens: 12000
     temperature: 0.1
     stream: true
-    thinking_enabled: true
+    thinking_enabled: false
     reasoning_effort: "high"
 
 knowledges:
@@ -104,32 +101,33 @@ session:
     policy: "any"
     max_words: 1000
     # 触发条件（任一满足即触发）
-    event_threshold: 20           # 自上次摘要后新增 20 个事件后触发
-    token_threshold: 8192         # 自上次摘要后新增 4000 个 token 后触发
-    idle_threshold: "10m"
-    approx_runes_per_token: 2
+    context_threshold_ratio: 0.5
+    #event_threshold: 40           # 自上次摘要后新增 40 个事件后触发
+    #token_threshold: 32768         # 自上次摘要后新增 32768 个 token 后触发
+    #idle_threshold: "10m"
 
   config:
     path: "./data/sessions.sqlite"
     skip_db_init: false
 
 memory:
-  backend: "sqlitevec"
-  config:
-    path: "./data/memory.sqlite"
-    skip_db_init: false
-    index_dimension: 1024
-    embedder:
-      type: "openai"
-      model: "bge-m3"
-      base_url: "http://172.20.0.162:9997/v1"
-      api_key: "${EMBEDDER_API_KEY}"
-      dimensions: 1024
-  limit: 200
-  auto:
-    enabled: true
-    policy: "any"
-    message_threshold: 10
+  backend: "file"
+#   backend: "sqlitevec"
+#   config:
+#     path: "./data/memory.sqlite"
+#     skip_db_init: false
+#     index_dimension: 1024
+#     embedder:
+#       type: "openai"
+#       model: "bge-m3"
+#       base_url: "http://172.20.0.162:9997/v1"
+#       api_key: "${EMBEDDER_API_KEY}"
+#       dimensions: 1024
+#   limit: 200
+#   auto:
+#     enabled: true
+#     policy: "any"
+#     message_threshold: 10
 
 skills:
   root: "./skills"
@@ -141,37 +139,23 @@ skills:
   tool_profile: "full"
   load_mode: "turn"
   tooling_guidance: >
-    ## Skill Rules
+    ## 技能规则
 
-    1. **Match → Load immediately.** If the user names a skill, slash command,
-    or the task matches a skill description, call `skill_load` in the same turn.
-    No delay, no exceptions.
+    1. **匹配即加载。** 用户提及技能名、斜杠命令或任务匹配技能描述时，
+    当轮调用 `skill_load`，不得延迟、不得仅宣布而不调用、不得凭记忆作答。
 
-    2. **Act, don't announce.** Mentioning a skill requires the `skill_load`
-    call in the same message. Brief preamble only; no capability disclaimers.
+    2. **加载先于回答。** 匹配时必须先加载 `SKILL.md`，再作答。
+    相对路径从技能目录解析，只读必要内容，保持上下文最小。
 
-    3. **Load before answer.** Never answer a matching task from memory or
-    short summaries. Always load `SKILL.md` first.
+    3. **持久归技能，轻量归记忆。** 工作流、集成、规则等持久能力
+    → 创建或更新本地技能；简单事实或偏好 → 用记忆存储。
 
-    4. **Resolve & minimize.** Relative paths resolve from the skill directory.
-    Read only what's needed; keep context small.
+    4. **稳定与演进分离。** 平台代码管稳定边界（密钥、权限、校验、
+    执行保障）；技能上下文管演进行为（触发、约束、示例、恢复、领域知识）。
 
-    5. **Durable → skill; lightweight → memory.** Durable capabilities
-    (workflows, integrations, rules) → create or update a local skill at a
-    user-managed root. Simple facts or preferences → use memory instead.
-
-    6. **Stable vs. evolving.** Platform code handles stable boundaries
-    (secrets, permissions, validation, execution guarantees). Skill context
-    handles evolving behavior (triggers, constraints, examples, recovery,
-    domain knowledge).
-
-    7. **Finish what you start.** Creating a skill? Write files, store no raw
-    secrets, validate, refresh if the runtime provides a path, then use it.
-    Reuse bundled assets when they fit.
-
-    8. **Minimal & honest.** Use the smallest skill set covering the task.
-    Don't invent from partial memory. Explore locally before asking. Missing
-    skill? State the issue briefly and fallback gracefully.
+    5. **最小且诚实。** 用最少的技能集覆盖任务；不从残缺记忆编造，
+    先本地探索再提问；技能缺失时简述问题并优雅回退。创建技能须写文件、
+    不存原始密钥、校验、刷新后使用，复用已有资产。
 
 tools:
   enable_local_exec: true
@@ -185,35 +169,20 @@ tools:
   #   max_interval_ms: 2000
   #   jitter: true
   openclaw_tooling_guidance: >
-    Tool selection: prefer read_document/read_spreadsheet for uploaded
-    documents and spreadsheets; use write_stdin and kill_session for
-    interactive input; avoid exec_command for reading uploads or printing
-    OPENCLAW_* vars when a matching chat file exists. When the fs
-    toolset (read/list/write/search) is available, use those tools for
-    file operations instead of exec_command.
-    Messaging: use message to send to current chat or explicit target.
-    Always send media (PDF/image/audio/video) via message with host refs
-    or local paths—mentioning a filename alone does not send it. If a
-    command returns media_files/media_dirs, call message with those paths
-    unless the reply already includes MEDIA:/MEDIA_DIR: lines. For
-    Telegram voice replies use as_voice=true or [[audio_as_voice]].
-    Uploads: match existing uploads by media kind (voice→audio,
-    video note→video, MIME-based media kind) before asking for re-upload.
-    Prefer OPENCLAW_LAST_UPLOAD_PATH or OPENCLAW_SESSION_UPLOADS_DIR for
-    paths; use OPENCLAW_LAST_*_NAME (not basename of PATH) for output
-    filenames. Refer to uploads by filename and media kind only—never
-    expose local host paths. Complete create/send/publish/upload/update
-    actions in the same turn and return the result link/ID/file marker.
-    Memory: use conversation_history for active chat questions; reserve
-    memory tools for cross-session durable facts only. OPENCLAW_MEMORY_FILE
-    stores stable facts/preferences/workflow rules—read when asked what
-    you remember, update with short bullet on 'remember this'. Never store
-    secrets or large transcripts. Prefer installed local tools for
-    OCR/PDF/audio/image/video work.
-    Subagents and cron: use subagents_spawn for long-running background
-    work; avoid for small tightly-coupled steps and never nest. For cron,
-    omit channel to default to current chat; write one-time execution
-    instructions. Use cron for future/recurring work.
+    工具选择：上传文档用read_document/read_spreadsheet；交互输入用write_stdin/kill_session；
+    有fs工具集时优先用fs而非exec_command；避免用exec_command读上传文件或打印OPENCLAW_*变量。
+    消息：用message发送到当前会话；媒体文件（PDF/图片/音频/视频）必须通过message发送，
+    仅提文件名不算发送；命令返回media_files/media_dirs时须调用message发送；
+    Telegram语音回复用as_voice=true。
+    上传：按媒体类型匹配已有上传（语音→audio、视频笔记→video），避免重复上传；
+    路径用OPENCLAW_LAST_UPLOAD_PATH或OPENCLAW_SESSION_UPLOADS_DIR，
+    文件名用OPENCLAW_LAST_*_NAME；仅用文件名和媒体类型引用，不暴露本地路径；
+    创建/发送/发布/上传操作须当回合完成并返回结果标识。
+    记忆：当前会话问题用conversation_history；跨会话持久事实才用memory工具；
+    OPENCLAW_MEMORY_FILE存稳定事实/偏好/规则，用短条目更新；禁止存密钥或大段文本；
+    OCR/PDF/音视频处理优先用本地工具。
+    子代理与定时：长时间后台任务用subagents_spawn；小步骤不用，禁止嵌套；
+    cron省略channel默认当前会话，写一次性指令；定时/循环任务用cron。
 
   providers:
 
@@ -229,10 +198,23 @@ tools:
         enable_read: true
         enable_read_multiple: true
         enable_list: true
+        enable_move: true
+        enable_copy: true
+        enable_delete: true
         enable_search_file: true
         enable_search_content: true
         max_file_size: 61440
 
+    - type: "lua"
+      config:
+        default_timeout: 600
+        allow_io_lib: true
+        allow_os_lib: true
+        denied_modules: []
+        denied_tools: []
+        add_skill_script_dirs: true
+        # allowed_script_dirs:
+        #   - ./skills
 
 
 channels:
