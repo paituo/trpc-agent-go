@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -88,6 +88,14 @@ type Config struct {
 	// Used by OpenClaw integration to obtain tools dynamically
 	// from the Agent via InvocationContext.
 	ToolsProvider ToolsProvider
+
+	// EnableDebug controls whether log.debug() outputs are collected.
+	// Defaults to false. When false, log.debug() calls are silently ignored.
+	EnableDebug bool
+
+	// MaxLogEntries is the maximum number of log entries collected per execution.
+	// Defaults to 500. Excess entries are silently dropped.
+	MaxLogEntries int
 }
 
 func defaultConfig() Config {
