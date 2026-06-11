@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -501,6 +501,7 @@ func (s *Server) streamLocked(
 	lastPublicCompleted := ""
 	pendingThought := false
 	lastThoughtCompleted := ""
+	lastDeltaMessageID := ""
 	var noTruncateTools []string
 	if run.streamOptions != nil {
 		noTruncateTools = run.streamOptions.NoTruncateTools
@@ -660,6 +661,7 @@ func (s *Server) streamLocked(
 			continue
 		}
 		sentText = true
+		lastDeltaMessageID = result.ResponseID
 		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
 			Type:      gwproto.StreamEventTypeMessageDelta,
 			SessionID: run.sessionID,
@@ -743,11 +745,15 @@ func (s *Server) streamLocked(
 	if reply == "" {
 		reply = emptyReplyFallbackText
 	}
+	msgCompletedID := lastDeltaMessageID
+	if msgCompletedID == "" {
+		msgCompletedID = result.ResponseID
+	}
 	if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
 		Type:         gwproto.StreamEventTypeMessageCompleted,
 		SessionID:    run.sessionID,
 		RequestID:    requestID,
-		MessageID:    result.ResponseID,
+		MessageID:    msgCompletedID,
 		Reply:        reply,
 		Usage:        cloneGatewayUsage(result.Usage),
 		FinishReason: result.FinishReason,
