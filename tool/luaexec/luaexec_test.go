@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -1523,4 +1523,190 @@ func TestResolveScriptPath(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, filepath.Join(tmpDir2, "test.lua"), resolved)
 	})
+}
+
+func TestSummarize_TFIDF_Chinese(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	text := `人工智能是计算机科学的一个分支。它企图了解智能的实质，并生产出一种新的能以人类智能相似的方式做出反应的智能机器。人工智能的研究包括机器人、语言识别、图像识别、自然语言处理和专家系统等。人工智能从诞生以来，理论和技术日益成熟，应用领域也不断扩大。可以设想，未来人工智能带来的科技产品，将会是人类智慧的容器。人工智能可以对人的意识、思维的信息过程的模拟。人工智能不是人的智能，但能像人那样思考，也可能超过人的智能。`
+
+	args, _ := json.Marshal(map[string]any{
+		"script": `return summarize.tfidf(ARGS.text, 3)`,
+		"args":   map[string]any{"text": text},
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	summary, ok := resp["result"].(string)
+	assert.True(t, ok, "result should be a string")
+	assert.NotEmpty(t, summary, "summary should not be empty")
+	// 摘要应包含"人工智能"关键词。
+	assert.Contains(t, summary, "人工智能")
+}
+
+func TestSummarize_TFIDF_ShortText(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// 短文本（少于3个句子），应回退到截断。
+	args, _ := json.Marshal(map[string]any{
+		"script": `return summarize.tfidf("短文本测试", 3)`,
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	summary, ok := resp["result"].(string)
+	assert.True(t, ok)
+	assert.NotEmpty(t, summary)
+}
+
+func TestSummarize_TFIDF_DefaultSentenceCount(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	text := `云计算是一种基于互联网的计算方式。通过这种方式，共享的软硬件资源和信息可以按需提供给计算机和其他设备。云计算是继互联网、计算机之后信息技术领域的又一次变革。云计算是信息技术发展的必然趋势。云计算的基本概念就是通过网络提供计算资源。`
+
+	// 不传 sentence_count 参数，默认应为 3。
+	args, _ := json.Marshal(map[string]any{
+		"script": `return summarize.tfidf(ARGS.text)`,
+		"args":   map[string]any{"text": text},
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	summary, ok := resp["result"].(string)
+	assert.True(t, ok)
+	assert.NotEmpty(t, summary)
+}
+
+func TestSummarize_Keywords_Chinese(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	text := `深度学习是机器学习领域中一个新的研究方向。它被引入机器学习使其更接近于最初的目标人工智能。深度学习是学习样本数据的内在规律和表示层次。这些学习过程中获得的信息对文字、图像和声音等数据的解释有很大的帮助。深度学习的最终目标是让机器能够像人一样具有分析学习能力。`
+
+	args, _ := json.Marshal(map[string]any{
+		"script": `return summarize.keywords(ARGS.text, 5)`,
+		"args":   map[string]any{"text": text},
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	keywords, ok := resp["result"].([]any)
+	assert.True(t, ok, "result should be an array")
+	assert.NotEmpty(t, keywords, "keywords should not be empty")
+	assert.LessOrEqual(t, len(keywords), 5)
+	// 验证关键词非空且与文本主题相关（gse 分词粒度不同，不做精确匹配）。
+	t.Logf("keywords: %v", keywords)
+	for _, kw := range keywords {
+		assert.NotEmpty(t, kw.(string), "each keyword should be non-empty")
+	}
+}
+
+func TestSummarize_Keywords_DefaultCount(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	text := `区块链是分布式数据存储、点对点传输、共识机制、加密算法等计算机技术的新型应用模式。区块链是比特币的一个重要概念。它本质上是一个去中心化的数据库。同时作为比特币的底层技术，区块链是一串使用密码学方法相关联产生的数据块。`
+
+	// 不传 count 参数，默认应为 10。
+	args, _ := json.Marshal(map[string]any{
+		"script": `return #summarize.keywords(ARGS.text)`,
+		"args":   map[string]any{"text": text},
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	count, ok := resp["result"].(float64)
+	assert.True(t, ok)
+	assert.Greater(t, count, float64(0))
+}
+
+func TestSummarize_Keywords_ShortText(t *testing.T) {
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// 极短文本，应返回空表而不崩溃。
+	args, _ := json.Marshal(map[string]any{
+		"script": `local kw = summarize.keywords("你好", 5); return type(kw)`,
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	// 应返回 "table" 类型（即使是空表）。
+	assert.Equal(t, "table", resp["result"])
+}
+
+func TestSummarize_DeniedModule(t *testing.T) {
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithDeniedModules("summarize"),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// summarize 模块被禁用，type(summarize) 应返回 "nil"。
+	args, _ := json.Marshal(map[string]any{
+		"script": `return type(summarize)`,
+	})
+
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+
+	resp := result.(map[string]any)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "nil", resp["result"])
 }
