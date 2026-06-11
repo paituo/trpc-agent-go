@@ -322,6 +322,7 @@ type runOptions struct {
 	SessionSummaryMaxWords                  int
 	SessionSummaryContextThresholdRatio     float64
 	SessionSummaryContextThresholdMinTokens int
+	SessionSummaryContextThresholdFallbackWindow int
 
 	EnableLocalExec                    bool
 	CodeExecutor                       codeExecutorOptions
@@ -1027,6 +1028,13 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Minimum token floor for context-aware summarization "+
 			"(0 uses framework default 2000; applied in both auto and manual modes)",
 	)
+	fs.IntVar(
+		&opts.SessionSummaryContextThresholdFallbackWindow,
+		"session-summary-context-threshold-fallback-window",
+		0,
+		"Fallback context window size when model cannot be identified "+
+			"(0 uses framework default 8192; applied in both auto and manual modes)",
+	)
 	fs.BoolVar(
 		&opts.EnableLocalExec,
 		"enable-local-exec",
@@ -1615,8 +1623,9 @@ type summaryConfig struct {
 	TokenThreshold            *int     `yaml:"token_threshold,omitempty"`
 	IdleThreshold             *string  `yaml:"idle_threshold,omitempty"`
 	MaxWords                  *int     `yaml:"max_words,omitempty"`
-	ContextThresholdRatio     *float64 `yaml:"context_threshold_ratio,omitempty"`
-	ContextThresholdMinTokens *int     `yaml:"context_threshold_min_tokens,omitempty"`
+	ContextThresholdRatio          *float64 `yaml:"context_threshold_ratio,omitempty"`
+	ContextThresholdMinTokens     *int     `yaml:"context_threshold_min_tokens,omitempty"`
+	ContextThresholdFallbackWindow *int    `yaml:"context_threshold_fallback_window,omitempty"`
 }
 
 type memoryAuto struct {
@@ -2884,6 +2893,10 @@ func applySessionSummary(
 	if cfg.ContextThresholdMinTokens != nil &&
 		!flagWasSet(set, "session-summary-context-threshold-min-tokens") {
 		opts.SessionSummaryContextThresholdMinTokens = *cfg.ContextThresholdMinTokens
+	}
+	if cfg.ContextThresholdFallbackWindow != nil &&
+		!flagWasSet(set, "session-summary-context-threshold-fallback-window") {
+		opts.SessionSummaryContextThresholdFallbackWindow = *cfg.ContextThresholdFallbackWindow
 	}
 	return nil
 }
