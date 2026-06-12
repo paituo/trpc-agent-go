@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -42,6 +42,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
 	"trpc.group/trpc-go/trpc-agent-go/runner"
+	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
 const (
@@ -598,6 +599,19 @@ func (s *Server) resolveRunOptions(
 		}
 		extra = resolvedOpts
 	}
+
+	// Handle ExternalTools: inject caller-executed tools that trigger
+	// EndInvocation when the model calls them.
+	if len(run.externalTools) > 0 {
+		extra = append(extra, externalToolsRunOptions(run.externalTools)...)
+	}
+
+	// Handle ToolCallContext: inject assistant tool_call + tool result
+	// from a previous EndInvocation run so the LLM sees the full context.
+	if len(run.toolCallContext) > 0 {
+		extra = append(extra, toolCallContextRunOptions(run.toolCallContext)...)
+	}
+
 	runOpts := s.runOptions(
 		ctx,
 		run.userID,
@@ -1038,4 +1052,147 @@ func (l *laneLocker) release(key string, entry *laneEntry) {
 		return
 	}
 	delete(l.lanes, key)
+}
+
+// externalToolsRunOptions builds RunOptions for caller-executed tools.
+// These tools are declared to the LLM but not executed by the framework;
+// when the model calls one, the run ends with EndInvocation.
+func externalToolsRunOptions(
+	tools []gwproto.ExternalToolDecl,
+) []agent.RunOption {
+	if len(tools) == 0 {
+		return nil
+	}
+	externalTools := make([]tool.Tool, 0, len(tools))
+	for _, decl := range tools {
+		externalTools = append(externalTools, &externalToolWrapper{
+			name:        decl.Name,
+			description: decl.Description,
+			parameters:  decl.Parameters,
+		})
+	}
+	return []agent.RunOption{agent.WithExternalTools(externalTools)}
+}
+
+// externalToolWrapper implements tool.Tool for caller-executed tools.
+// It only provides a Declaration; the tool is never executed by the
+// framework (ShouldExecuteTool returns false, triggering EndInvocation).
+type externalToolWrapper struct {
+	name        string
+	description string
+	parameters  json.RawMessage
+}
+
+func (t *externalToolWrapper) Declaration() *tool.Declaration {
+	decl := &tool.Declaration{
+		Name:        t.name,
+		Description: t.description,
+	}
+	if len(t.parameters) > 0 {
+		var schema tool.Schema
+		if err := json.Unmarshal(t.parameters, &schema); err == nil {
+			decl.InputSchema = &schema
+		}
+	}
+	return decl
+}
+
+// toolCallContextRunOptions builds RunOptions that inject the assistant
+// tool_call and tool result from a previous EndInvocation run.
+//
+// The assistant tool_call is injected via WithInjectedContextMessages
+// (visible to the LLM but not persisted to the session).
+// The tool result is injected via UserMessageRewriter
+// (visible to the LLM and persisted to the session).
+func toolCallContextRunOptions(
+	items []gwproto.ToolCallContextItem,
+) []agent.RunOption {
+	if len(items) == 0 {
+		return nil
+	}
+
+	var injectMsgs []model.Message
+	var toolResultMsgs []model.Message
+
+	// Build assistant message with tool_calls if we have arguments.
+	// This handles the case where the frontend sends back the full
+	// tool_call info (including arguments) from the SSE events.
+	hasToolCalls := false
+	for _, tc := range items {
+		if tc.Arguments != "" && tc.ToolCallID != "" {
+			hasToolCalls = true
+			break
+		}
+	}
+	if hasToolCalls {
+		toolCalls := make([]model.ToolCall, 0, len(items))
+		for _, tc := range items {
+			if tc.ToolCallID == "" {
+				continue
+			}
+			toolCalls = append(toolCalls, model.ToolCall{
+				ID:   tc.ToolCallID,
+				Type: "function",
+				Function: model.FunctionDefinitionParam{
+					Name:      tc.ToolName,
+					Arguments: []byte(tc.Arguments),
+				},
+			})
+		}
+		if len(toolCalls) > 0 {
+			injectMsgs = append(injectMsgs, model.Message{
+				Role:      model.RoleAssistant,
+				ToolCalls: toolCalls,
+			})
+		}
+	}
+
+	// Build tool result messages.
+	for _, tc := range items {
+		if tc.ToolCallID == "" || tc.Result == "" {
+			continue
+		}
+		toolMsg := model.NewToolMessage(
+			tc.ToolCallID,
+			tc.ToolName,
+			tc.Result,
+		)
+		injectMsgs = append(injectMsgs, toolMsg)
+		toolResultMsgs = append(toolResultMsgs, toolMsg)
+	}
+
+	var opts []agent.RunOption
+
+	// Inject context messages (assistant tool_call + tool result).
+	// These are visible to the LLM but not persisted to the session.
+	if len(injectMsgs) > 0 {
+		opts = append(opts, agent.WithInjectedContextMessages(injectMsgs))
+	}
+
+	// Inject tool result via UserMessageRewriter so it gets persisted
+	// to the session by the runner.
+	if len(toolResultMsgs) > 0 {
+		currentTurnMessages := toolResultMsgs
+		opts = append(opts, func(o *agent.RunOptions) {
+			originalRewriter := o.UserMessageRewriter
+			o.UserMessageRewriter = func(
+				ctx context.Context,
+				args *agent.UserMessageRewriteArgs,
+			) ([]model.Message, error) {
+				if originalRewriter != nil {
+					rewritten, err := originalRewriter(ctx, args)
+					if err != nil {
+						return nil, err
+					}
+					return append(rewritten, currentTurnMessages...), nil
+				}
+				return append(
+					[]model.Message(nil),
+					currentTurnMessages...,
+				), nil
+			}
+		})
+	}
+
+	return opts
 }
