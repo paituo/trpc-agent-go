@@ -149,14 +149,15 @@ type streamOutcome struct {
 }
 
 type progressState struct {
-	startedAt  time.Time
-	stage      gwproto.StreamProgressStage
-	summary    string
-	toolName   string
-	toolDetail string
-	toolResult string
-	toolCallID string
-	toolStatus gwproto.StreamToolStatus
+	startedAt            time.Time
+	stage                gwproto.StreamProgressStage
+	summary              string
+	toolName             string
+	toolDetail           string
+	toolResult           string
+	toolCallID           string
+	toolStatus           gwproto.StreamToolStatus
+	pendingToolCallCount int // number of tool_calls without matching tool results
 }
 
 type streamToolArgKind int
@@ -742,6 +743,39 @@ func (s *Server) streamLocked(
 	}
 
 	reply := strings.TrimSpace(result.Text)
+
+	// Detect EndInvocation: the run ended because the model called an
+	// external tool (pending tool calls with no results and no text output).
+	// Send an await_external_tool signal and skip the empty message.completed.
+	if progress.pendingToolCallCount > 0 && reply == "" {
+		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
+			Type:      gwproto.StreamEventTypeStateDelta,
+			SessionID: run.sessionID,
+			RequestID: requestID,
+			StateDelta: map[string]json.RawMessage{
+				"await_external_tool": json.RawMessage(`true`),
+				"reason":              json.RawMessage(`"external_tool_call"`),
+			},
+		}) {
+			return streamOutcome{
+				status: traceStatusError,
+				errMsg: contextErrMessage(ctx),
+			}
+		}
+		if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
+			Type:      gwproto.StreamEventTypeRunCompleted,
+			SessionID: run.sessionID,
+			RequestID: requestID,
+			Usage:     cloneGatewayUsage(result.Usage),
+		}) {
+			return streamOutcome{
+				status: traceStatusError,
+				errMsg: contextErrMessage(ctx),
+			}
+		}
+		return streamOutcome{status: traceStatusOK}
+	}
+
 	if reply == "" {
 		reply = emptyReplyFallbackText
 	}
@@ -1866,6 +1900,17 @@ func sendProgressUpdate(
 	state.toolResult = update.toolResult
 	state.toolCallID = update.toolCallID
 	state.toolStatus = update.toolStatus
+	// Track pending tool calls for EndInvocation detection.
+	switch update.toolStatus {
+	case gwproto.StreamToolStatusRunning:
+		if update.toolName != "" {
+			state.pendingToolCallCount++
+		}
+	case gwproto.StreamToolStatusCompleted:
+		if state.pendingToolCallCount > 0 {
+			state.pendingToolCallCount--
+		}
+	}
 	return sendStreamEvent(ctx, out, gwproto.StreamEvent{
 		Type:       gwproto.StreamEventTypeRunProgress,
 		SessionID:  run.sessionID,
