@@ -37,6 +37,19 @@ type MessageRequest struct {
 	RequestID string `json:"request_id,omitempty"`
 
 	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
+
+	// ExternalTools declares caller-executed tools for this run.
+	// When the model calls one, the run stops after the assistant
+	// tool_call response (EndInvocation), and the caller is expected
+	// to execute the tool and submit the result in a subsequent request
+	// via ToolCallContext.
+	ExternalTools []ExternalToolDecl `json:"external_tools,omitempty"`
+
+	// ToolCallContext carries tool call information from a previous run
+	// that ended with EndInvocation. The gateway uses this to inject the
+	// assistant tool_call and tool result into the model context for the
+	// new run, so the LLM can see the full conversation history.
+	ToolCallContext []ToolCallContextItem `json:"tool_call_context,omitempty"`
 }
 
 // MessageStreamOptions controls optional streaming behaviors.
@@ -278,4 +291,24 @@ type LocationPart struct {
 type LinkPart struct {
 	URL   string `json:"url,omitempty"`
 	Title string `json:"title,omitempty"`
+}
+
+// ExternalToolDecl describes a caller-executed tool that the model may call.
+// When the model calls an external tool, the run ends with EndInvocation
+// and the caller is responsible for executing the tool and returning the result.
+type ExternalToolDecl struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+// ToolCallContextItem carries one tool call + result pair from a previous
+// EndInvocation run. The gateway injects these into the model context so
+// the LLM can see the full conversation history when the caller submits
+// a new request with the tool result.
+type ToolCallContextItem struct {
+	ToolCallID string `json:"tool_call_id,omitempty"`
+	ToolName   string `json:"tool_name,omitempty"`
+	Arguments  string `json:"arguments,omitempty"`
+	Result     string `json:"result,omitempty"`
 }

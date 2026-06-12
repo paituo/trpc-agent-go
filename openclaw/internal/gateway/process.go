@@ -33,6 +33,8 @@ type preparedMessageRun struct {
 	userMsg             model.Message
 	streamOptions       *gwproto.MessageStreamOptions
 	extensions          map[string]json.RawMessage
+	externalTools       []gwproto.ExternalToolDecl
+	toolCallContext     []gwproto.ToolCallContextItem
 }
 
 // ProcessMessage processes a gateway message request without an HTTP hop.
@@ -267,6 +269,8 @@ func (s *Server) prepareMessageRun(
 		userMsg:             userMsg,
 		streamOptions:       cloneStreamOptions(opts),
 		extensions:          cloneExtensions(req.Extensions),
+		externalTools:       cloneExternalTools(req.ExternalTools),
+		toolCallContext:     cloneToolCallContext(req.ToolCallContext),
 	}, nil, http.StatusOK
 }
 
@@ -296,6 +300,31 @@ func cloneExtensions(
 		copy(cloned, raw)
 		out[key] = json.RawMessage(cloned)
 	}
+	return out
+}
+
+func cloneExternalTools(src []gwproto.ExternalToolDecl) []gwproto.ExternalToolDecl {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]gwproto.ExternalToolDecl, len(src))
+	for i, d := range src {
+		out[i] = d
+		if len(d.Parameters) > 0 {
+			cloned := make([]byte, len(d.Parameters))
+			copy(cloned, d.Parameters)
+			out[i].Parameters = json.RawMessage(cloned)
+		}
+	}
+	return out
+}
+
+func cloneToolCallContext(src []gwproto.ToolCallContextItem) []gwproto.ToolCallContextItem {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]gwproto.ToolCallContextItem, len(src))
+	copy(out, src)
 	return out
 }
 
