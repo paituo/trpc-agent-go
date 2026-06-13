@@ -359,7 +359,7 @@ func buildDescription(cfg Config) string {
 		desc += "【标准库（需配置开启）】" + strings.Join(stdLibs, "; ") + "\n\n"
 	}
 
-	desc += "【Lua 5.1 陷阱】①数组索引从1开始 ②不等号用~= ③注释用-- ④字符串拼接用.. ⑤nil和false是假值，0和空串是真值 ⑥不要使用require加载yaml/json/re/html/md，它们是全局变量 ⑦re模块使用Go标准正则语法（非Lua模式匹配），如\\d而非%d、\\s而非%s ⑧re.gsub仅支持字符串替换+捕获组引用(${1}/${2})，不支持函数回调 ⑨GopherLua不支持中文标识符，table的中文key必须用方括号语法：{[\"中文key\"] = value}，禁止简写语法{中文key = value}\n\n"
+	desc += "【Lua 5.1 陷阱】①数组索引从1开始 ②不等号用~= ③注释用-- ④字符串拼接用.. ⑤nil和false是假值，0和空串是真值 ⑥不要使用require加载yaml/json/re/html/md，它们是全局变量 ⑦re模块使用Go标准正则语法（非Lua模式匹配），如\\d而非%d、\\s而非%s ⑧re.gsub仅支持字符串替换+捕获组引用(${1}/${2})，不支持函数回调 ⑨GopherLua不支持中文标识符，table的中文key必须用方括号语法：{[\"中文key\"] = value}，禁止简写语法{中文key = value} ⑩GopherLua不支持require函数，所有桥接模块（yaml/json/re/html/md/log）已全局注册，直接使用模块名即可，无需也无法require\n\n"
 
 	desc += "【html模块关键API说明——与BeautifulSoup/标准Lua差异】\n"
 	desc += "① 获取元素文本用 elem:get_text()，不是 elem:text() 或 elem.text\n"
@@ -383,7 +383,7 @@ func buildDescription(cfg Config) string {
 	desc += "④ 正则语法是Go regexp：\\d \\s \\w . * + ? {n,m} () [] |，不是Lua的 %d %s %w\n"
 	desc += "⑤ 判断是否匹配：if re.find(str, pattern) then ... end（re.find返回nil表示不匹配）\n\n"
 
-	desc += "【yaml模块关键API说明】\n"
+	desc += "【yaml模块关键API说明——全局桥接模块，直接使用，禁止require】\n"
 	desc += "① yaml.decode(str) 解析YAML字符串为Lua table\n"
 	desc += "② yaml.encode(table) 将Lua table序列化为YAML字符串\n"
 	desc += "③ yaml.read_file(path) 读取YAML文件为Lua table（需AllowIOLib）\n"

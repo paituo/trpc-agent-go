@@ -27,16 +27,23 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 
 	callStackSize := cfg.CallStackSize
 	if callStackSize <= 0 {
-		callStackSize = 256
+		callStackSize = 512
 	}
 	registrySize := cfg.RegistrySize
 	if registrySize <= 0 {
-		registrySize = 512
+		registrySize = 1024 * 20
 	}
+
 	opts := lua.Options{
 		CallStackSize: callStackSize,
 		RegistrySize:  registrySize,
 		SkipOpenLibs:  true,
+	}
+	if opts.RegistryMaxSize <= 0 {
+		opts.RegistryMaxSize = 1024 * 80
+	}
+	if opts.RegistryGrowStep <= 0 {
+		opts.RegistryGrowStep = 32
 	}
 	L := lua.NewState(opts)
 
