@@ -31,6 +31,7 @@ func registerYAMLBridge(L *lua.LState, allowIO bool) {
 		L.SetField(mod, "read_file_auto", L.NewFunction(bridgeYamlReadFileAuto))
 		L.SetField(mod, "read_text_file", L.NewFunction(bridgeYamlReadTextFile))
 		L.SetField(mod, "write_file", L.NewFunction(bridgeYamlWriteFile))
+		L.SetField(mod, "write_text_file", L.NewFunction(bridgeYamlWriteTextFile))
 	}
 	L.SetGlobal("yaml", mod)
 }
@@ -75,7 +76,7 @@ func bridgeYamlEncode(L *lua.LState) int {
 // bridgeYamlReadFile implements yaml.read_file(path [, encoding]).
 func bridgeYamlReadFile(L *lua.LState) int {
 	path := L.CheckString(1)
-	encoding := L.OptString(2, "utf-8")
+	encoding := L.OptString(2, "auto")
 
 	content, err := readFileWithEncoding(path, encoding)
 	if err != nil {
@@ -115,6 +116,22 @@ func bridgeYamlWriteFile(L *lua.LState) int {
 
 	if err := writeFileSafe(path, out); err != nil {
 		pushBridgeError(L, fmt.Sprintf("yaml.write_file(%s) failed: %v", path, err))
+		return 2
+	}
+
+	L.Push(lua.LBool(true))
+	return 1
+}
+
+// bridgeYamlWriteTextFile implements yaml.write_text_file(path, content_string).
+// It writes a plain text string to a file, creating parent directories if needed.
+// This is useful for writing non-YAML text files (e.g. raw draft output).
+func bridgeYamlWriteTextFile(L *lua.LState) int {
+	path := L.CheckString(1)
+	content := L.CheckString(2)
+
+	if err := writeFileSafe(path, []byte(content)); err != nil {
+		pushBridgeError(L, fmt.Sprintf("yaml.write_text_file(%s) failed: %v", path, err))
 		return 2
 	}
 
