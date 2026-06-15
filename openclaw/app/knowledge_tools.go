@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -12,6 +12,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -20,11 +21,18 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
+	coherereranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/cohere"
+	infinityreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/infinity"
+	topkreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/topk"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
+	dirknowledge "trpc.group/trpc-go/trpc-agent-go/knowledge/source/dir"
 	knowledgetool "trpc.group/trpc-go/trpc-agent-go/knowledge/tool"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	vectors "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/elasticsearch"
 	inmemoryvs "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 	vectorpg "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/pgvector"
+	vectorsqlite "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
@@ -59,10 +67,12 @@ func (r *rawKnowledgeComponent) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // builtinKnowledgeConfig is the config schema for the "builtin" knowledge
-// provider (embedder + vector_store).
+// provider (embedder + vector_store + reranker + sources).
 type builtinKnowledgeConfig struct {
-	Embedder    *rawKnowledgeComponent `yaml:"embedder,omitempty"`
-	VectorStore *rawKnowledgeComponent `yaml:"vector_store,omitempty"`
+	Embedder    *rawKnowledgeComponent   `yaml:"embedder,omitempty"`
+	VectorStore *rawKnowledgeComponent   `yaml:"vector_store,omitempty"`
+	Reranker    *rawKnowledgeComponent   `yaml:"reranker,omitempty"`
+	Sources     []*rawKnowledgeComponent `yaml:"sources,omitempty"`
 }
 
 func newBuiltinKnowledge(
@@ -81,10 +91,49 @@ func newBuiltinKnowledge(
 	if err != nil {
 		return nil, err
 	}
-	return knowledge.New(
+
+	kOpts := []knowledge.Option{
 		knowledge.WithEmbedder(emb),
 		knowledge.WithVectorStore(store),
-	), nil
+	}
+
+	// Build reranker if configured
+	if cfg.Reranker != nil && cfg.Reranker.Node != nil {
+		reranker, err := buildKnowledgeReranker(cfg.Reranker.Node)
+		if err != nil {
+			return nil, fmt.Errorf("reranker config invalid: %w", err)
+		}
+		kOpts = append(kOpts, knowledge.WithReranker(reranker))
+	}
+
+	// Build sources if configured
+	if len(cfg.Sources) > 0 {
+		sources, err := buildKnowledgeSources(cfg.Sources)
+		if err != nil {
+			return nil, fmt.Errorf("sources config invalid: %w", err)
+		}
+		kOpts = append(kOpts, knowledge.WithSources(sources))
+	}
+
+	kb := knowledge.New(kOpts...)
+
+	// Load sources into the vector store when the store is empty.
+	// This ensures documents from configured sources are indexed at startup
+	// without re-indexing on every restart.
+	if len(cfg.Sources) > 0 {
+		ctx := context.Background()
+		count, err := store.Count(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count vector store: %w", err)
+		}
+		if count == 0 {
+			if err := kb.Load(ctx, knowledge.WithSourceConcurrency(1)); err != nil {
+				return nil, fmt.Errorf("failed to load knowledge sources: %w", err)
+			}
+		}
+	}
+
+	return kb, nil
 }
 
 func buildKnowledgeTools(
@@ -240,6 +289,16 @@ type elasticsearchKnowledgeVectorStoreConfig struct {
 	MaxResults      *int     `yaml:"max_results,omitempty"`
 }
 
+type sqlitevecKnowledgeVectorStoreConfig struct {
+	Type           string `yaml:"type,omitempty"`
+	DSN            string `yaml:"dsn,omitempty"`
+	TableName      string `yaml:"table_name,omitempty"`
+	MetaTableName  string `yaml:"metadata_table_name,omitempty"`
+	IndexDimension *int   `yaml:"index_dimension,omitempty"`
+	MaxResults     *int   `yaml:"max_results,omitempty"`
+	SkipDBInit     *bool  `yaml:"skip_db_init,omitempty"`
+}
+
 type knowledgeVectorStoreBuildContext struct {
 	embedder embedder.Embedder
 }
@@ -262,6 +321,7 @@ var knowledgeVectorStoreBuilders = map[string]knowledgeVectorStoreBuilder{
 	"inmemory":      buildInMemoryKnowledgeVectorStore,
 	"pgvector":      buildPGVectorKnowledgeVectorStore,
 	"elasticsearch": buildElasticsearchKnowledgeVectorStore,
+	"sqlitevec":     buildSQLiteVecKnowledgeVectorStore,
 }
 
 func buildKnowledgeEmbedder(
@@ -432,6 +492,215 @@ func buildElasticsearchKnowledgeVectorStore(
 		opts = append(opts, vectors.WithMaxResults(*cfg.MaxResults))
 	}
 	return vectors.New(opts...)
+}
+
+func buildSQLiteVecKnowledgeVectorStore(
+	node *yaml.Node,
+	ctx knowledgeVectorStoreBuildContext,
+) (vectorstore.VectorStore, error) {
+	var cfg sqlitevecKnowledgeVectorStoreConfig
+	if err := registry.DecodeStrict(node, &cfg); err != nil {
+		return nil, err
+	}
+
+	opts := make([]vectorsqlite.Option, 0, 6)
+
+	dsn := strings.TrimSpace(cfg.DSN)
+	if dsn != "" {
+		// Resolve relative paths in the DSN to absolute paths.
+		resolved, err := resolveSQLiteVecDSN(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("resolve dsn path: %w", err)
+		}
+		opts = append(opts, vectorsqlite.WithDSN(resolved))
+	}
+
+	if v := strings.TrimSpace(cfg.TableName); v != "" {
+		opts = append(opts, vectorsqlite.WithTableName(v))
+	}
+	if v := strings.TrimSpace(cfg.MetaTableName); v != "" {
+		opts = append(opts, vectorsqlite.WithMetadataTableName(v))
+	}
+	if cfg.IndexDimension != nil && *cfg.IndexDimension > 0 {
+		opts = append(opts, vectorsqlite.WithIndexDimension(*cfg.IndexDimension))
+	} else if dims := knowledgeEmbedderDimensions(ctx.embedder); dims > 0 {
+		opts = append(opts, vectorsqlite.WithIndexDimension(dims))
+	}
+	if cfg.MaxResults != nil && *cfg.MaxResults > 0 {
+		opts = append(opts, vectorsqlite.WithMaxResults(*cfg.MaxResults))
+	}
+	if cfg.SkipDBInit != nil {
+		opts = append(opts, vectorsqlite.WithSkipDBInit(*cfg.SkipDBInit))
+	}
+
+	return vectorsqlite.New(opts...)
+}
+
+// resolveSQLiteVecDSN resolves relative file paths in a SQLite DSN to absolute
+// paths. It supports both plain paths (e.g. "data/db.db") and SQLite file: URI
+// schemes (e.g. "file:data/db.db?_busy_timeout=5000"). In-memory databases
+// (":memory:") are returned as-is.
+func resolveSQLiteVecDSN(dsn string) (string, error) {
+	if dsn == ":memory:" {
+		return dsn, nil
+	}
+
+	// Check for the SQLite file: URI scheme.
+	var path string
+	var query string
+	rest := dsn
+	if strings.HasPrefix(rest, "file:") {
+		rest = rest[len("file:"):]
+	}
+
+	// Split off query parameters (everything after the first '?').
+	if idx := strings.Index(rest, "?"); idx >= 0 {
+		path = rest[:idx]
+		query = rest[idx:]
+	} else {
+		path = rest
+	}
+
+	if path == "" {
+		return dsn, nil
+	}
+
+	// If the path is already absolute, return as-is.
+	if filepath.IsAbs(path) {
+		return dsn, nil
+	}
+
+	// Resolve the relative path to an absolute path.
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve relative path %q: %w", path, err)
+	}
+
+	// Reconstruct the DSN. If the original had a "file:" prefix, preserve it.
+	if strings.HasPrefix(dsn, "file:") {
+		return "file:" + absPath + query, nil
+	}
+	return absPath + query, nil
+}
+
+// ---------- Reranker support ----------
+
+type knowledgeRerankerConfig struct {
+	Type     string `yaml:"type,omitempty"`
+	K        *int   `yaml:"k,omitempty"`
+	Model    string `yaml:"model,omitempty"`
+	APIKey   string `yaml:"api_key,omitempty"`
+	Endpoint string `yaml:"endpoint,omitempty"`
+	URL      string `yaml:"url,omitempty"`
+	TopN     *int   `yaml:"top_n,omitempty"`
+}
+
+func buildKnowledgeReranker(node *yaml.Node) (reranker.Reranker, error) {
+	var cfg knowledgeRerankerConfig
+	if err := registry.DecodeStrict(node, &cfg); err != nil {
+		return nil, err
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Type)) {
+	case "topk", "":
+		opts := make([]topkreranker.Option, 0, 1)
+		if cfg.K != nil && *cfg.K > 0 {
+			opts = append(opts, topkreranker.WithK(*cfg.K))
+		}
+		return topkreranker.New(opts...), nil
+
+	case "infinity":
+		opts := make([]infinityreranker.Option, 0, 4)
+		if v := strings.TrimSpace(cfg.Model); v != "" {
+			opts = append(opts, infinityreranker.WithModel(v))
+		}
+		if v := strings.TrimSpace(cfg.APIKey); v != "" {
+			opts = append(opts, infinityreranker.WithAPIKey(v))
+		}
+		endpoint := strings.TrimSpace(cfg.Endpoint)
+		if endpoint == "" {
+			endpoint = strings.TrimSpace(cfg.URL)
+		}
+		if endpoint != "" {
+			opts = append(opts, infinityreranker.WithEndpoint(endpoint))
+		}
+		if cfg.TopN != nil && *cfg.TopN > 0 {
+			opts = append(opts, infinityreranker.WithTopN(*cfg.TopN))
+		}
+		return infinityreranker.New(opts...)
+
+	case "cohere":
+		opts := make([]coherereranker.Option, 0, 4)
+		if v := strings.TrimSpace(cfg.Model); v != "" {
+			opts = append(opts, coherereranker.WithModel(v))
+		}
+		if v := strings.TrimSpace(cfg.APIKey); v != "" {
+			opts = append(opts, coherereranker.WithAPIKey(v))
+		}
+		if v := strings.TrimSpace(cfg.Endpoint); v != "" {
+			opts = append(opts, coherereranker.WithEndpoint(v))
+		}
+		if cfg.TopN != nil && *cfg.TopN > 0 {
+			opts = append(opts, coherereranker.WithTopN(*cfg.TopN))
+		}
+		return coherereranker.New(opts...)
+
+	default:
+		return nil, fmt.Errorf("unsupported reranker type: %s", cfg.Type)
+	}
+}
+
+// ---------- Source support ----------
+
+type knowledgeSourceConfig struct {
+	Name           string   `yaml:"name,omitempty"`
+	Type           string   `yaml:"type,omitempty"`
+	Paths          []string `yaml:"paths,omitempty"`
+	Recursive      *bool    `yaml:"recursive,omitempty"`
+	FileExtensions []string `yaml:"file_extensions,omitempty"`
+}
+
+func buildKnowledgeSources(nodes []*rawKnowledgeComponent) ([]source.Source, error) {
+	sources := make([]source.Source, 0, len(nodes))
+	for i, comp := range nodes {
+		if comp == nil || comp.Node == nil {
+			continue
+		}
+		src, err := buildKnowledgeSource(comp.Node)
+		if err != nil {
+			return nil, fmt.Errorf("sources[%d] invalid: %w", i, err)
+		}
+		sources = append(sources, src)
+	}
+	return sources, nil
+}
+
+func buildKnowledgeSource(node *yaml.Node) (source.Source, error) {
+	var cfg knowledgeSourceConfig
+	if err := registry.DecodeStrict(node, &cfg); err != nil {
+		return nil, err
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Type)) {
+	case "dir", "":
+		if len(cfg.Paths) == 0 {
+			return nil, fmt.Errorf("dir source requires at least one path")
+		}
+		opts := make([]dirknowledge.Option, 0, 4)
+		if v := strings.TrimSpace(cfg.Name); v != "" {
+			opts = append(opts, dirknowledge.WithName(v))
+		}
+		if cfg.Recursive != nil {
+			opts = append(opts, dirknowledge.WithRecursive(*cfg.Recursive))
+		}
+		if len(cfg.FileExtensions) > 0 {
+			opts = append(opts, dirknowledge.WithFileExtensions(cfg.FileExtensions))
+		}
+		return dirknowledge.New(cfg.Paths, opts...), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported source type: %s", cfg.Type)
+	}
 }
 
 func knowledgeEmbedderDimensions(e embedder.Embedder) int {
