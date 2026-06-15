@@ -32,6 +32,8 @@ replace trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/elasticsearch => 
 
 replace trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/pgvector => ../knowledge/vectorstore/pgvector
 
+replace trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec => ../knowledge/vectorstore/sqlitevec
+
 replace trpc.group/trpc-go/trpc-agent-go/model/tiktoken => ../model/tiktoken
 
 require (
@@ -59,6 +61,7 @@ require (
 	trpc.group/trpc-go/trpc-agent-go v1.8.0
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/elasticsearch v1.8.0
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/pgvector v1.8.0
+	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec v1.10.0
 	trpc.group/trpc-go/trpc-agent-go/memory/mysql v1.8.0
 	trpc.group/trpc-go/trpc-agent-go/memory/pgvector v1.8.0
 	trpc.group/trpc-go/trpc-agent-go/memory/postgres v1.8.0
@@ -96,6 +99,7 @@ require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect
+	github.com/bufbuild/protocompile v0.14.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
