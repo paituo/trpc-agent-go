@@ -219,7 +219,8 @@ type runOptions struct {
 	OpenAIBaseURL       string
 	GenerationConfig    *model.GenerationConfig
 	ModelConfig         *yaml.Node
-	KnowledgesConfig    []knowledgeEntry
+	KnowledgesConfig              []knowledgeEntry
+	EnableKnowledgeAgenticFilter  bool
 	SkillsRoot          string
 	SkillsExtraDir      string
 	SkillsDebug         bool
@@ -1304,6 +1305,12 @@ type memoryConfig struct {
 type knowledgesConfig struct {
 	Providers []knowledgeProviderConfig `yaml:"providers,omitempty"`
 
+	// EnableAgenticFilter enables LLM-driven filter construction for
+	// knowledge search tools. When true (default), the search tool
+	// exposes a "filter" parameter that the LLM can use to construct
+	// metadata-based filter conditions dynamically.
+	EnableAgenticFilter *bool `yaml:"enable_agentic_filter,omitempty"`
+
 	// Entries is the deprecated field name (pre-v0.0.4). Kept here so
 	// that KnownFields(true) does not reject it with a confusing
 	// "field entries not found" error; instead we return a clear
@@ -1754,6 +1761,11 @@ func (cfg *fileConfig) apply(
 			return err
 		}
 		opts.KnowledgesConfig = knowledges
+		if cfg.Knowledges.EnableAgenticFilter != nil {
+			opts.EnableKnowledgeAgenticFilter = *cfg.Knowledges.EnableAgenticFilter
+		} else {
+			opts.EnableKnowledgeAgenticFilter = true
+		}
 	}
 
 	if cfg.Gateway != nil {

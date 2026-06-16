@@ -83,7 +83,7 @@ embedder:
 vector_store:
   type: inmemory
 `),
-	})
+	}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 1)
@@ -101,7 +101,7 @@ vector_store:
 	bundle, err := buildKnowledgeTools([]knowledgeEntry{
 		builtinKnowledgeEntry(t, "Docs KB", inmemory),
 		builtinKnowledgeEntry(t, "FAQ", inmemory),
-	})
+	}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 2)
@@ -147,7 +147,7 @@ vector_store:
 	_, err := buildKnowledgeTools([]knowledgeEntry{
 		builtinKnowledgeEntry(t, "Docs KB", inmemory),
 		builtinKnowledgeEntry(t, "Docs-KB", inmemory),
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "knowledge tool name collision")
 }
@@ -160,7 +160,7 @@ func TestBuildKnowledgeTools_InvalidConfigFails(t *testing.T) {
 vector_store:
   type: nope
 `),
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported vector_store.type")
 }
@@ -176,9 +176,9 @@ func TestBuildKnowledgeTools_ProviderKnowledge(t *testing.T) {
 		func(
 			_ registry.KnowledgeProviderDeps,
 			spec registry.PluginSpec,
-		) (knowledge.Knowledge, error) {
+		) (knowledge.Knowledge, map[string][]any, error) {
 			gotSpec = spec
-			return providerKnowledge{}, nil
+			return providerKnowledge{}, nil, nil
 		},
 	))
 
@@ -191,7 +191,7 @@ func TestBuildKnowledgeTools_ProviderKnowledge(t *testing.T) {
 endpoint: http://127.0.0.1:8080
 `),
 		},
-	})
+	}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 1)
@@ -219,7 +219,7 @@ func TestBuildKnowledgeTools_ProviderRequiresRegisteredType(t *testing.T) {
 			Type: "missing_provider",
 			Name: "docs",
 		},
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unsupported knowledge provider type")
 }
@@ -227,7 +227,7 @@ func TestBuildKnowledgeTools_ProviderRequiresRegisteredType(t *testing.T) {
 func TestBuildKnowledgeTools_EmptyConfigsReturnNil(t *testing.T) {
 	t.Parallel()
 
-	bundle, err := buildKnowledgeTools(nil)
+	bundle, err := buildKnowledgeTools(nil, true)
 	require.NoError(t, err)
 	require.Nil(t, bundle)
 }
@@ -242,7 +242,7 @@ embedder:
 vector_store:
   type: inmemory
 `),
-	})
+	}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 1)
@@ -257,7 +257,7 @@ vector_store:
   type: inmemory
 `)
 	entry.MaxResults = 3
-	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry})
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 1)
@@ -272,7 +272,7 @@ vector_store:
   type: inmemory
 `)
 	entry.Description = "Search the trpc-agent-go documentation including API reference and design docs."
-	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry})
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 1)
@@ -294,7 +294,7 @@ vector_store:
 	docs := builtinKnowledgeEntry(t, "docs", inmemory)
 	docs.Description = "Framework documentation and design docs."
 	faq := builtinKnowledgeEntry(t, "faq", inmemory)
-	bundle, err := buildKnowledgeTools([]knowledgeEntry{docs, faq})
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{docs, faq}, true)
 	require.NoError(t, err)
 	require.NotNil(t, bundle)
 	require.Len(t, bundle.tools, 2)
@@ -319,7 +319,7 @@ vector_store:
   addresses:
     - http://127.0.0.1:9200
 `),
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "field addresses not found")
 }
@@ -332,15 +332,144 @@ func TestBuildKnowledgeTools_VectorStoreTypeIsRequired(t *testing.T) {
 vector_store:
   max_results: 5
 `),
-	})
+	}, true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "vector_store.type is required")
+}
+
+func TestBuildKnowledgeTools_AgenticFilterInfo(t *testing.T) {
+	t.Parallel()
+
+	entry := builtinKnowledgeEntry(t, "docs", `
+vector_store:
+  type: inmemory
+agentic_filter_info:
+  metadata.category:
+    - "documentation"
+    - "tutorial"
+  metadata.topic:
+    - "programming"
+`)
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry}, true)
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.tools, 1)
+	desc := bundle.tools[0].Declaration().Description
+	require.Contains(t, desc, "metadata.category")
+	require.Contains(t, desc, "metadata.topic")
+	require.Contains(t, desc, "documentation")
+	require.Contains(t, desc, "programming")
+}
+
+func TestBuildKnowledgeTools_AgenticFilterDisabled(t *testing.T) {
+	t.Parallel()
+
+	entry := builtinKnowledgeEntry(t, "docs", `
+vector_store:
+  type: inmemory
+`)
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry}, false)
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.tools, 1)
+	desc := bundle.tools[0].Declaration().Description
+	require.NotContains(t, desc, "== FILTER GUIDANCE ==")
+}
+
+func TestBuildKnowledgeTools_QueryEnhancerPassthrough(t *testing.T) {
+	t.Parallel()
+
+	entry := builtinKnowledgeEntry(t, "docs", `
+vector_store:
+  type: inmemory
+query_enhancer:
+  type: "passthrough"
+`)
+	bundle, err := buildKnowledgeTools([]knowledgeEntry{entry}, true)
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.tools, 1)
+}
+
+func TestNewBuiltinKnowledge_QueryEnhancerLLMRequiresModel(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := newBuiltinKnowledge(
+		registry.KnowledgeProviderDeps{},
+		registry.PluginSpec{
+			Config: yamlNode(t, `
+vector_store:
+  type: inmemory
+query_enhancer:
+  type: "llm"
+`),
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "query_enhancer type 'llm' requires 'model' field")
+}
+
+func TestNewBuiltinKnowledge_QueryEnhancerUnsupportedType(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := newBuiltinKnowledge(
+		registry.KnowledgeProviderDeps{},
+		registry.PluginSpec{
+			Config: yamlNode(t, `
+vector_store:
+  type: inmemory
+query_enhancer:
+  type: "unknown"
+`),
+		},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unsupported query_enhancer type")
+}
+
+func TestNewBuiltinKnowledge_AgenticFilterInfo(t *testing.T) {
+	t.Parallel()
+
+	_, filterInfo, err := newBuiltinKnowledge(
+		registry.KnowledgeProviderDeps{},
+		registry.PluginSpec{
+			Config: yamlNode(t, `
+vector_store:
+  type: inmemory
+agentic_filter_info:
+  metadata.category:
+    - "doc"
+    - "tutorial"
+`),
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, filterInfo)
+	require.Contains(t, filterInfo, "metadata.category")
+	cats := filterInfo["metadata.category"]
+	require.Len(t, cats, 2)
+}
+
+func TestNewBuiltinKnowledge_NilAgenticFilterInfo(t *testing.T) {
+	t.Parallel()
+
+	_, filterInfo, err := newBuiltinKnowledge(
+		registry.KnowledgeProviderDeps{},
+		registry.PluginSpec{
+			Config: yamlNode(t, `
+vector_store:
+  type: inmemory
+`),
+		},
+	)
+	require.NoError(t, err)
+	require.Nil(t, filterInfo)
 }
 
 func TestNewBuiltinKnowledge_RequiresVectorStore(t *testing.T) {
 	t.Parallel()
 
-	_, err := newBuiltinKnowledge(
+	_, _, err := newBuiltinKnowledge(
 		registry.KnowledgeProviderDeps{},
 		registry.PluginSpec{
 			Config: yamlNode(t, `
@@ -356,7 +485,7 @@ embedder:
 func TestNewBuiltinKnowledge_DecodeStrictFailure(t *testing.T) {
 	t.Parallel()
 
-	_, err := newBuiltinKnowledge(
+	_, _, err := newBuiltinKnowledge(
 		registry.KnowledgeProviderDeps{},
 		registry.PluginSpec{
 			Config: yamlNode(t, `
@@ -740,6 +869,7 @@ vector_store:
   type: inmemory
 `),
 		},
+		EnableKnowledgeAgenticFilter: true,
 	}, nil, nil)
 	require.NoError(t, err)
 
@@ -763,6 +893,7 @@ vector_store:
 			builtinKnowledgeEntry(t, "docs", inmemory),
 			builtinKnowledgeEntry(t, "faq", inmemory),
 		},
+		EnableKnowledgeAgenticFilter: true,
 	}, nil, nil)
 	require.NoError(t, err)
 
@@ -787,6 +918,7 @@ vector_store:
 			builtinKnowledgeEntry(t, "docs", inmemory),
 			builtinKnowledgeEntry(t, "faq", inmemory),
 		},
+		EnableKnowledgeAgenticFilter: true,
 	}, nil, nil)
 	require.NoError(t, err)
 
@@ -820,6 +952,7 @@ vector_store:
   type: inmemory
 `),
 		},
+		EnableKnowledgeAgenticFilter: true,
 	}, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), `knowledge "docs" config invalid`)

@@ -1108,7 +1108,8 @@ func NewRuntimeWithOptions(
 			SkillsToolResults:   opts.SkillsToolResults,
 			SkillsSkipFallback:  opts.SkillsSkipFallback,
 			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:    opts.KnowledgesConfig,
+			KnowledgesConfig:              opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter:  opts.EnableKnowledgeAgenticFilter,
 			StateDir:            resolvedStateDir,
 			MemoryFileStore:     fileMemoryStore,
 
@@ -1667,7 +1668,8 @@ func run(
 			SkillsToolResults:   opts.SkillsToolResults,
 			SkillsSkipFallback:  opts.SkillsSkipFallback,
 			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:    opts.KnowledgesConfig,
+			KnowledgesConfig:              opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter:  opts.EnableKnowledgeAgenticFilter,
 			StateDir:            resolvedStateDir,
 			MemoryFileStore:     fileMemoryStore,
 
@@ -2511,6 +2513,7 @@ func newAgent(
 	}
 	knowledgeTools, err := buildKnowledgeTools(
 		cfg.KnowledgesConfig,
+		cfg.EnableKnowledgeAgenticFilter,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -2914,7 +2917,8 @@ type agentConfig struct {
 	SkillsToolResults   bool
 	SkillsSkipFallback  bool
 	SkillsToolingGuide  *string
-	KnowledgesConfig    []knowledgeEntry
+	KnowledgesConfig              []knowledgeEntry
+	EnableKnowledgeAgenticFilter  bool
 
 	StateDir string
 
