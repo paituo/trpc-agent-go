@@ -33,6 +33,13 @@ type options struct {
 	indexDimension    int
 	maxResults        int
 	skipDBInit        bool
+
+	// 混合检索配置
+	enableFTS          bool    // 是否启用全文搜索（默认 false，向后兼容）
+	ftsTableName       string  // FTS5 表名
+	rrfK               int     // RRF 常数 k（默认 60）
+	rrfCandidateRatio  int     // RRF 候选比例（默认 3）
+	sparseNormConstant float64 // 文本分数归一化常数（默认 0.1）
 }
 
 var defaultOptions = options{
@@ -42,6 +49,10 @@ var defaultOptions = options{
 	metadataTableName: defaultMetadataTableName,
 	indexDimension:    defaultIndexDimension,
 	maxResults:        defaultMaxResults,
+	ftsTableName:      "knowledge_documents_fts",
+	rrfK:              60,
+	rrfCandidateRatio: 3,
+	sparseNormConstant: 0.1,
 }
 
 // Option configures the sqlitevec vector store.
@@ -111,5 +122,41 @@ func WithMaxResults(maxResults int) Option {
 func WithSkipDBInit(skip bool) Option {
 	return func(o *options) {
 		o.skipDBInit = skip
+	}
+}
+
+// WithEnableFTS enables full-text search using FTS5 and gse segmentation.
+// When disabled (default), SearchModeHybrid falls back to vector search and
+// SearchModeKeyword returns an error.
+// Note: requires building with -tags=sqlite_fts5 to enable FTS5 in the
+// SQLite driver.
+func WithEnableFTS(enable bool) Option {
+	return func(o *options) {
+		o.enableFTS = enable
+	}
+}
+
+// WithFTSTableName sets the FTS5 virtual table name.
+func WithFTSTableName(name string) Option {
+	return func(o *options) {
+		if err := sqldb.ValidateTableName(name); err != nil {
+			panic(fmt.Sprintf("invalid fts table name: %v", err))
+		}
+		o.ftsTableName = name
+	}
+}
+
+// WithRRFParams sets the parameters for Reciprocal Rank Fusion.
+// k: RRF constant (default 60, must be > 0).
+// candidateRatio: fetch limit * candidateRatio candidates from each
+// sub-search (default 3, must be > 0).
+func WithRRFParams(k, candidateRatio int) Option {
+	return func(o *options) {
+		if k > 0 {
+			o.rrfK = k
+		}
+		if candidateRatio > 0 {
+			o.rrfCandidateRatio = candidateRatio
+		}
 	}
 }

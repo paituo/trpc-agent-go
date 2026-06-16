@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-ego/gse"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/searchfilter"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
@@ -45,9 +46,10 @@ var vecInitOnce sync.Once
 
 // Store implements vectorstore.VectorStore backed by sqlite-vec.
 type Store struct {
-	opts    options
-	db      *sql.DB
-	filterB *filterBuilder
+	opts      options
+	db        *sql.DB
+	filterB   *filterBuilder
+	segmenter *gse.Segmenter
 }
 
 // New creates a new sqlitevec vector store.
@@ -74,6 +76,16 @@ func New(opts ...Option) (*Store, error) {
 	s.db = db
 
 	s.filterB = newFilterBuilder(o.tableName, o.metadataTableName)
+
+	// Initialize gse segmenter if FTS is enabled.
+	if o.enableFTS {
+		var seg gse.Segmenter
+		if err := seg.LoadDict(); err != nil {
+			_ = s.db.Close()
+			return nil, fmt.Errorf("sqlitevec: load gse dict: %w", err)
+		}
+		s.segmenter = &seg
+	}
 
 	if !o.skipDBInit {
 		ctx, cancel := context.WithTimeout(context.Background(), defaultDBTimeout)
@@ -149,6 +161,18 @@ func (s *Store) Add(ctx context.Context, doc *document.Document, embedding []flo
 	// Insert expanded metadata rows.
 	if err := s.insertMetadataRows(ctx, tx, doc.ID, storedMetadata); err != nil {
 		return err
+	}
+
+	// Sync FTS5 index.
+	if s.opts.enableFTS {
+		contentSeg := s.segmentText(doc.Content)
+		nameSeg := s.segmentText(doc.Name)
+		ftsInsertSQL := fmt.Sprintf(
+			`INSERT INTO %s(doc_id, content_segmented, name_segmented) VALUES(?, ?, ?)`,
+			s.opts.ftsTableName)
+		if _, err := tx.ExecContext(ctx, ftsInsertSQL, doc.ID, contentSeg, nameSeg); err != nil {
+			return fmt.Errorf("sqlitevec add: insert fts5: %w", err)
+		}
 	}
 
 	return tx.Commit()
@@ -292,6 +316,22 @@ func (s *Store) Update(ctx context.Context, doc *document.Document, embedding []
 		return err
 	}
 
+	// Sync FTS5 index: delete old then insert new.
+	if s.opts.enableFTS {
+		ftsDeleteSQL := fmt.Sprintf(`DELETE FROM %s WHERE doc_id = ?`, s.opts.ftsTableName)
+		if _, err := tx.ExecContext(ctx, ftsDeleteSQL, doc.ID); err != nil {
+			return fmt.Errorf("sqlitevec update: delete fts5: %w", err)
+		}
+		contentSeg := s.segmentText(doc.Content)
+		nameSeg := s.segmentText(doc.Name)
+		ftsInsertSQL := fmt.Sprintf(
+			`INSERT INTO %s(doc_id, content_segmented, name_segmented) VALUES(?, ?, ?)`,
+			s.opts.ftsTableName)
+		if _, err := tx.ExecContext(ctx, ftsInsertSQL, doc.ID, contentSeg, nameSeg); err != nil {
+			return fmt.Errorf("sqlitevec update: insert fts5: %w", err)
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -312,6 +352,14 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	// Delete metadata rows first.
 	if err := s.deleteMetadataRows(ctx, tx, id); err != nil {
 		return err
+	}
+
+	// Sync FTS5 index.
+	if s.opts.enableFTS {
+		ftsDeleteSQL := fmt.Sprintf(`DELETE FROM %s WHERE doc_id = ?`, s.opts.ftsTableName)
+		if _, err := tx.ExecContext(ctx, ftsDeleteSQL, id); err != nil {
+			return fmt.Errorf("sqlitevec delete: delete fts5: %w", err)
+		}
 	}
 
 	deleteSQL := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.opts.tableName)
@@ -341,9 +389,15 @@ func (s *Store) Search(ctx context.Context, query *vectorstore.SearchQuery) (*ve
 	case vectorstore.SearchModeFilter:
 		return s.searchByFilter(ctx, query)
 	case vectorstore.SearchModeKeyword:
-		return nil, errors.New("sqlitevec: SearchModeKeyword is not supported in v1")
+		if !s.opts.enableFTS {
+			return nil, errors.New("sqlitevec: keyword search requires enableFTS=true")
+		}
+		return s.searchByKeyword(ctx, query)
 	case vectorstore.SearchModeHybrid:
-		return s.searchByVector(ctx, query)
+		if !s.opts.enableFTS {
+			return s.searchByVector(ctx, query)
+		}
+		return s.searchByHybrid(ctx, query)
 	default:
 		// Default to vector search for backward compatibility.
 		if len(query.Vector) > 0 {
@@ -582,6 +636,11 @@ func (s *Store) DeleteByFilter(ctx context.Context, opts ...vectorstore.DeleteOp
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s`, s.opts.tableName)); err != nil {
 			return fmt.Errorf("sqlitevec delete all: %w", err)
 		}
+		if s.opts.enableFTS {
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s`, s.opts.ftsTableName)); err != nil {
+				return fmt.Errorf("sqlitevec delete all fts5: %w", err)
+			}
+		}
 		return tx.Commit()
 	}
 
@@ -598,6 +657,12 @@ func (s *Store) DeleteByFilter(ctx context.Context, opts ...vectorstore.DeleteOp
 	for _, id := range ids {
 		if err := s.deleteMetadataRows(ctx, tx, id); err != nil {
 			return err
+		}
+		if s.opts.enableFTS {
+			ftsDelSQL := fmt.Sprintf(`DELETE FROM %s WHERE doc_id = ?`, s.opts.ftsTableName)
+			if _, err := tx.ExecContext(ctx, ftsDelSQL, id); err != nil {
+				return fmt.Errorf("sqlitevec delete by filter fts5 id=%s: %w", id, err)
+			}
 		}
 		delSQL := fmt.Sprintf(`DELETE FROM %s WHERE id = ?`, s.opts.tableName)
 		if _, err := tx.ExecContext(ctx, delSQL, id); err != nil {

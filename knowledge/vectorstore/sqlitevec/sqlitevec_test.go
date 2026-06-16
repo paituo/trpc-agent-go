@@ -11,6 +11,7 @@ package sqlitevec
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/searchfilter"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 )
 
@@ -428,7 +430,7 @@ func TestSearchModeKeyword_Unsupported(t *testing.T) {
 		SearchMode: vectorstore.SearchModeKeyword,
 	})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not supported")
+	assert.Contains(t, err.Error(), "enableFTS")
 }
 
 func TestSearchModeHybrid_Unsupported(t *testing.T) {
@@ -768,5 +770,190 @@ func TestIsSQLiteMemoryDSN(t *testing.T) {
 
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, isSQLiteMemoryDSN(tt.dsn), tt.dsn)
+	}
+}
+
+// ---------- FTS / Hybrid Search ----------
+
+func TestSearchModeKeyword_WithFTS(t *testing.T) {
+	s := newTestStoreWithFTS(t)
+
+	docs := []struct {
+		id      string
+		name    string
+		content string
+	}{
+		{"1", "Go语言入门", "Go语言是一种静态类型的编译型语言"},
+		{"2", "Python教程", "Python是一种动态类型的解释型语言"},
+		{"3", "Go并发编程", "Go语言的goroutine和channel支持高效并发"},
+	}
+	for _, d := range docs {
+		doc := &document.Document{ID: d.id, Name: d.name, Content: d.content}
+		if err := s.Add(context.Background(), doc, testEmbedding(0.1, 0.2, 0.3, 0.4)); err != nil {
+			t.Fatalf("Add %s: %v", d.id, err)
+		}
+	}
+
+	result, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "Go语言",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err != nil {
+		t.Fatalf("Search keyword: %v", err)
+	}
+	if len(result.Results) == 0 {
+		t.Fatal("expected keyword search results, got none")
+	}
+	foundGo := false
+	for _, r := range result.Results {
+		if strings.Contains(r.Document.Name, "Go") || strings.Contains(r.Document.Content, "Go") {
+			foundGo = true
+		}
+	}
+	if !foundGo {
+		t.Error("expected Go-related results in keyword search")
+	}
+}
+
+func TestSearchModeKeyword_RequiresFTS(t *testing.T) {
+	s := newTestStore(t) // FTS not enabled
+
+	_, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "test",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err == nil {
+		t.Fatal("expected error for keyword search without FTS")
+	}
+}
+
+func TestSearchModeKeyword_EmptyQuery(t *testing.T) {
+	s := newTestStoreWithFTS(t)
+
+	_, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err == nil {
+		t.Fatal("expected error for empty keyword query")
+	}
+}
+
+func TestSearchModeHybrid_WithFTS(t *testing.T) {
+	s := newTestStoreWithFTS(t)
+
+	docs := []struct {
+		id      string
+		name    string
+		content string
+	}{
+		{"1", "Go语言入门", "Go语言是一种静态类型的编译型语言"},
+		{"2", "Python教程", "Python是一种动态类型的解释型语言"},
+		{"3", "Go并发编程", "Go语言的goroutine和channel支持高效并发"},
+	}
+	for _, d := range docs {
+		doc := &document.Document{ID: d.id, Name: d.name, Content: d.content}
+		if err := s.Add(context.Background(), doc, testEmbedding(0.1, 0.2, 0.3, 0.4)); err != nil {
+			t.Fatalf("Add %s: %v", d.id, err)
+		}
+	}
+
+	result, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "Go语言",
+		Vector:     testEmbedding(0.1, 0.2, 0.3, 0.4),
+		SearchMode: vectorstore.SearchModeHybrid,
+	})
+	if err != nil {
+		t.Fatalf("Search hybrid: %v", err)
+	}
+	if len(result.Results) == 0 {
+		t.Fatal("expected hybrid search results, got none")
+	}
+	for _, r := range result.Results {
+		if r.Document.Metadata == nil {
+			t.Error("expected metadata with scores")
+			continue
+		}
+		if _, ok := r.Document.Metadata[source.MetadataDenseScore]; !ok {
+			t.Errorf("missing %s in metadata for doc %s", source.MetadataDenseScore, r.Document.ID)
+		}
+		if _, ok := r.Document.Metadata[source.MetadataSparseScore]; !ok {
+			t.Errorf("missing %s in metadata for doc %s", source.MetadataSparseScore, r.Document.ID)
+		}
+	}
+}
+
+func TestSearchModeHybrid_WithoutFTS_FallsBackToVector(t *testing.T) {
+	s := newTestStore(t) // FTS not enabled
+
+	doc := &document.Document{ID: "1", Content: "test content"}
+	if err := s.Add(context.Background(), doc, testEmbedding(0.1, 0.2, 0.3, 0.4)); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	result, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "test",
+		Vector:     testEmbedding(0.1, 0.2, 0.3, 0.4),
+		SearchMode: vectorstore.SearchModeHybrid,
+	})
+	if err != nil {
+		t.Fatalf("Search hybrid fallback: %v", err)
+	}
+	if len(result.Results) == 0 {
+		t.Fatal("expected vector fallback results")
+	}
+}
+
+func TestFTS_SyncOnAddUpdateDelete(t *testing.T) {
+	s := newTestStoreWithFTS(t)
+
+	// Add
+	doc := &document.Document{ID: "1", Content: "机器学习是人工智能的分支"}
+	if err := s.Add(context.Background(), doc, testEmbedding(0.1, 0.2, 0.3, 0.4)); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	result, err := s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "机器学习",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err != nil {
+		t.Fatalf("Search after add: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result after add, got %d", len(result.Results))
+	}
+
+	// Update
+	doc.Content = "深度学习是机器学习的子领域"
+	if err := s.Update(context.Background(), doc, testEmbedding(0.1, 0.2, 0.3, 0.4)); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	result, err = s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "深度学习",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err != nil {
+		t.Fatalf("Search after update: %v", err)
+	}
+	if len(result.Results) != 1 {
+		t.Fatalf("expected 1 result after update, got %d", len(result.Results))
+	}
+
+	// Delete
+	if err := s.Delete(context.Background(), "1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	result, err = s.Search(context.Background(), &vectorstore.SearchQuery{
+		Query:      "深度学习",
+		SearchMode: vectorstore.SearchModeKeyword,
+	})
+	if err != nil {
+		t.Fatalf("Search after delete: %v", err)
+	}
+	if len(result.Results) != 0 {
+		t.Fatalf("expected 0 results after delete, got %d", len(result.Results))
 	}
 }
