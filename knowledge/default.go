@@ -26,6 +26,10 @@ import (
 	"time"
 
 	"github.com/panjf2000/ants/v2"
+	"go.opentelemetry.io/otel/attribute"
+
+	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/internal/loader"
@@ -36,6 +40,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
 )
 
 // defaultSizeBuckets defines size boundaries (bytes) used for document
@@ -328,7 +333,27 @@ func (dk *BuiltinKnowledge) reloadSource(
 }
 
 // loadSourceInternal loads sources with proper concurrency handling
-func (dk *BuiltinKnowledge) loadSourceInternal(ctx context.Context, sources []source.Source, config *loadConfig) error {
+func (dk *BuiltinKnowledge) loadSourceInternal(ctx context.Context, sources []source.Source, config *loadConfig) (err error) {
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeIngestSpanName())
+	if started {
+		defer func() {
+			if err == nil {
+				span.SetAttributes(attribute.String(semconvtrace.KeyKnowledgeIngestOutput, `{"status":"success"}`))
+			}
+			span.End()
+		}()
+		sourceNames := make([]string, len(sources))
+		for i, s := range sources {
+			sourceNames[i] = s.Name()
+		}
+		sourceNamesJSON, _ := json.Marshal(sourceNames)
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationKnowledgeIngest),
+			attribute.Int("knowledge.ingest.source_count", len(sources)),
+			attribute.String(semconvtrace.KeyKnowledgeIngestInput, string(sourceNamesJSON)),
+		)
+	}
+
 	dk.processingDocIDs = sync.Map{}
 	defer func() {
 		// reset processingDocIDs after loading sources
@@ -336,10 +361,10 @@ func (dk *BuiltinKnowledge) loadSourceInternal(ctx context.Context, sources []so
 	}()
 
 	if config.srcParallelism > 1 || config.docParallelism > 1 {
-		_, err := dk.loadConcurrent(ctx, config, sources)
+		_, err = dk.loadConcurrent(ctx, config, sources)
 		return err
 	}
-	_, err := dk.loadSequential(ctx, config, sources)
+	_, err = dk.loadSequential(ctx, config, sources)
 	return err
 }
 
@@ -785,25 +810,69 @@ func (dk *BuiltinKnowledge) addDocumentWithSync(
 }
 
 // addDocument adds a document to the knowledge base (internal method).
-func (dk *BuiltinKnowledge) addDocument(ctx context.Context, doc *document.Document) error {
+func (dk *BuiltinKnowledge) addDocument(ctx context.Context, doc *document.Document) (err error) {
 	if dk.vectorStore == nil {
 		return fmt.Errorf("vector store is not configured")
 	}
 
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeAddDocumentSpanName())
+	if started {
+		defer func() {
+			if err != nil {
+				span.SetAttributes(attribute.String(semconvtrace.KeyKnowledgeAddDocumentOutput, `{"status":"error"}`))
+			} else {
+				span.SetAttributes(attribute.String(semconvtrace.KeyKnowledgeAddDocumentOutput, `{"status":"success"}`))
+			}
+			span.End()
+		}()
+		input := map[string]any{
+			"doc_id":      doc.ID,
+			"doc_name":    doc.Name,
+			"content_len": len(doc.Content),
+		}
+		inputJSON, _ := json.Marshal(input)
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationKnowledgeAddDocument),
+			attribute.String(semconvtrace.KeyKnowledgeAddDocumentInput, string(inputJSON)),
+		)
+	}
+
 	var embedding []float64
 	if dk.embedder != nil {
-		var err error
+		var embErr error
 		embeddingText := buildEmbeddingText(doc)
-		embedding, err = dk.embedder.GetEmbedding(ctx, embeddingText)
-		if err != nil {
-			return fmt.Errorf("failed to generate embedding: %w", err)
+		embedding, embErr = dk.embedder.GetEmbedding(ctx, embeddingText)
+		if embErr != nil {
+			return fmt.Errorf("failed to generate embedding: %w", embErr)
 		}
 	} else {
 		// When embedder is not set, pass empty slice for remote embedding
 		embedding = []float64{}
 	}
 
-	if err := dk.vectorStore.Add(ctx, doc, embedding); err != nil {
+	// vector_add sub-span for vector store write operation
+	vCtx, vSpan, vStarted := itrace.StartSpan(ctx, nil, itelemetry.NewVectorAddSpanName())
+	if vStarted {
+		defer func() {
+			if err != nil {
+				vSpan.SetAttributes(attribute.String(semconvtrace.KeyVectorAddOutput, `{"status":"error"}`))
+			} else {
+				vSpan.SetAttributes(attribute.String(semconvtrace.KeyVectorAddOutput, `{"status":"success"}`))
+			}
+			vSpan.End()
+		}()
+		vInput := map[string]any{
+			"doc_id":        doc.ID,
+			"embedding_dim": len(embedding),
+		}
+		vInputJSON, _ := json.Marshal(vInput)
+		vSpan.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationVectorAdd),
+			attribute.String(semconvtrace.KeyVectorAddInput, string(vInputJSON)),
+		)
+	}
+
+	if err = dk.vectorStore.Add(vCtx, doc, embedding); err != nil {
 		return fmt.Errorf("failed to store embedding: %w", err)
 	}
 	return nil
@@ -1073,6 +1142,17 @@ func (dk *BuiltinKnowledge) Search(ctx context.Context, req *SearchRequest) (*Se
 		return nil, fmt.Errorf("retriever not configured")
 	}
 
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeSearchSpanName())
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationKnowledgeSearch),
+			attribute.String(semconvtrace.KeyKnowledgeSearchInput, req.Query),
+			attribute.Int("knowledge.search.max_results", req.MaxResults),
+			attribute.Float64("knowledge.search.min_score", req.MinScore),
+		)
+	}
+
 	minScore := req.MinScore
 	if minScore < 0 {
 		minScore = 0.0
@@ -1099,6 +1179,9 @@ func (dk *BuiltinKnowledge) Search(ctx context.Context, req *SearchRequest) (*Se
 
 	result, err := dk.retriever.Retrieve(ctx, retrieverReq)
 	if err != nil {
+		if started {
+			span.SetAttributes(attribute.String("knowledge.search.error", err.Error()))
+		}
 		return nil, fmt.Errorf("retrieval failed: %w", err)
 	}
 
@@ -1117,12 +1200,41 @@ func (dk *BuiltinKnowledge) Search(ctx context.Context, req *SearchRequest) (*Se
 		})
 	}
 
+	if started {
+		outputJSON := buildSearchOutputJSON(documents)
+		span.SetAttributes(
+			attribute.Int("knowledge.search.result_count", len(documents)),
+			attribute.String(semconvtrace.KeyKnowledgeSearchOutput, outputJSON),
+		)
+	}
+
 	return &SearchResult{
 		Document:  bestDoc.Document,
 		Score:     bestDoc.Score,
 		Text:      content,
 		Documents: documents,
 	}, nil
+}
+
+// buildSearchOutputJSON builds a compact JSON string of search results for telemetry.
+func buildSearchOutputJSON(results []*Result) string {
+	type resultSummary struct {
+		ID    string  `json:"id"`
+		Name  string  `json:"name"`
+		Score float64 `json:"score"`
+	}
+	summaries := make([]resultSummary, 0, len(results))
+	for _, r := range results {
+		if r.Document != nil {
+			summaries = append(summaries, resultSummary{
+				ID:    r.Document.ID,
+				Name:  r.Document.Name,
+				Score: r.Score,
+			})
+		}
+	}
+	b, _ := json.Marshal(summaries)
+	return string(b)
 }
 
 func hasSearchFilter(filter *SearchFilter) bool {
