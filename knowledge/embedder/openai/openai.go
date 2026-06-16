@@ -469,8 +469,8 @@ func (e *Embedder) response(ctx context.Context, text string) (*openai.CreateEmb
 	}
 	// Upstream moved the embedding trace/span into send(), which now records
 	// the request attributes, provider prompt tokens, and error. The branch
-	// trace added in ece400a69 is functionally covered by send(), so we keep
-	// the upstream single-call form here.
+	// trace added in ece400a69/5ada55196 is functionally covered by send(),
+	// so we keep the upstream single-call form here.
 	return e.send(ctx, e.newRequest(openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)}))
 }
 
@@ -559,6 +559,20 @@ func (e *Embedder) send(
 // keep this method consistent with the wire response.
 func (e *Embedder) GetDimensions() int {
 	return e.dimensions
+}
+
+// responseSummary is a compact summary of the embedding response used for
+// telemetry tracing. It excludes the full embedding vectors to avoid bloat.
+type responseSummary struct {
+	Model      string         `json:"model"`
+	Vectors    int            `json:"vectors"`
+	Dimensions int            `json:"dimensions"`
+	Usage      *responseUsage `json:"usage,omitempty"`
+}
+
+type responseUsage struct {
+	PromptTokens int64 `json:"prompt_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
 }
 
 // isTextEmbedding3Model reports whether the model belongs to the
