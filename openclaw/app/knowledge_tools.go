@@ -21,6 +21,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/query"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
 	coherereranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/cohere"
 	infinityreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/infinity"
@@ -33,6 +34,7 @@ import (
 	inmemoryvs "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 	vectorpg "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/pgvector"
 	vectorsqlite "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec"
+	openaimodel "trpc.group/trpc-go/trpc-agent-go/model/openai"
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
@@ -67,29 +69,32 @@ func (r *rawKnowledgeComponent) UnmarshalYAML(node *yaml.Node) error {
 }
 
 // builtinKnowledgeConfig is the config schema for the "builtin" knowledge
-// provider (embedder + vector_store + reranker + sources).
+// provider (embedder + vector_store + reranker + sources + query_enhancer +
+// agentic_filter_info).
 type builtinKnowledgeConfig struct {
-	Embedder    *rawKnowledgeComponent   `yaml:"embedder,omitempty"`
-	VectorStore *rawKnowledgeComponent   `yaml:"vector_store,omitempty"`
-	Reranker    *rawKnowledgeComponent   `yaml:"reranker,omitempty"`
-	Sources     []*rawKnowledgeComponent `yaml:"sources,omitempty"`
+	Embedder          *rawKnowledgeComponent   `yaml:"embedder,omitempty"`
+	VectorStore       *rawKnowledgeComponent   `yaml:"vector_store,omitempty"`
+	Reranker          *rawKnowledgeComponent   `yaml:"reranker,omitempty"`
+	Sources           []*rawKnowledgeComponent `yaml:"sources,omitempty"`
+	QueryEnhancer     *rawKnowledgeComponent   `yaml:"query_enhancer,omitempty"`
+	AgenticFilterInfo map[string][]any         `yaml:"agentic_filter_info,omitempty"`
 }
 
 func newBuiltinKnowledge(
 	_ registry.KnowledgeProviderDeps,
 	spec registry.PluginSpec,
-) (knowledge.Knowledge, error) {
+) (knowledge.Knowledge, map[string][]any, error) {
 	var cfg builtinKnowledgeConfig
 	if err := registry.DecodeStrict(spec.Config, &cfg); err != nil {
-		return nil, fmt.Errorf("decode failed: %w", err)
+		return nil, nil, fmt.Errorf("decode failed: %w", err)
 	}
 	emb, err := buildKnowledgeEmbedder(cfg.Embedder)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	store, err := buildKnowledgeVectorStore(cfg.VectorStore, emb)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	kOpts := []knowledge.Option{
@@ -101,7 +106,7 @@ func newBuiltinKnowledge(
 	if cfg.Reranker != nil && cfg.Reranker.Node != nil {
 		reranker, err := buildKnowledgeReranker(cfg.Reranker.Node)
 		if err != nil {
-			return nil, fmt.Errorf("reranker config invalid: %w", err)
+			return nil, nil, fmt.Errorf("reranker config invalid: %w", err)
 		}
 		kOpts = append(kOpts, knowledge.WithReranker(reranker))
 	}
@@ -110,9 +115,18 @@ func newBuiltinKnowledge(
 	if len(cfg.Sources) > 0 {
 		sources, err := buildKnowledgeSources(cfg.Sources)
 		if err != nil {
-			return nil, fmt.Errorf("sources config invalid: %w", err)
+			return nil, nil, fmt.Errorf("sources config invalid: %w", err)
 		}
 		kOpts = append(kOpts, knowledge.WithSources(sources))
+	}
+
+	// Build query enhancer if configured
+	if cfg.QueryEnhancer != nil && cfg.QueryEnhancer.Node != nil {
+		enhancer, err := buildKnowledgeQueryEnhancer(cfg.QueryEnhancer.Node)
+		if err != nil {
+			return nil, nil, fmt.Errorf("query_enhancer config invalid: %w", err)
+		}
+		kOpts = append(kOpts, knowledge.WithQueryEnhancer(enhancer))
 	}
 
 	kb := knowledge.New(kOpts...)
@@ -124,29 +138,31 @@ func newBuiltinKnowledge(
 		ctx := context.Background()
 		count, err := store.Count(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to count vector store: %w", err)
+			return nil, nil, fmt.Errorf("failed to count vector store: %w", err)
 		}
 		if count == 0 {
 			if err := kb.Load(ctx, knowledge.WithSourceConcurrency(1)); err != nil {
-				return nil, fmt.Errorf("failed to load knowledge sources: %w", err)
+				return nil, nil, fmt.Errorf("failed to load knowledge sources: %w", err)
 			}
 		}
 	}
 
-	return kb, nil
+	return kb, cfg.AgenticFilterInfo, nil
 }
 
 func buildKnowledgeTools(
 	entries []knowledgeEntry,
+	enableAgenticFilter bool,
 ) (*knowledgeToolsBundle, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
 
 	type resolvedKnowledge struct {
-		kb          knowledge.Knowledge
-		description string
-		maxResults  int
+		kb               knowledge.Knowledge
+		description      string
+		maxResults       int
+		agenticFilterInfo map[string][]any
 	}
 	knowledges := make(map[string]*resolvedKnowledge, len(entries))
 	for _, entry := range entries {
@@ -157,11 +173,14 @@ func buildKnowledgeTools(
 				entry.Type,
 			)
 		}
-		kb, err := f(registry.KnowledgeProviderDeps{}, registry.PluginSpec{
-			Type:   entry.Type,
-			Name:   entry.Name,
-			Config: entry.Config,
-		})
+		kb, agenticFilterInfo, err := f(
+			registry.KnowledgeProviderDeps{},
+			registry.PluginSpec{
+				Type:   entry.Type,
+				Name:   entry.Name,
+				Config: entry.Config,
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf(
 				"knowledge %q config invalid: %w",
@@ -170,9 +189,10 @@ func buildKnowledgeTools(
 			)
 		}
 		knowledges[entry.Name] = &resolvedKnowledge{
-			kb:          kb,
-			description: entry.Description,
-			maxResults:  entry.MaxResults,
+			kb:               kb,
+			description:      entry.Description,
+			maxResults:       entry.MaxResults,
+			agenticFilterInfo: agenticFilterInfo,
 		}
 	}
 
@@ -198,11 +218,19 @@ func buildKnowledgeTools(
 				knowledgetool.WithMaxResults(entry.maxResults),
 			)
 		}
-		searchTool := knowledgetool.NewAgenticFilterSearchTool(
-			entry.kb,
-			nil,
-			toolOpts...,
-		)
+		var searchTool tool.Tool
+		if enableAgenticFilter {
+			searchTool = knowledgetool.NewAgenticFilterSearchTool(
+				entry.kb,
+				entry.agenticFilterInfo,
+				toolOpts...,
+			)
+		} else {
+			searchTool = knowledgetool.NewKnowledgeSearchTool(
+				entry.kb,
+				toolOpts...,
+			)
+		}
 		return &knowledgeToolsBundle{
 			tools: []tool.Tool{
 				newKnowledgeIndexTool(names[0], searchTool),
@@ -241,11 +269,19 @@ func buildKnowledgeTools(
 				knowledgetool.WithMaxResults(entry.maxResults),
 			)
 		}
-		searchTool := knowledgetool.NewAgenticFilterSearchTool(
-			entry.kb,
-			nil,
-			toolOpts...,
-		)
+		var searchTool tool.Tool
+		if enableAgenticFilter {
+			searchTool = knowledgetool.NewAgenticFilterSearchTool(
+				entry.kb,
+				entry.agenticFilterInfo,
+				toolOpts...,
+			)
+		} else {
+			searchTool = knowledgetool.NewKnowledgeSearchTool(
+				entry.kb,
+				toolOpts...,
+			)
+		}
 		tools = append(tools, newKnowledgeIndexTool(name, searchTool))
 	}
 
@@ -701,6 +737,60 @@ func buildKnowledgeSource(node *yaml.Node) (source.Source, error) {
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", cfg.Type)
 	}
+}
+
+// ---------- Query Enhancer support ----------
+
+type llmQueryEnhancerConfig struct {
+	Type         string `yaml:"type,omitempty"`
+	Model        string `yaml:"model,omitempty"`
+	BaseURL      string `yaml:"base_url,omitempty"`
+	APIKey       string `yaml:"api_key,omitempty"`
+	SystemPrompt string `yaml:"system_prompt,omitempty"`
+}
+
+func buildKnowledgeQueryEnhancer(node *yaml.Node) (query.Enhancer, error) {
+	var cfg llmQueryEnhancerConfig
+	if err := node.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("decode query_enhancer config: %w", err)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Type)) {
+	case "llm":
+		if strings.TrimSpace(cfg.Model) == "" {
+			return nil, fmt.Errorf(
+				"query_enhancer type 'llm' requires 'model' field",
+			)
+		}
+		m, err := buildQueryEnhancerModel(&cfg)
+		if err != nil {
+			return nil, err
+		}
+		opts := []query.LLMEnhancerOption{}
+		if cfg.SystemPrompt != "" {
+			opts = append(opts, query.WithSystemPrompt(cfg.SystemPrompt))
+		}
+		return query.NewLLMEnhancer(m, opts...), nil
+
+	case "passthrough", "":
+		return query.NewPassthroughEnhancer(), nil
+
+	default:
+		return nil, fmt.Errorf(
+			"unsupported query_enhancer type: %s", cfg.Type,
+		)
+	}
+}
+
+func buildQueryEnhancerModel(cfg *llmQueryEnhancerConfig) (*openaimodel.Model, error) {
+	opts := []openaimodel.Option{}
+	if strings.TrimSpace(cfg.BaseURL) != "" {
+		opts = append(opts, openaimodel.WithBaseURL(cfg.BaseURL))
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		opts = append(opts, openaimodel.WithAPIKey(cfg.APIKey))
+	}
+	return openaimodel.New(cfg.Model, opts...), nil
 }
 
 func knowledgeEmbedderDimensions(e embedder.Embedder) int {

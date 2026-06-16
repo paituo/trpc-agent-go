@@ -191,15 +191,15 @@ func TestRegisterAndLookup_MoreKinds(t *testing.T) {
 		func(
 			_ KnowledgeProviderDeps,
 			_ PluginSpec,
-		) (knowledge.Knowledge, error) {
+		) (knowledge.Knowledge, map[string][]any, error) {
 			knowledgeCalled = true
-			return nil, nil
+			return nil, nil, nil
 		},
 	))
 
 	knowledgeFactory, ok := LookupKnowledgeProvider("knowledge")
 	require.True(t, ok)
-	_, err = knowledgeFactory(
+	_, _, err = knowledgeFactory(
 		KnowledgeProviderDeps{},
 		PluginSpec{},
 	)
@@ -247,8 +247,8 @@ func TestRegisterKnowledgeProvider_ValidatesInputs(t *testing.T) {
 		func(
 			KnowledgeProviderDeps,
 			PluginSpec,
-		) (knowledge.Knowledge, error) {
-			return nil, nil
+		) (knowledge.Knowledge, map[string][]any, error) {
+			return nil, nil, nil
 		},
 	))
 
@@ -260,8 +260,8 @@ func TestRegisterKnowledgeProvider_ValidatesInputs(t *testing.T) {
 		func(
 			KnowledgeProviderDeps,
 			PluginSpec,
-		) (knowledge.Knowledge, error) {
-			return nil, nil
+		) (knowledge.Knowledge, map[string][]any, error) {
+			return nil, nil, nil
 		},
 	))
 	require.Error(t, RegisterKnowledgeProvider(
@@ -269,8 +269,8 @@ func TestRegisterKnowledgeProvider_ValidatesInputs(t *testing.T) {
 		func(
 			KnowledgeProviderDeps,
 			PluginSpec,
-		) (knowledge.Knowledge, error) {
-			return nil, nil
+		) (knowledge.Knowledge, map[string][]any, error) {
+			return nil, nil, nil
 		},
 	))
 }
@@ -313,8 +313,8 @@ func TestTypes(t *testing.T) {
 		func(
 			_ KnowledgeProviderDeps,
 			_ PluginSpec,
-		) (knowledge.Knowledge, error) {
-			return nil, nil
+		) (knowledge.Knowledge, map[string][]any, error) {
+			return nil, nil, nil
 		},
 	))
 	require.NoError(t, RegisterKnowledgeProvider(
@@ -322,8 +322,8 @@ func TestTypes(t *testing.T) {
 		func(
 			_ KnowledgeProviderDeps,
 			_ PluginSpec,
-		) (knowledge.Knowledge, error) {
-			return nil, nil
+		) (knowledge.Knowledge, map[string][]any, error) {
+			return nil, nil, nil
 		},
 	))
 
