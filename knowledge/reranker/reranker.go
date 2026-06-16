@@ -12,6 +12,7 @@ package reranker
 
 import (
 	"context"
+	"encoding/json"
 
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/query"
@@ -51,4 +52,59 @@ type Result struct {
 
 	// Score is the relevance score.
 	Score float64
+}
+
+// BuildRerankInputJSON builds a compact JSON string of reranker input for telemetry.
+func BuildRerankInputJSON(q *Query, results []*Result) string {
+	type inputDoc struct {
+		ID   string `json:"id,omitempty"`
+		Name string `json:"name,omitempty"`
+		Text string `json:"text,omitempty"`
+	}
+	queryText := ""
+	if q != nil {
+		queryText = q.Text
+	}
+	input := struct {
+		Query     string    `json:"query"`
+		InputDocs []inputDoc `json:"input_docs"`
+	}{
+		Query:     queryText,
+		InputDocs: make([]inputDoc, 0, len(results)),
+	}
+	for _, r := range results {
+		doc := inputDoc{}
+		if r.Document != nil {
+			doc.ID = r.Document.ID
+			doc.Name = r.Document.Name
+			if len(r.Document.Content) > 200 {
+				doc.Text = r.Document.Content[:200]
+			} else {
+				doc.Text = r.Document.Content
+			}
+		}
+		input.InputDocs = append(input.InputDocs, doc)
+	}
+	b, _ := json.Marshal(input)
+	return string(b)
+}
+
+// BuildRerankOutputJSON builds a compact JSON string of reranker output for telemetry.
+func BuildRerankOutputJSON(results []*Result) string {
+	type outputDoc struct {
+		ID    string  `json:"id,omitempty"`
+		Name  string  `json:"name,omitempty"`
+		Score float64 `json:"score"`
+	}
+	docs := make([]outputDoc, 0, len(results))
+	for _, r := range results {
+		doc := outputDoc{Score: r.Score}
+		if r.Document != nil {
+			doc.ID = r.Document.ID
+			doc.Name = r.Document.Name
+		}
+		docs = append(docs, doc)
+	}
+	b, _ := json.Marshal(docs)
+	return string(b)
 }
