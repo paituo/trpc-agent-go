@@ -11,12 +11,19 @@ package retriever
 
 import (
 	"context"
+	"encoding/json"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	"trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/query"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
 )
 
 // DefaultRetriever implements the complete RAG pipeline.
@@ -70,12 +77,22 @@ func New(opts ...Option) *DefaultRetriever {
 }
 
 // Retrieve implements the Retriever interface by executing the complete RAG pipeline.
-func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, error) {
+func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (result *Result, err error) {
+	ctx, span, started := trace.StartSpan(ctx, nil, telemetry.NewKnowledgeRetrieveSpanName())
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, telemetry.OperationKnowledgeRetrieve),
+			attribute.String(semconvtrace.KeyKnowledgeRetrieveInput, q.Text),
+			attribute.Int("knowledge.retrieve.limit", q.Limit),
+			attribute.Float64("knowledge.retrieve.min_score", q.MinScore),
+		)
+	}
+
 	// Step 1: Enhance query (if enhancer is available).
 	finalQuery := q.Text
 	if dr.queryEnhancer != nil && shouldEnhanceQuery(q) {
 		// Create query request with full context.
-		// No conversion needed as both use the same type from query package
 		queryReq := &query.Request{
 			Query:     q.Text,
 			History:   q.History,
@@ -84,6 +101,10 @@ func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, er
 		}
 		enhanced, err := dr.queryEnhancer.EnhanceQuery(ctx, queryReq)
 		if err != nil {
+			if started {
+				span.SetStatus(codes.Error, err.Error())
+				span.RecordError(err)
+			}
 			return nil, err
 		}
 		finalQuery = enhanced.Enhanced
@@ -98,6 +119,10 @@ func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, er
 		var err error
 		embedding, err = dr.embedder.GetEmbedding(ctx, finalQuery)
 		if err != nil {
+			if started {
+				span.SetStatus(codes.Error, err.Error())
+				span.RecordError(err)
+			}
 			return nil, err
 		}
 	}
@@ -112,6 +137,10 @@ func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, er
 		SearchMode: q.SearchMode,
 	})
 	if err != nil {
+		if started {
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		}
 		return nil, err
 	}
 
@@ -134,6 +163,10 @@ func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, er
 			SessionID:  q.SessionID,
 		}, rerankerResults)
 		if err != nil {
+			if started {
+				span.SetStatus(codes.Error, err.Error())
+				span.RecordError(err)
+			}
 			return nil, err
 		}
 	}
@@ -147,9 +180,38 @@ func (dr *DefaultRetriever) Retrieve(ctx context.Context, q *Query) (*Result, er
 		}
 	}
 
-	return &Result{
+	result = &Result{
 		Documents: finalResults,
-	}, nil
+	}
+	if started {
+		outputJSON := buildRetrieveOutputJSON(finalResults)
+		span.SetAttributes(
+			attribute.Int("knowledge.retrieve.result_count", len(finalResults)),
+			attribute.String(semconvtrace.KeyKnowledgeRetrieveOutput, outputJSON),
+		)
+	}
+	return result, nil
+}
+
+// buildRetrieveOutputJSON builds a compact JSON string of retrieved documents for telemetry.
+func buildRetrieveOutputJSON(results []*RelevantDocument) string {
+	type resultSummary struct {
+		ID    string  `json:"id"`
+		Name  string  `json:"name"`
+		Score float64 `json:"score"`
+	}
+	summaries := make([]resultSummary, 0, len(results))
+	for _, r := range results {
+		if r.Document != nil {
+			summaries = append(summaries, resultSummary{
+				ID:    r.Document.ID,
+				Name:  r.Document.Name,
+				Score: r.Score,
+			})
+		}
+	}
+	b, _ := json.Marshal(summaries)
+	return string(b)
 }
 
 // Close implements the Retriever interface.

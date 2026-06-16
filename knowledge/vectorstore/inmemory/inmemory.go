@@ -20,9 +20,14 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/searchfilter"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
+	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
 )
 
 var (
@@ -90,6 +95,16 @@ func (vs *VectorStore) Add(ctx context.Context, doc *document.Document, embeddin
 	}
 	if len(embedding) == 0 {
 		return errEmbeddingCannotBeEmpty
+	}
+
+	ctx, span, started := itrace.StartSpan(ctx, nil, telemetry.NewVectorAddSpanName()+"_inmemory")
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, telemetry.OperationVectorAdd),
+			attribute.String("vector.doc.id", doc.ID),
+			attribute.Int("vector.embedding_dim", len(embedding)),
+		)
 	}
 
 	vs.mutex.Lock()
@@ -189,6 +204,17 @@ func (vs *VectorStore) Delete(ctx context.Context, id string) error {
 func (vs *VectorStore) Search(ctx context.Context, query *vectorstore.SearchQuery) (*vectorstore.SearchResult, error) {
 	if query == nil {
 		return nil, errors.New("query cannot be nil")
+	}
+
+	ctx, span, started := itrace.StartSpan(ctx, nil, telemetry.NewVectorSearchSpanName()+"_inmemory")
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.Int("vector.search.limit", query.Limit),
+			attribute.Float64("vector.search.min_score", query.MinScore),
+			attribute.Int("vector.search.vector_dim", len(query.Vector)),
+			attribute.Int("vector.search.mode", int(query.SearchMode)),
+		)
 	}
 
 	// Handle different search modes
