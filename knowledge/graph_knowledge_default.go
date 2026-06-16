@@ -18,6 +18,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+
+	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/graph"
@@ -173,6 +177,11 @@ func (gk *BuiltinGraphKnowledge) LoadGraphSource(
 	src source.GraphSource,
 	opts ...GraphLoadOption,
 ) error {
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeIngestSpanName()+"_graph")
+	if started {
+		defer span.End()
+	}
+
 	if err := gk.validateGraphSource(src); err != nil {
 		return err
 	}
@@ -194,6 +203,14 @@ func (gk *BuiltinGraphKnowledge) LoadGraphSource(
 	if config.showProgress {
 		log.InfofContext(ctx, "Loaded graph source %s | nodes %d | edges %d | seeds %d | elapsed %s",
 			sourceName, len(data.Nodes), len(data.Edges), indexedSeeds, time.Since(start).Truncate(time.Second))
+	}
+	if started {
+		span.SetAttributes(
+			attribute.String("knowledge.ingest.source_name", sourceName),
+			attribute.Int("knowledge.ingest.nodes", len(data.Nodes)),
+			attribute.Int("knowledge.ingest.edges", len(data.Edges)),
+			attribute.Int("knowledge.ingest.indexed_seeds", indexedSeeds),
+		)
 	}
 	return nil
 }

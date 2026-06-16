@@ -44,13 +44,20 @@ const (
 
 	SpanNamePrefixExecuteTool = "execute_tool"
 
-	OperationExecuteTool     = "execute_tool"
-	OperationChat            = "chat"
-	OperationGenerateContent = "generate_content"
-	OperationInvokeAgent     = "invoke_agent"
-	OperationCreateAgent     = "create_agent"
-	OperationEmbeddings      = "embeddings"
-	OperationWorkflow        = "workflow"
+	OperationExecuteTool          = "execute_tool"
+	OperationChat                 = "chat"
+	OperationGenerateContent      = "generate_content"
+	OperationInvokeAgent          = "invoke_agent"
+	OperationCreateAgent          = "create_agent"
+	OperationEmbeddings           = "embeddings"
+	OperationWorkflow             = "workflow"
+	OperationKnowledgeSearch      = "knowledge_search"
+	OperationKnowledgeRetrieve    = "knowledge_retrieve"
+	OperationKnowledgeIngest      = "knowledge_ingest"
+	OperationKnowledgeAddDocument = "knowledge_add_document"
+	OperationVectorSearch         = "vector_search"
+	OperationRerank               = "rerank"
+	OperationVectorAdd            = "vector_add"
 )
 
 // NewChatSpanName creates a new chat span name.
@@ -61,6 +68,44 @@ func NewChatSpanName(requestModel string) string {
 // NewExecuteToolSpanName creates a new execute tool span name.
 func NewExecuteToolSpanName(toolName string) string {
 	return OperationExecuteTool + " " + toolName
+}
+
+// NewKnowledgeSearchSpanName creates a new knowledge search span name.
+func NewKnowledgeSearchSpanName() string {
+	return OperationKnowledgeSearch
+}
+
+// NewKnowledgeRetrieveSpanName creates a new knowledge retrieve span name.
+func NewKnowledgeRetrieveSpanName() string {
+	return OperationKnowledgeRetrieve
+}
+
+// NewKnowledgeIngestSpanName creates a new knowledge ingest span name.
+func NewKnowledgeIngestSpanName() string {
+	return OperationKnowledgeIngest
+}
+
+// NewKnowledgeAddDocumentSpanName creates a new knowledge add document span name.
+func NewKnowledgeAddDocumentSpanName() string {
+	return OperationKnowledgeAddDocument
+}
+
+// NewVectorSearchSpanName creates a new vector search span name.
+func NewVectorSearchSpanName() string {
+	return OperationVectorSearch
+}
+
+// NewRerankSpanName creates a new rerank span name.
+func NewRerankSpanName(modelName string) string {
+	if modelName == "" {
+		return OperationRerank
+	}
+	return OperationRerank + " " + modelName
+}
+
+// NewVectorAddSpanName creates a new vector add span name.
+func NewVectorAddSpanName() string {
+	return OperationVectorAdd
 }
 
 // WorkflowType is the normalized type vocabulary used by workflow spans.

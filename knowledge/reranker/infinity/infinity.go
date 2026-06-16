@@ -15,9 +15,15 @@ import (
 	"errors"
 	"net/http"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
+	"trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
+	"trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/internal/httpclient"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
 )
 
 var (
@@ -93,7 +99,23 @@ func (r *Reranker) Rerank(
 	query *reranker.Query,
 	results []*reranker.Result,
 ) ([]*reranker.Result, error) {
+	ctx, span, started := trace.StartSpan(ctx, nil, telemetry.NewRerankSpanName(r.modelName))
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, telemetry.OperationRerank),
+			attribute.String(semconvtrace.KeyRerankInput, reranker.BuildRerankInputJSON(query, results)),
+			attribute.Int("reranker.input_count", len(results)),
+			attribute.Int("reranker.top_n", r.topN),
+		)
+	}
+
 	if len(results) == 0 {
+		if started {
+			span.SetAttributes(
+				attribute.String(semconvtrace.KeyRerankOutput, "[]"),
+			)
+		}
 		return results, nil
 	}
 
@@ -115,11 +137,21 @@ func (r *Reranker) Rerank(
 
 	reranked, err := r.httpClient.Rerank(ctx, r.endpoint, r.apiKey, req, results)
 	if err != nil {
+		if started {
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		}
 		return nil, err
 	}
 
 	if r.topN > 0 && len(reranked) > r.topN {
 		reranked = reranked[:r.topN]
+	}
+	if started {
+		span.SetAttributes(
+			attribute.Int("reranker.output_count", len(reranked)),
+			attribute.String(semconvtrace.KeyRerankOutput, reranker.BuildRerankOutputJSON(reranked)),
+		)
 	}
 	return reranked, nil
 }
