@@ -159,4 +159,28 @@ const (
 	SystemTRPCGoAgent = "trpc.go.agent"
 
 	KeyGenAITaskType = "gen_ai.task_type"
+
+	// Knowledge search semconv keys
+	KeyKnowledgeSearchInput  = "trpc.go.agent.knowledge.search_input"
+	KeyKnowledgeSearchOutput = "trpc.go.agent.knowledge.search_output"
+
+	// Knowledge retrieve semconv keys
+	KeyKnowledgeRetrieveInput  = "trpc.go.agent.knowledge.retrieve_input"
+	KeyKnowledgeRetrieveOutput = "trpc.go.agent.knowledge.retrieve_output"
+
+	// Rerank semconv keys
+	KeyRerankInput  = "trpc.go.agent.rerank.input"
+	KeyRerankOutput = "trpc.go.agent.rerank.output"
+
+	// Knowledge ingest semconv keys
+	KeyKnowledgeIngestInput  = "trpc.go.agent.knowledge.ingest_input"
+	KeyKnowledgeIngestOutput = "trpc.go.agent.knowledge.ingest_output"
+
+	// Knowledge add document semconv keys
+	KeyKnowledgeAddDocumentInput  = "trpc.go.agent.knowledge.add_document_input"
+	KeyKnowledgeAddDocumentOutput = "trpc.go.agent.knowledge.add_document_output"
+
+	// Vector add semconv keys
+	KeyVectorAddInput  = "trpc.go.agent.vector.add_input"
+	KeyVectorAddOutput = "trpc.go.agent.vector.add_output"
 )
