@@ -116,6 +116,18 @@ func transformSpan(span *tracepb.Span) {
 		transformEmbedding(span)
 	case itelemetry.OperationWorkflow:
 		transformWorkflow(span)
+	case itelemetry.OperationKnowledgeSearch:
+		transformKnowledgeSearch(span)
+	case itelemetry.OperationKnowledgeRetrieve:
+		transformKnowledgeRetrieve(span)
+	case itelemetry.OperationRerank:
+		transformRerank(span)
+	case itelemetry.OperationKnowledgeIngest:
+		transformKnowledgeIngestion(span)
+	case itelemetry.OperationKnowledgeAddDocument:
+		transformKnowledgeAddDocument(span)
+	case itelemetry.OperationVectorAdd:
+		transformVectorAdd(span)
 	default:
 	}
 }
@@ -786,6 +798,234 @@ func transformEmbedding(span *tracepb.Span) {
 		}
 	}
 
+	span.Attributes = newAttributes
+}
+
+// transformKnowledgeSearch transforms knowledge_search spans for Langfuse.
+func transformKnowledgeSearch(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyKnowledgeSearchInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyKnowledgeSearchOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+	span.Attributes = newAttributes
+}
+
+// transformKnowledgeRetrieve transforms knowledge_retrieve spans for Langfuse.
+func transformKnowledgeRetrieve(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeRetriever},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyKnowledgeRetrieveInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyKnowledgeRetrieveOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+	span.Attributes = newAttributes
+}
+
+// transformRerank transforms rerank spans for Langfuse.
+func transformRerank(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyRerankInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyRerankOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+	span.Attributes = newAttributes
+}
+
+// transformKnowledgeIngestion transforms knowledge_ingest spans for Langfuse.
+func transformKnowledgeIngestion(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyKnowledgeIngestInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyKnowledgeIngestOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+	span.Attributes = newAttributes
+}
+
+// transformKnowledgeAddDocument transforms knowledge_add_document spans for Langfuse.
+func transformKnowledgeAddDocument(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyKnowledgeAddDocumentInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyKnowledgeAddDocumentOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+	span.Attributes = newAttributes
+}
+
+// transformVectorAdd transforms vector_add spans for Langfuse.
+func transformVectorAdd(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyVectorAddInput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationInput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		case semconvtrace.KeyVectorAddOutput:
+			if attr.Value != nil {
+				newAttributes = append(newAttributes, &commonpb.KeyValue{
+					Key: observationOutput,
+					Value: &commonpb.AnyValue{
+						Value: &commonpb.AnyValue_StringValue{StringValue: attr.Value.GetStringValue()},
+					},
+				})
+			}
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
 	span.Attributes = newAttributes
 }
 
