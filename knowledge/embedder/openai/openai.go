@@ -12,6 +12,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -345,6 +346,18 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 		embeddingAttributes.Error = err
 		if rsp != nil {
 			embeddingAttributes.InputToken = &rsp.Usage.PromptTokens
+			embeddingAttributes.Request = &text
+			rspJSON, _ := json.Marshal(responseSummary{
+				Model:      rsp.Model,
+				Vectors:    len(rsp.Data),
+				Dimensions: e.dimensions,
+				Usage: &responseUsage{
+					PromptTokens: rsp.Usage.PromptTokens,
+					TotalTokens:  rsp.Usage.TotalTokens,
+				},
+			})
+			rspStr := string(rspJSON)
+			embeddingAttributes.Response = &rspStr
 		}
 		itelemetry.TraceEmbedding(span, embeddingAttributes)
 		span.End()
@@ -392,6 +405,20 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 // keep this method consistent with the wire response.
 func (e *Embedder) GetDimensions() int {
 	return e.dimensions
+}
+
+// responseSummary is a compact summary of the embedding response used for
+// telemetry tracing. It excludes the full embedding vectors to avoid bloat.
+type responseSummary struct {
+	Model      string         `json:"model"`
+	Vectors    int            `json:"vectors"`
+	Dimensions int            `json:"dimensions"`
+	Usage      *responseUsage `json:"usage,omitempty"`
+}
+
+type responseUsage struct {
+	PromptTokens int64 `json:"prompt_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
 }
 
 // isTextEmbedding3Model reports whether the model belongs to the
