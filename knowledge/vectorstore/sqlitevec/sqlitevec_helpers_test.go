@@ -527,3 +527,18 @@ func TestInitDB_ErrorPathsForInvalidTableNames(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "create metadata table")
 }
+
+// newTestStoreWithFTS creates an in-memory sqlitevec Store with FTS enabled.
+func newTestStoreWithFTS(t *testing.T) *Store {
+	t.Helper()
+	s, err := New(
+		WithDSN(":memory:"),
+		WithIndexDimension(testDimension),
+		WithEnableFTS(true),
+	)
+	if err != nil {
+		t.Fatalf("newTestStoreWithFTS: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
