@@ -39,6 +39,16 @@ func (s *Store) initDB(ctx context.Context) error {
 		}
 	}
 
+	// Create FTS5 table if full-text search is enabled.
+	if s.opts.enableFTS {
+		ftsStatements := s.buildCreateFTSTableSQL()
+		for _, stmt := range ftsStatements {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("create fts5 table %s: %w (hint: build with -tags=sqlite_fts5)", s.opts.ftsTableName, err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -98,4 +108,19 @@ func (s *Store) buildCreateMetadataTableSQL() []string {
 	)
 
 	return []string{createTable, idxKeyText, idxKeyNum, idxKeyBool, idxDocID, idxDocIDKey}
+}
+
+// buildCreateFTSTableSQL returns the SQL statements for creating the FTS5
+// virtual table used for full-text search.
+func (s *Store) buildCreateFTSTableSQL() []string {
+	ftsTable := s.opts.ftsTableName
+
+	createFTS := fmt.Sprintf(`CREATE VIRTUAL TABLE IF NOT EXISTS %s USING fts5(
+  doc_id UNINDEXED,
+  content_segmented,
+  name_segmented,
+  tokenize='unicode61'
+);`, ftsTable)
+
+	return []string{createFTS}
 }

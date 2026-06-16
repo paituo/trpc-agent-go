@@ -8,6 +8,7 @@ replace trpc.group/trpc-go/trpc-agent-go => ../../..
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
+	github.com/go-ego/gse v1.0.2
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/stretchr/testify v1.11.1
 	trpc.group/trpc-go/trpc-agent-go v0.2.0
@@ -19,6 +20,7 @@ require (
 	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tetratelabs/wazero v1.7.3 // indirect
+	github.com/vcaesar/cedar v0.30.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
