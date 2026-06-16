@@ -167,10 +167,12 @@ type MemoryBackendFactory func(
 type KnowledgeProviderDeps struct{}
 
 // KnowledgeProviderFactory creates a knowledge implementation from config.
+// The second return value is agenticFilterInfo: metadata field definitions
+// for LLM-driven filter construction, or nil if not applicable.
 type KnowledgeProviderFactory func(
 	deps KnowledgeProviderDeps,
 	spec PluginSpec,
-) (knowledge.Knowledge, error)
+) (knowledge.Knowledge, map[string][]any, error)
 
 // ToolProviderDeps are dependencies passed to tool provider factories.
 type ToolProviderDeps struct {

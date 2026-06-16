@@ -1173,24 +1173,25 @@ func NewRuntimeWithOptions(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:            opts.SkillConfigs,
-			SkillConfigKeys:         resolveSkillConfigKeys(opts),
-			SkillsWatch:             opts.SkillsWatch,
-			SkillsWatchBundled:      opts.SkillsWatchBundled,
-			SkillsWatchDebounce:     opts.SkillsWatchDebounce,
-			SkillsSummaryCacheTTL:   opts.SkillsSummaryCacheTTL,
-			SkillsOverviewLimit:     opts.SkillsOverviewLimit,
-			SkillsOverviewPinned:    splitCSV(opts.SkillsOverviewPinned),
-			SkillsToolProfile:       opts.SkillsToolProfile,
-			SkillsLoadMode:          opts.SkillsLoadMode,
-			SkillsMaxLoaded:         opts.SkillsMaxLoaded,
-			SkillsToolResults:       opts.SkillsToolResults,
-			SkillsSkipFallback:      opts.SkillsSkipFallback,
-			SkillsToolingGuide:      opts.SkillsToolingGuide,
-			KnowledgesConfig:        opts.KnowledgesConfig,
-			EvolutionSkillScopeMode: opts.EvolutionSkillScopeMode,
-			StateDir:                resolvedStateDir,
-			MemoryFileStore:         fileMemoryStore,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsSummaryCacheTTL:        opts.SkillsSummaryCacheTTL,
+			SkillsOverviewLimit:          opts.SkillsOverviewLimit,
+			SkillsOverviewPinned:         splitCSV(opts.SkillsOverviewPinned),
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
+			EvolutionSkillScopeMode:      opts.EvolutionSkillScopeMode,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			CodeExecutor:         opts.CodeExecutor,
@@ -1824,24 +1825,25 @@ func run(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:            opts.SkillConfigs,
-			SkillConfigKeys:         resolveSkillConfigKeys(opts),
-			SkillsWatch:             opts.SkillsWatch,
-			SkillsWatchBundled:      opts.SkillsWatchBundled,
-			SkillsWatchDebounce:     opts.SkillsWatchDebounce,
-			SkillsSummaryCacheTTL:   opts.SkillsSummaryCacheTTL,
-			SkillsOverviewLimit:     opts.SkillsOverviewLimit,
-			SkillsOverviewPinned:    splitCSV(opts.SkillsOverviewPinned),
-			SkillsToolProfile:       opts.SkillsToolProfile,
-			SkillsLoadMode:          opts.SkillsLoadMode,
-			SkillsMaxLoaded:         opts.SkillsMaxLoaded,
-			SkillsToolResults:       opts.SkillsToolResults,
-			SkillsSkipFallback:      opts.SkillsSkipFallback,
-			SkillsToolingGuide:      opts.SkillsToolingGuide,
-			KnowledgesConfig:        opts.KnowledgesConfig,
-			EvolutionSkillScopeMode: opts.EvolutionSkillScopeMode,
-			StateDir:                resolvedStateDir,
-			MemoryFileStore:         fileMemoryStore,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsSummaryCacheTTL:        opts.SkillsSummaryCacheTTL,
+			SkillsOverviewLimit:          opts.SkillsOverviewLimit,
+			SkillsOverviewPinned:         splitCSV(opts.SkillsOverviewPinned),
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
+			EvolutionSkillScopeMode:      opts.EvolutionSkillScopeMode,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
 
 			EnableLocalExec:     opts.EnableLocalExec,
 			CodeExecutor:        opts.CodeExecutor,
@@ -2744,6 +2746,7 @@ func newAgent(
 	}
 	knowledgeTools, err := buildKnowledgeTools(
 		cfg.KnowledgesConfig,
+		cfg.EnableKnowledgeAgenticFilter,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -3404,6 +3407,7 @@ type agentConfig struct {
 	Instruction                                   string
 	SystemPrompt                                  string
 
+<<<<<<< HEAD
 	SkillsRoot              string
 	SkillsExtraDirs         []string
 	SkillsDebug             bool
@@ -3421,10 +3425,11 @@ type agentConfig struct {
 	SkillsMaxLoaded         int
 	SkillsToolResults       bool
 	SkillsSkipFallback      bool
-	SkillsToolingGuide      *string
-	KnowledgesConfig        []knowledgeEntry
-	EvolutionSkillScopeMode skill.SkillScopeMode
-	SkillRepositoryProvider skill.RepositoryProvider
+	SkillsToolingGuide           *string
+	KnowledgesConfig             []knowledgeEntry
+	EnableKnowledgeAgenticFilter bool
+	EvolutionSkillScopeMode      skill.SkillScopeMode
+	SkillRepositoryProvider      skill.RepositoryProvider
 
 	StateDir string
 
