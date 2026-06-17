@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -46,7 +46,8 @@ type Config struct {
 	MaxErrorLen int
 
 	// DeniedModules lists bridge modules to disable.
-	// Available: "tool", "yaml", "json", "re", "html", "md", "io", "os".
+	// Available: "tool", "yaml", "json", "utf8", "html", "md", "summarize", "log", "io", "os".
+	// Note: "re" is now an alias for "utf8"; use "utf8" to disable.
 	// Default: empty (all enabled).
 	DeniedModules []string
 
