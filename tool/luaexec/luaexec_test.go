@@ -143,7 +143,7 @@ func TestToolsProvider_ReAndJsonAvailable(t *testing.T) {
 
 	// Test re module availability.
 	args, _ := json.Marshal(map[string]any{
-		"script": `return re.match("hello 123", "\\d+")`,
+		"script": `return utf8.match("hello 123", "\\d+")`,
 	})
 	result, err := ct.Call(context.Background(), args)
 	require.NoError(t, err)
@@ -338,7 +338,7 @@ func TestRe_Match(t *testing.T) {
 	})
 
 	args, _ := json.Marshal(map[string]any{
-		"script": `local m = re.match("hello 123 world 456", "\\d+"); return m`,
+		"script": `local m = utf8.match("hello 123 world 456", "\\d+"); return m`,
 	})
 
 	result, err := ct.Call(context.Background(), args)
@@ -362,7 +362,7 @@ func TestRe_Gsub(t *testing.T) {
 	})
 
 	args, _ := json.Marshal(map[string]any{
-		"script": `local s = re.gsub("hello 123", "\\d+", "NUM"); return s`,
+		"script": `local s = utf8.gsub("hello 123", "\\d+", "NUM"); return s`,
 	})
 
 	result, err := ct.Call(context.Background(), args)
@@ -384,7 +384,7 @@ func TestRe_Matches(t *testing.T) {
 	})
 
 	args, _ := json.Marshal(map[string]any{
-		"script": `return #re.matches("hello 123 world 456", "\\d+")`,
+		"script": `return #utf8.matches("hello 123 world 456", "\\d+")`,
 	})
 
 	result, err := ct.Call(context.Background(), args)

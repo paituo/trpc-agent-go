@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -78,9 +78,6 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 	if !denied["json"] {
 		registerJSONBridge(L)
 	}
-	if !denied["re"] {
-		registerReBridge(L)
-	}
 	if !denied["html"] {
 		registerHTMLBridge(L)
 	}
@@ -92,6 +89,13 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 	}
 	if !denied["summarize"] {
 		registerSummarizeBridge(L)
+	}
+	if !denied["utf8"] {
+		registerUTF8Bridge(L)
+		// Backward compatibility: if re is explicitly denied, remove re alias
+		if denied["re"] {
+			L.SetGlobal("re", lua.LNil)
+		}
 	}
 
 	// Register log bridge module (always enabled, debug level gated by EnableDebug).
