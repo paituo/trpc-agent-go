@@ -395,11 +395,11 @@ return text
 	})
 
 	t.Run("fallback_regex_strip", func(t *testing.T) {
-		// Use re.gsub to strip tags (fallback path when html.parse fails)
+		// Use utf8.gsub to strip tags (fallback path when html.parse fails)
 		args, _ := json.Marshal(map[string]any{
 			"script": `
 local html_str = "<p>hello <b>world</b></p>"
-local text = re.gsub(html_str, "<[^>]+>", "")
+local text = utf8.gsub(html_str, "<[^>]+>", "")
 return text
 `,
 		})

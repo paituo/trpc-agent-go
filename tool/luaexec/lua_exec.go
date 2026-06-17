@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -331,8 +331,8 @@ func buildDescription(cfg Config) string {
 	if !denied["json"] {
 		available = append(available, "json: decode/encode")
 	}
-	if !denied["re"] {
-		available = append(available, "re: find/matches/gsub(标准Go正则语法，非Lua模式匹配)")
+	if !denied["utf8"] {
+		available = append(available, "utf8: len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate/find/match/gsub/matches/encode/decode/detect(统一文本处理：字符级操作+正则匹配+编码转换)")
 	}
 	if !denied["html"] {
 		available = append(available, "html: parse/find/find_all/select/select_all/get_text/get_attr/children/all_children/tag_name/parent")
@@ -359,7 +359,7 @@ func buildDescription(cfg Config) string {
 		desc += "【标准库（需配置开启）】" + strings.Join(stdLibs, "; ") + "\n\n"
 	}
 
-	desc += "【Lua 5.1 陷阱】①数组索引从1开始 ②不等号用~= ③注释用-- ④字符串拼接用.. ⑤nil和false是假值，0和空串是真值 ⑥不要使用require加载yaml/json/re/html/md，它们是全局变量 ⑦re模块使用Go标准正则语法（非Lua模式匹配），如\\d而非%d、\\s而非%s ⑧re.gsub仅支持字符串替换+捕获组引用(${1}/${2})，不支持函数回调 ⑨GopherLua不支持中文标识符，table的中文key必须用方括号语法：{[\"中文key\"] = value}，禁止简写语法{中文key = value} ⑩GopherLua不支持require函数，所有桥接模块（yaml/json/re/html/md/log）已全局注册，直接使用模块名即可，无需也无法require\n\n"
+	desc += "【Lua 5.1 陷阱】①数组索引从1开始 ②不等号用~= ③注释用-- ④字符串拼接用.. ⑤nil和false是假值，0和空串是真值 ⑥不要使用require加载yaml/json/utf8/html/md，它们是全局变量 ⑦utf8模块使用Go标准正则语法（非Lua模式匹配），如\\d而非%d、\\s而非%s ⑧utf8.gsub仅支持字符串替换+捕获组引用(${1}/${2})，不支持函数回调 ⑨GopherLua不支持中文标识符，table的中文key必须用方括号语法：{[\"中文key\"] = value}，禁止简写语法{中文key = value} ⑩GopherLua不支持require函数，所有桥接模块（yaml/json/utf8/html/md/log）已全局注册，直接使用模块名即可，无需也无法require ⑪string.len/string.sub/string.reverse/string.upper/string.lower 按字节操作中文，请改用 utf8.len/utf8.sub/utf8.reverse/utf8.upper/utf8.lower\n\n"
 
 	desc += "【html模块关键API说明——与BeautifulSoup/标准Lua差异】\n"
 	desc += "① 获取元素文本用 elem:get_text()，不是 elem:text() 或 elem.text\n"
@@ -376,12 +376,30 @@ func buildDescription(cfg Config) string {
 	desc += "③ md.parse_table(str_or_ast, index) 解析第N个表格（1-based，默认1）\n"
 	desc += "④ md.detect_merge(str_or_table) 检测合并单元格，支持直接传入字符串\n\n"
 
-	desc += "【re模块关键API说明——与标准Lua模式匹配差异】\n"
-	desc += "① re.find(str, pattern) 返回 full_match, cap1, cap2... 或 nil（不是boolean）\n"
-	desc += "② re.matches(str, pattern) 返回字符串数组（无捕获组）或捕获组数组（有捕获组），不是boolean\n"
-	desc += "③ re.gsub(str, pattern, replacement) 捕获组引用用 ${1}/${2}，不是 $1/$2\n"
-	desc += "④ 正则语法是Go regexp：\\d \\s \\w . * + ? {n,m} () [] |，不是Lua的 %d %s %w\n"
-	desc += "⑤ 判断是否匹配：if re.find(str, pattern) then ... end（re.find返回nil表示不匹配）\n\n"
+	desc += "【utf8模块关键API说明——统一文本处理（字符级操作+正则匹配+编码转换）】\n"
+	desc += "【字符级操作——处理中文必须使用这些函数，不要用string库】\n"
+	desc += "① utf8.len(s) 返回字符数（不是字节数）：utf8.len(\"你好\") → 2\n"
+	desc += "② utf8.sub(s, i, j) 按字符截取子串（1-based，支持负索引）：utf8.sub(\"你好世界\", 2, 3) → \"好世\"\n"
+	desc += "③ utf8.reverse(s) 按字符反转：utf8.reverse(\"你好\") → \"好你\"\n"
+	desc += "④ utf8.upper/utf8.lower 支持Unicode大小写转换\n"
+	desc += "⑤ utf8.char(cp1, cp2, ...) 码点转字符串：utf8.char(0x4F60) → \"你\"\n"
+	desc += "⑥ utf8.codepoint(s, i, j) 字符串转码点：utf8.codepoint(\"你\") → 20320\n"
+	desc += "⑦ utf8.codes(s) 码点迭代器：for pos, cp in utf8.codes(s) do ... end\n"
+	desc += "⑧ utf8.byteoffset(s, n) 第n个字符的字节偏移\n"
+	desc += "⑨ utf8.validate(s) 验证UTF-8有效性：utf8.validate(\"你好\") → true\n"
+	desc += "【正则匹配——Go正则语法，天然支持UTF-8字符级匹配】\n"
+	desc += "⑩ utf8.find(s, pattern) 返回 full_match, cap1, cap2... 或 nil（不是boolean）\n"
+	desc += "⑪ utf8.match(s, pattern) 返回字符串数组（无捕获组）或捕获组数组（有捕获组）\n"
+	desc += "⑫ utf8.gsub(s, pattern, replacement) 捕获组引用用 ${1}/${2}，不是 $1/$2\n"
+	desc += "⑬ utf8.matches(s, pattern) 返回所有匹配的数组\n"
+	desc += "⑭ 正则语法是Go regexp：\\d \\s \\w . * + ? {n,m} () [] |，不是Lua的 %d %s %w\n"
+	desc += "⑮ 判断是否匹配：if utf8.find(s, pattern) then ... end（utf8.find返回nil表示不匹配）\n"
+	desc += "【编码转换——与yaml.read_text_file的encoding参数一致】\n"
+	desc += "⑯ utf8.encode(s, from, to) 编码转换：utf8.encode(s, \"gbk\", \"utf-8\")\n"
+	desc += "⑰ utf8.decode(s, from) 解码为UTF-8：utf8.decode(s, \"gbk\")\n"
+	desc += "⑱ utf8.detect(s) 自动检测编码返回编码名：utf8.detect(raw) → \"utf-8\"/\"gbk\"/\"unknown\"\n"
+	desc += "⑲ re是utf8的别名，re.find等价于utf8.find，新脚本建议统一使用utf8\n"
+	desc += "⑳ 标准string库按字节操作，处理中文请使用utf8模块\n\n"
 
 	desc += "【yaml模块关键API说明——全局桥接模块，直接使用，禁止require】\n"
 	desc += "① yaml.decode(str) 解析YAML字符串为Lua table\n"
