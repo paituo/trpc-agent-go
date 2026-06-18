@@ -33,7 +33,13 @@ const (
 const PanicPrefix = "[PANIC]"
 
 var (
-	zapLevel = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+	// fileZapLevel controls the log level for file-based output.
+	// It is managed independently of consoleZapLevel so that the
+	// console and file log levels can be tuned separately.
+	fileZapLevel = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+
+	// consoleZapLevel controls the log level for console (stdout) output.
+	consoleZapLevel = zap.NewAtomicLevelAt(zapcore.InfoLevel)
 
 	traceEnabled  = false
 	fileCoreAdded = false
@@ -46,7 +52,7 @@ var Default Logger = zap.New(
 	zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encoderConfig),
 		zapcore.AddSync(os.Stdout),
-		zapLevel,
+		consoleZapLevel,
 	),
 	zap.AddCaller(),
 	zap.AddCallerSkip(1),
@@ -59,7 +65,7 @@ var ContextDefault Logger = zap.New(
 	zapcore.NewCore(
 		zapcore.NewConsoleEncoder(encoderConfig),
 		zapcore.AddSync(os.Stdout),
-		zapLevel,
+		consoleZapLevel,
 	),
 	zap.AddCaller(),
 	zap.AddCallerSkip(1),
@@ -69,23 +75,47 @@ func init() {
 	log.Default = Default
 }
 
-// SetLevel sets the log level to the specified level.
+// SetLevel sets the log level for file-based output to the specified level.
 // Valid levels are: "debug", "info", "warn", "error", "fatal"
+//
+// Note: Use SetConsoleLevel to independently control the console (stdout)
+// log level.
 func SetLevel(level string) {
 	switch level {
 	case LevelDebug:
-		zapLevel.SetLevel(zapcore.DebugLevel)
+		fileZapLevel.SetLevel(zapcore.DebugLevel)
 	case LevelInfo:
-		zapLevel.SetLevel(zapcore.InfoLevel)
+		fileZapLevel.SetLevel(zapcore.InfoLevel)
 	case LevelWarn:
-		zapLevel.SetLevel(zapcore.WarnLevel)
+		fileZapLevel.SetLevel(zapcore.WarnLevel)
 	case LevelError:
-		zapLevel.SetLevel(zapcore.ErrorLevel)
+		fileZapLevel.SetLevel(zapcore.ErrorLevel)
 	case LevelFatal:
-		zapLevel.SetLevel(zapcore.FatalLevel)
+		fileZapLevel.SetLevel(zapcore.FatalLevel)
 	default:
 		// Default to info level if the level is not recognized
-		zapLevel.SetLevel(zapcore.InfoLevel)
+		fileZapLevel.SetLevel(zapcore.InfoLevel)
+	}
+}
+
+// SetConsoleLevel sets the log level for console (stdout) output to the
+// specified level. It does not affect the file-based log output level.
+// Valid levels are: "debug", "info", "warn", "error", "fatal"
+func SetConsoleLevel(level string) {
+	switch level {
+	case LevelDebug:
+		consoleZapLevel.SetLevel(zapcore.DebugLevel)
+	case LevelInfo:
+		consoleZapLevel.SetLevel(zapcore.InfoLevel)
+	case LevelWarn:
+		consoleZapLevel.SetLevel(zapcore.WarnLevel)
+	case LevelError:
+		consoleZapLevel.SetLevel(zapcore.ErrorLevel)
+	case LevelFatal:
+		consoleZapLevel.SetLevel(zapcore.FatalLevel)
+	default:
+		// Default to info level if the level is not recognized
+		consoleZapLevel.SetLevel(zapcore.InfoLevel)
 	}
 }
 
@@ -129,7 +159,7 @@ func AddFileOutput(dir string) error {
 	fileCore := zapcore.NewCore(
 		zapcore.NewJSONEncoder(fileEncoderConfig),
 		zapcore.AddSync(file),
-		zapLevel,
+		fileZapLevel,
 	)
 
 	// Replace Default with a tee that writes to both stdout and file.
