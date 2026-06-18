@@ -24,9 +24,9 @@ import (
 )
 
 // TestSetLevel verifies that SetLevel correctly updates the
-// underlying zap atomic level according to the provided level
+// underlying zap file atomic level according to the provided level
 // string. It iterates through all supported levels and checks the
-// zapLevel after the call.
+// fileZapLevel after the call.
 func TestSetLevel(t *testing.T) {
 	cases := []struct {
 		in       string
@@ -42,7 +42,7 @@ func TestSetLevel(t *testing.T) {
 
 	for _, c := range cases {
 		SetLevel(c.in)
-		got := zapLevel.Level()
+		got := fileZapLevel.Level()
 		assert.Equal(t, c.expected, got,
 			"SetLevel(%q) should set level to %v", c.in, c.expected)
 	}
