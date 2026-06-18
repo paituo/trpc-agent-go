@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -28,6 +28,7 @@ import (
 	topkreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/topk"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
 	dirknowledge "trpc.group/trpc-go/trpc-agent-go/knowledge/source/dir"
+	urlknowledge "trpc.group/trpc-go/trpc-agent-go/knowledge/source/url"
 	knowledgetool "trpc.group/trpc-go/trpc-agent-go/knowledge/tool"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	vectors "trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/elasticsearch"
@@ -692,8 +693,10 @@ type knowledgeSourceConfig struct {
 	Name           string   `yaml:"name,omitempty"`
 	Type           string   `yaml:"type,omitempty"`
 	Paths          []string `yaml:"paths,omitempty"`
+	URLs           []string `yaml:"urls,omitempty"`
 	Recursive      *bool    `yaml:"recursive,omitempty"`
 	FileExtensions []string `yaml:"file_extensions,omitempty"`
+	FileReaderType string   `yaml:"file_reader_type,omitempty"`
 }
 
 func buildKnowledgeSources(nodes []*rawKnowledgeComponent) ([]source.Source, error) {
@@ -733,6 +736,19 @@ func buildKnowledgeSource(node *yaml.Node) (source.Source, error) {
 			opts = append(opts, dirknowledge.WithFileExtensions(cfg.FileExtensions))
 		}
 		return dirknowledge.New(cfg.Paths, opts...), nil
+
+	case "url":
+		if len(cfg.URLs) == 0 {
+			return nil, fmt.Errorf("url source requires at least one url in 'urls' field")
+		}
+		urlOpts := make([]urlknowledge.Option, 0, 2)
+		if v := strings.TrimSpace(cfg.Name); v != "" {
+			urlOpts = append(urlOpts, urlknowledge.WithName(v))
+		}
+		if v := strings.TrimSpace(cfg.FileReaderType); v != "" {
+			urlOpts = append(urlOpts, urlknowledge.WithFileReaderType(source.FileReaderType(v)))
+		}
+		return urlknowledge.New(cfg.URLs, urlOpts...), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported source type: %s", cfg.Type)
