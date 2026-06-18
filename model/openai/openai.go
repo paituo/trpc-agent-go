@@ -603,7 +603,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			sessionID = inv.Session.ID
 		}
 		// Diagnostic: log the counter type once per session to verify routing.
-		log.InfofContext(ctx,
+		log.DebugContext(ctx,
 			"token-tailoring-counter-type: model=%s, counterType=%T, session=%s",
 			m.name, m.tokenCounter, sessionID,
 		)
@@ -612,7 +612,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			t, _ := m.tokenCounter.CountTokens(ctx, msg)
 			totalOriginalTokens += t
 			if t > 5000 {
-				log.WarnfContext(ctx,
+				log.DebugfContext(ctx,
 					"token-tailoring-large-msg: session=%s, idx=%d, role=%s, tokens=%d, contentLen=%d, partsLen=%d, tcLen=%d",
 					sessionID, i, string(msg.Role), t, len(msg.Content), len(msg.ContentParts), len(msg.ToolCalls),
 				)
