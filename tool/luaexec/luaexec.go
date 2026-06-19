@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -52,6 +52,14 @@ func WithRegistrySize(n int) Option {
 // WithAllowOSLib controls whether the Lua os standard library is available.
 func WithAllowOSLib(allow bool) Option {
 	return func(c *Config) { c.AllowOSLib = allow }
+}
+
+// WithAllowFS controls whether the fs bridge module is available in Lua scripts.
+// When enabled, fs.read_file, fs.write_file, fs.list_dir, etc. can be used
+// for controlled filesystem access within allowed_script_dirs.
+// Defaults to true.
+func WithAllowFS(allow bool) Option {
+	return func(c *Config) { c.AllowFS = allow }
 }
 
 // WithTools sets the list of registered tools available to Lua scripts.

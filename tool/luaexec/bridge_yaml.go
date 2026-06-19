@@ -1,4 +1,4 @@
-//
+﻿//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/text/encoding/htmlindex"
@@ -74,9 +75,13 @@ func bridgeYamlEncode(L *lua.LState) int {
 }
 
 // bridgeYamlReadFile implements yaml.read_file(path [, encoding]).
+// Default encoding is "utf-8" because YAML files are always produced as UTF-8
+// by yaml.write_file. Using "auto" would risk the CJK heuristic incorrectly
+// identifying valid UTF-8 content as GBK, causing garbled Chinese text.
+// Callers that need encoding detection can explicitly pass "auto".
 func bridgeYamlReadFile(L *lua.LState) int {
 	path := L.CheckString(1)
-	encoding := L.OptString(2, "auto")
+	encoding := L.OptString(2, "utf-8")
 
 	content, err := readFileWithEncoding(path, encoding)
 	if err != nil {
@@ -211,7 +216,10 @@ func readFileWithEncoding(path, encoding string) (string, error) {
 }
 
 // decodeAuto auto-detects encoding and decodes the raw bytes to UTF-8.
-// Detection order: BOM → UTF-8 validity → GBK fallback.
+// Detection order: BOM → UTF-8 validity (with CJK heuristic) → GBK fallback.
+// The CJK heuristic disambiguates cases where raw bytes are both valid UTF-8
+// and valid GBK, by counting which decoding produces more meaningful Chinese
+// characters (CJK Unified Ideographs U+4E00-U+9FFF).
 func decodeAuto(raw []byte) (string, error) {
 	// Check BOM first.
 	if bytes.HasPrefix(raw, []byte{0xEF, 0xBB, 0xBF}) {
@@ -221,18 +229,62 @@ func decodeAuto(raw []byte) (string, error) {
 		return "", fmt.Errorf("UTF-16 encoding detected but not supported")
 	}
 
-	// Try UTF-8 strict validation.
-	if isValidUTF8(raw) {
-		return string(raw), nil
+	// When the content has high-byte sequences (>0x7F), both UTF-8 and GBK
+	// may produce valid-but-wrong results. Try GBK first when content looks
+	// more like GBK (dense high bytes without valid UTF-8 multi-byte patterns).
+	//
+	// Then try UTF-8 strict validation.
+	// After UTF-8 validation passes, also check whether the decoded content
+	// contains more valid CJK characters under GBK decoding (heuristic for
+	// mojibake where UTF-8 bytes are silently accepted).
+	utf8Valid := isValidUTF8(raw)
+
+	// Try GBK decoding first if raw bytes have a significant portion of
+	// high bytes (0x80-0xFE) without forming valid UTF-8 multi-byte sequences,
+	// which suggests GBK encoding rather than UTF-8.
+	if !utf8Valid {
+		// Fallback: try GBK decoding.
+		decoder := simplifiedchinese.GBK.NewDecoder()
+		decoded, err := decoder.Bytes(raw)
+		if err != nil {
+			return "", fmt.Errorf("auto-detect failed: not valid UTF-8 and GBK decode error: %v", err)
+		}
+		return string(decoded), nil
 	}
 
-	// Fallback: try GBK decoding.
-	decoder := simplifiedchinese.GBK.NewDecoder()
-	decoded, err := decoder.Bytes(raw)
-	if err != nil {
-		return "", fmt.Errorf("auto-detect failed: not valid UTF-8 and GBK decode error: %v", err)
+	// UTF-8 is valid. Apply CJK heuristic to detect mojibake:
+	// If GBK-decoded content yields significantly more CJK characters than
+	// UTF-8-decoded content, prefer GBK decoding.
+	utf8Str := string(raw)
+	utf8CJKCount := countCJKChars(utf8Str)
+
+	gbkDecoder := simplifiedchinese.GBK.NewDecoder()
+	gbkDecoded, gbkErr := gbkDecoder.Bytes(raw)
+	if gbkErr == nil {
+		gbkStr := string(gbkDecoded)
+		gbkCJKCount := countCJKChars(gbkStr)
+		// If GBK produces significantly more CJK characters (2x+), it is
+		// likely the correct encoding and UTF-8 was a false positive.
+		if gbkCJKCount > utf8CJKCount*2 && gbkCJKCount >= 3 {
+			return gbkStr, nil
+		}
 	}
-	return string(decoded), nil
+
+	return utf8Str, nil
+}
+
+// countCJKChars counts the number of CJK Unified Ideographs (U+4E00-U+9FFF)
+// in a UTF-8 string. This is used as a heuristic for encoding detection.
+func countCJKChars(s string) int {
+	count := 0
+	for len(s) > 0 {
+		r, size := utf8.DecodeRuneInString(s)
+		if r >= 0x4E00 && r <= 0x9FFF {
+			count++
+		}
+		s = s[size:]
+	}
+	return count
 }
 
 // isValidUTF8 checks if the byte slice is valid UTF-8.
