@@ -98,6 +98,11 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 		}
 	}
 
+	// Register fs bridge module (controlled by AllowFS + DeniedModules).
+	if cfg.AllowFS && !denied["fs"] {
+		registerFSBridge(L, cfg)
+	}
+
 	// Register log bridge module (always enabled, debug level gated by EnableDebug).
 	if !denied["log"] {
 		lc := newLogCollector(cfg.MaxLogEntries, cfg.EnableDebug)
