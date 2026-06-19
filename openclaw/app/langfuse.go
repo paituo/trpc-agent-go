@@ -12,6 +12,7 @@ package app
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -45,8 +46,13 @@ const (
 	langfuseMetadataProfileVersion = langfuseMetadataPrefix +
 		"profile_version"
 
+	langfuseMetadataDebugTracePath = langfuseMetadataPrefix + "debug_trace"
+	langfuseMetadataCorrelationID  = langfuseMetadataPrefix + "correlation_id"
+
 	langfuseTraceDefaultName = "request"
 )
+
+const defaultDebugRecorderDirName = "debug"
 
 var langfuseStart = langfuseobs.Start
 
@@ -61,9 +67,14 @@ func maybeEnableLangfuse(
 	opts runOptions,
 ) (*langfuseRuntime, error) {
 	status := buildLangfuseAdminStatus(opts)
+
+	// Always build the debug recorder resolver for TraceID propagation.
+	debugResolver := buildDebugRecorderRunOptionResolver(opts)
+
 	if !opts.LangfuseEnabled {
 		return &langfuseRuntime{
-			adminStatus: status,
+			adminStatus:       status,
+			runOptionResolver: debugResolver,
 		}, nil
 	}
 
@@ -78,14 +89,17 @@ func maybeEnableLangfuse(
 		}
 		log.Warnf("openclaw: langfuse disabled: %v", err)
 		return &langfuseRuntime{
-			adminStatus: status,
+			adminStatus:       status,
+			runOptionResolver: debugResolver,
 		}, nil
 	}
 
 	status.Ready = true
+	langfuseResolver := buildLangfuseRunOptionResolver(opts)
+	combined := chainRunOptionResolvers(debugResolver, langfuseResolver)
 	return &langfuseRuntime{
 		adminStatus:       status,
-		runOptionResolver: buildLangfuseRunOptionResolver(opts),
+		runOptionResolver: combined,
 		shutdown:          shutdown,
 	}, nil
 }
@@ -162,11 +176,17 @@ func buildLangfuseRunOptionResolver(
 	opts runOptions,
 ) gateway.RunOptionResolver {
 	appName := strings.TrimSpace(opts.AppName)
+	debugRoot := filepath.Join(
+		strings.TrimSpace(opts.StateDir),
+		defaultDebugRecorderDirName,
+	)
 	return func(
 		ctx context.Context,
 		input gateway.RunOptionInput,
 	) (context.Context, []agent.RunOption, error) {
-		ctx = withLangfuseBaggage(ctx, appName, input)
+		correlationID := strings.TrimSpace(input.RequestID)
+
+		ctx = withLangfuseBaggage(ctx, appName, input, debugRoot, correlationID)
 
 		runOpts := make([]agent.RunOption, 0, 2)
 		resolvedAppName := runtimeprofile.AppNameFromContext(ctx, appName)
@@ -185,28 +205,79 @@ func buildLangfuseRunOptionResolver(
 				),
 			)
 		}
-		if input.Trace != nil {
-			traceRef := input.Trace
-			runOpts = append(
-				runOpts,
-				agent.WithTraceStartedCallback(
-					func(spanCtx oteltrace.SpanContext) {
-						if !spanCtx.IsValid() {
-							return
-						}
-						if err := traceRef.SetTraceID(
-							spanCtx.TraceID().String(),
-						); err != nil {
-							log.Warnf(
-								"openclaw: persist trace id failed: %v",
-								err,
-							)
-						}
-					},
-				),
-			)
-		}
 		return ctx, runOpts, nil
+	}
+}
+
+// buildDebugRecorderRunOptionResolver returns a RunOptionResolver that
+// propagates the OpenTelemetry trace ID back to the debug recorder trace.
+// This ensures the debug recorder always carries the OTel trace ID for
+// cross-system correlation, regardless of Langfuse enablement status.
+func buildDebugRecorderRunOptionResolver(
+	opts runOptions,
+) gateway.RunOptionResolver {
+	return func(
+		ctx context.Context,
+		input gateway.RunOptionInput,
+	) (context.Context, []agent.RunOption, error) {
+		if input.Trace == nil {
+			return ctx, nil, nil
+		}
+		traceRef := input.Trace
+		return ctx, []agent.RunOption{
+			agent.WithTraceStartedCallback(
+				func(spanCtx oteltrace.SpanContext) {
+					if !spanCtx.IsValid() {
+						return
+					}
+					if err := traceRef.SetTraceID(
+						spanCtx.TraceID().String(),
+					); err != nil {
+						log.Warnf(
+							"openclaw: persist trace id failed: %v",
+							err,
+						)
+					}
+				},
+			),
+		}, nil
+	}
+}
+
+// chainRunOptionResolvers composes multiple RunOptionResolvers into one.
+// Each resolver runs in order; the context from the previous resolver is
+// passed to the next, and all run options are merged.
+func chainRunOptionResolvers(
+	resolvers ...gateway.RunOptionResolver,
+) gateway.RunOptionResolver {
+	active := make([]gateway.RunOptionResolver, 0, len(resolvers))
+	for _, r := range resolvers {
+		if r != nil {
+			active = append(active, r)
+		}
+	}
+	if len(active) == 0 {
+		return nil
+	}
+	if len(active) == 1 {
+		return active[0]
+	}
+	return func(
+		ctx context.Context,
+		input gateway.RunOptionInput,
+	) (context.Context, []agent.RunOption, error) {
+		var allOpts []agent.RunOption
+		for _, resolver := range active {
+			resolvedCtx, opts, err := resolver(ctx, input)
+			if err != nil {
+				return ctx, allOpts, err
+			}
+			if resolvedCtx != nil {
+				ctx = resolvedCtx
+			}
+			allOpts = append(allOpts, opts...)
+		}
+		return ctx, allOpts, nil
 	}
 }
 
@@ -214,6 +285,8 @@ func withLangfuseBaggage(
 	ctx context.Context,
 	appName string,
 	input gateway.RunOptionInput,
+	debugRoot string,
+	correlationID string,
 ) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -261,6 +334,39 @@ func withLangfuseBaggage(
 		langfuseMetadataMessageID,
 		input.Inbound.MessageID,
 	)
+
+	// Debug recorder trace path (Solution A):
+	// Store the relative trace directory path in Langfuse metadata so that
+	// users can navigate from a Langfuse trace to the corresponding local
+	// debug recorder files.
+	if input.Trace != nil {
+		debugRoot = strings.TrimSpace(debugRoot)
+		if debugRoot != "" {
+			traceRel, err := filepath.Rel(
+				debugRoot,
+				input.Trace.Dir(),
+			)
+			if err == nil {
+				bag = setLangfuseBaggageMember(
+					bag,
+					langfuseMetadataDebugTracePath,
+					filepath.ToSlash(traceRel),
+				)
+			}
+		}
+	}
+
+	// Correlation ID (Solution B):
+	// Inject a unified correlation identifier into Langfuse metadata for
+	// cross-system search and traceability.
+	if correlationID != "" {
+		bag = setLangfuseBaggageMember(
+			bag,
+			langfuseMetadataCorrelationID,
+			correlationID,
+		)
+	}
+
 	return baggage.ContextWithBaggage(ctx, bag)
 }
 
