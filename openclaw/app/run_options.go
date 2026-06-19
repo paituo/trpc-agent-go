@@ -213,29 +213,29 @@ type runOptions struct {
 	ClaudeEnv          string
 	ClaudeWorkDir      string
 
-	ModelMode           string
-	OpenAIModel         string
-	OpenAIVariant       string
-	OpenAIBaseURL       string
-	GenerationConfig    *model.GenerationConfig
-	ModelConfig         *yaml.Node
-	KnowledgesConfig              []knowledgeEntry
-	EnableKnowledgeAgenticFilter  bool
-	SkillsRoot          string
-	SkillsExtraDir      string
-	SkillsDebug         bool
-	SkillsAllowBundled  string
-	SkillConfigs        map[string]ocskills.SkillConfig
-	SkillsWatch         bool
-	SkillsWatchBundled  bool
-	SkillsWatchDebounce time.Duration
-	SkillsToolProfile   string
-	SkillsLoadMode      string
-	SkillsMaxLoaded     int
-	SkillsToolResults   bool
-	SkillsSkipFallback  bool
-	SkillsToolingGuide  *string
-	StateDir            string
+	ModelMode                    string
+	OpenAIModel                  string
+	OpenAIVariant                string
+	OpenAIBaseURL                string
+	GenerationConfig             *model.GenerationConfig
+	ModelConfig                  *yaml.Node
+	KnowledgesConfig             []knowledgeEntry
+	EnableKnowledgeAgenticFilter bool
+	SkillsRoot                   string
+	SkillsExtraDir               string
+	SkillsDebug                  bool
+	SkillsAllowBundled           string
+	SkillConfigs                 map[string]ocskills.SkillConfig
+	SkillsWatch                  bool
+	SkillsWatchBundled           bool
+	SkillsWatchDebounce          time.Duration
+	SkillsToolProfile            string
+	SkillsLoadMode               string
+	SkillsMaxLoaded              int
+	SkillsToolResults            bool
+	SkillsSkipFallback           bool
+	SkillsToolingGuide           *string
+	StateDir                     string
 
 	AdminStaticMounts []admin.StaticMount
 
@@ -268,15 +268,15 @@ type runOptions struct {
 	MemoryAutoMessageThreshold int
 	MemoryAutoTimeInterval     time.Duration
 
-	SessionSummaryEnabled                   bool
-	SessionSummaryMode                      string
-	SessionSummaryPolicy                    string
-	SessionSummaryEventCount                int
-	SessionSummaryTokenCount                int
-	SessionSummaryIdleThreshold             time.Duration
-	SessionSummaryMaxWords                  int
-	SessionSummaryContextThresholdRatio     float64
-	SessionSummaryContextThresholdMinTokens int
+	SessionSummaryEnabled                        bool
+	SessionSummaryMode                           string
+	SessionSummaryPolicy                         string
+	SessionSummaryEventCount                     int
+	SessionSummaryTokenCount                     int
+	SessionSummaryIdleThreshold                  time.Duration
+	SessionSummaryMaxWords                       int
+	SessionSummaryContextThresholdRatio          float64
+	SessionSummaryContextThresholdMinTokens      int
 	SessionSummaryContextThresholdFallbackWindow int
 
 	EnableLocalExec      bool
@@ -1354,16 +1354,16 @@ type redisConfig struct {
 }
 
 type summaryConfig struct {
-	Enabled                   *bool    `yaml:"enabled,omitempty"`
-	Mode                      *string  `yaml:"mode,omitempty"`
-	Policy                    *string  `yaml:"policy,omitempty"`
-	EventThreshold            *int     `yaml:"event_threshold,omitempty"`
-	TokenThreshold            *int     `yaml:"token_threshold,omitempty"`
-	IdleThreshold             *string  `yaml:"idle_threshold,omitempty"`
-	MaxWords                  *int     `yaml:"max_words,omitempty"`
+	Enabled                        *bool    `yaml:"enabled,omitempty"`
+	Mode                           *string  `yaml:"mode,omitempty"`
+	Policy                         *string  `yaml:"policy,omitempty"`
+	EventThreshold                 *int     `yaml:"event_threshold,omitempty"`
+	TokenThreshold                 *int     `yaml:"token_threshold,omitempty"`
+	IdleThreshold                  *string  `yaml:"idle_threshold,omitempty"`
+	MaxWords                       *int     `yaml:"max_words,omitempty"`
 	ContextThresholdRatio          *float64 `yaml:"context_threshold_ratio,omitempty"`
-	ContextThresholdMinTokens     *int     `yaml:"context_threshold_min_tokens,omitempty"`
-	ContextThresholdFallbackWindow *int    `yaml:"context_threshold_fallback_window,omitempty"`
+	ContextThresholdMinTokens      *int     `yaml:"context_threshold_min_tokens,omitempty"`
+	ContextThresholdFallbackWindow *int     `yaml:"context_threshold_fallback_window,omitempty"`
 }
 
 type memoryAuto struct {

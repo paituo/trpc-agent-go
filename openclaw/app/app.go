@@ -1097,21 +1097,21 @@ func NewRuntimeWithOptions(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:        opts.SkillConfigs,
-			SkillConfigKeys:     resolveSkillConfigKeys(opts),
-			SkillsWatch:         opts.SkillsWatch,
-			SkillsWatchBundled:  opts.SkillsWatchBundled,
-			SkillsWatchDebounce: opts.SkillsWatchDebounce,
-			SkillsToolProfile:   opts.SkillsToolProfile,
-			SkillsLoadMode:      opts.SkillsLoadMode,
-			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
-			SkillsToolResults:   opts.SkillsToolResults,
-			SkillsSkipFallback:  opts.SkillsSkipFallback,
-			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:              opts.KnowledgesConfig,
-			EnableKnowledgeAgenticFilter:  opts.EnableKnowledgeAgenticFilter,
-			StateDir:            resolvedStateDir,
-			MemoryFileStore:     fileMemoryStore,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			EnableExecuteTools:   opts.EnableExecuteTools,
@@ -1657,21 +1657,21 @@ func run(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:        opts.SkillConfigs,
-			SkillConfigKeys:     resolveSkillConfigKeys(opts),
-			SkillsWatch:         opts.SkillsWatch,
-			SkillsWatchBundled:  opts.SkillsWatchBundled,
-			SkillsWatchDebounce: opts.SkillsWatchDebounce,
-			SkillsToolProfile:   opts.SkillsToolProfile,
-			SkillsLoadMode:      opts.SkillsLoadMode,
-			SkillsMaxLoaded:     opts.SkillsMaxLoaded,
-			SkillsToolResults:   opts.SkillsToolResults,
-			SkillsSkipFallback:  opts.SkillsSkipFallback,
-			SkillsToolingGuide:  opts.SkillsToolingGuide,
-			KnowledgesConfig:              opts.KnowledgesConfig,
-			EnableKnowledgeAgenticFilter:  opts.EnableKnowledgeAgenticFilter,
-			StateDir:            resolvedStateDir,
-			MemoryFileStore:     fileMemoryStore,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
 
 			EnableLocalExec:     opts.EnableLocalExec,
 			EnableExecuteTools:  opts.EnableExecuteTools,
@@ -2902,23 +2902,23 @@ type agentConfig struct {
 	Instruction                                   string
 	SystemPrompt                                  string
 
-	SkillsRoot          string
-	SkillsExtraDirs     []string
-	SkillsDebug         bool
-	SkillsAllowBundled  []string
-	SkillConfigs        map[string]ocskills.SkillConfig
-	SkillConfigKeys     []string
-	SkillsWatch         bool
-	SkillsWatchBundled  bool
-	SkillsWatchDebounce time.Duration
-	SkillsToolProfile   string
-	SkillsLoadMode      string
-	SkillsMaxLoaded     int
-	SkillsToolResults   bool
-	SkillsSkipFallback  bool
-	SkillsToolingGuide  *string
-	KnowledgesConfig              []knowledgeEntry
-	EnableKnowledgeAgenticFilter  bool
+	SkillsRoot                   string
+	SkillsExtraDirs              []string
+	SkillsDebug                  bool
+	SkillsAllowBundled           []string
+	SkillConfigs                 map[string]ocskills.SkillConfig
+	SkillConfigKeys              []string
+	SkillsWatch                  bool
+	SkillsWatchBundled           bool
+	SkillsWatchDebounce          time.Duration
+	SkillsToolProfile            string
+	SkillsLoadMode               string
+	SkillsMaxLoaded              int
+	SkillsToolResults            bool
+	SkillsSkipFallback           bool
+	SkillsToolingGuide           *string
+	KnowledgesConfig             []knowledgeEntry
+	EnableKnowledgeAgenticFilter bool
 
 	StateDir string
 
