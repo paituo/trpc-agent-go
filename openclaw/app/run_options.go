@@ -170,7 +170,8 @@ const (
 
 // subagentRunOptions holds the resolved subagent tool configuration.
 type subagentRunOptions struct {
-	EnableSessionAlias bool
+	EnableSessionAlias  bool
+	EnableSubagentTools bool
 }
 
 type runOptions struct {
@@ -208,23 +209,24 @@ type runOptions struct {
 	PreloadMemory                                 int
 	PostToolPromptEnabled                         *bool
 
-	SessionSummaryInjectionMode          string
-	SyncSummaryIntraRun                  bool
-	ContextCompactionThresholdRatio      float64
-	ContextCompactionToolResultMaxTokens int
-	ContextCompactionKeepRecentRequests  int
-	EnableDetailedContextMetrics         bool
-	EnableTokenCounterCalibration        bool
-	ContextCompactionForceCleanToolNames string
-	ContextCompactionKeepToolNames       string
-	PlannerType                          string
-	PlannerConfig                        map[string]any
-	ModelContextWindow                   int
-	ModelTokenTailoringEnabled           bool
-	ModelTokenTailoringStrategy          string
-	SkillsProjectAgentsRoot              bool
-	SkillsPersonalAgentsRoot             bool
-	SkillsManagedRoot                    bool
+	SessionSummaryInjectionMode                string
+	SyncSummaryIntraRun                        bool
+	ContextCompactionThresholdRatio            float64
+	ContextCompactionToolResultMaxTokens       int
+	ContextCompactionKeepRecentRequests        int
+	EnableDetailedContextMetrics               bool
+	EnableTokenCounterCalibration              bool
+	ContextCompactionForceCleanToolNames       string
+	ContextCompactionKeepToolNames             string
+	PlannerType                                string
+	PlannerConfig                              map[string]any
+	ModelContextWindow                         int
+	ModelTokenTailoringEnabled                 bool
+	ModelTokenTailoringStrategy                string
+	ModelTokenTailoringIncludeOutputSchemaDesc bool
+	SkillsProjectAgentsRoot                    bool
+	SkillsPersonalAgentsRoot                   bool
+	SkillsManagedRoot                          bool
 
 	AgentInstruction       string
 	AgentInstructionFiles  string
@@ -1062,6 +1064,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Enable session_* alias tools for subagents (compatibility)",
 	)
 	fs.BoolVar(
+		&opts.Subagent.EnableSubagentTools,
+		"enable-subagent-tools",
+		true,
+		"Enable subagent tools (subagents_spawn, list, get, cancel, wait)",
+	)
+	fs.BoolVar(
 		&opts.RefreshToolSetsOnRun,
 		"refresh-toolsets-on-run",
 		false,
@@ -1382,8 +1390,9 @@ type generationConfigYAML struct {
 }
 
 type tokenTailoringConfig struct {
-	Enabled  *bool   `yaml:"enabled,omitempty"`
-	Strategy *string `yaml:"strategy,omitempty"`
+	Enabled                   *bool   `yaml:"enabled,omitempty"`
+	Strategy                  *string `yaml:"strategy,omitempty"`
+	IncludeOutputSchemaInDesc *bool   `yaml:"include_output_schema_in_description,omitempty"`
 }
 
 type gatewayConfig struct {
@@ -1517,7 +1526,8 @@ type sandboxShellEnvOptions struct {
 
 // subagentToolsConfig maps the YAML "tools.subagent" section.
 type subagentToolsConfig struct {
-	EnableSessionAlias *bool `yaml:"enable_session_alias,omitempty"`
+	EnableSessionAlias  *bool `yaml:"enable_session_alias,omitempty"`
+	EnableSubagentTools *bool `yaml:"enable_subagent_tools,omitempty"`
 }
 
 type sessionConfig struct {
@@ -2041,6 +2051,10 @@ func (cfg *fileConfig) apply(
 					*cfg.Model.TokenTailoring.Strategy,
 				)
 			}
+			if cfg.Model.TokenTailoring.IncludeOutputSchemaInDesc != nil {
+				opts.ModelTokenTailoringIncludeOutputSchemaDesc =
+					*cfg.Model.TokenTailoring.IncludeOutputSchemaInDesc
+			}
 		}
 	}
 	if cfg.Knowledges != nil {
@@ -2269,6 +2283,12 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "enable-session-alias") {
 			opts.Subagent.EnableSessionAlias =
 				*cfg.Tools.Subagent.EnableSessionAlias
+		}
+		if cfg.Tools.Subagent != nil &&
+			cfg.Tools.Subagent.EnableSubagentTools != nil &&
+			!flagWasSet(set, "enable-subagent-tools") {
+			opts.Subagent.EnableSubagentTools =
+				*cfg.Tools.Subagent.EnableSubagentTools
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {
