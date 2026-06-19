@@ -1027,12 +1027,14 @@ func NewRuntimeWithOptions(
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
+		opts.Subagent.EnableSubagentTools,
 		subagentrun.ToolsConfig{
 			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
 		},
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
+		sessionSvc,
 	)
 	extraTools := memoryServiceTools(memSvc)
 	extraTools = append(extraTools, openClawTools.tools...)
@@ -1576,12 +1578,14 @@ func run(
 	openClawTools := buildOpenClawTools(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
+		opts.Subagent.EnableSubagentTools,
 		subagentrun.ToolsConfig{
 			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
 		},
 		resolvedStateDir,
 		stores.uploads,
 		fileMemoryStore,
+		sessionSvc,
 	)
 	extraTools := memoryServiceTools(memSvc)
 	extraTools = append(extraTools, openClawTools.tools...)
@@ -3000,10 +3004,12 @@ func newRuntimeStores(stateDir string) (runtimeStores, error) {
 func buildOpenClawTools(
 	enabled bool,
 	enableExecuteTools bool,
+	enableSubagentTools bool,
 	subagentCfg subagentrun.ToolsConfig,
 	stateDir string,
 	uploadStore *uploads.Store,
 	memoryFileStore *memoryfile.Store,
+	sessionSvc session.Service,
 ) openClawToolsBundle {
 	if !enabled {
 		return openClawToolsBundle{}
@@ -3020,7 +3026,7 @@ func buildOpenClawTools(
 	)
 	router := outbound.NewRouter()
 	cronTool := cron.NewTool(nil)
-	subagentTools := subagentrun.NewTools(nil, subagentCfg)
+	subagentTools := subagentrun.NewTools(nil, subagentCfg, sessionSvc)
 	var depsReport *deps.Report
 	if sources, err := deps.SourcesForProfiles(deps.DefaultProfiles()); err ==
 		nil {
@@ -3050,7 +3056,9 @@ func buildOpenClawTools(
 	if enableExecuteTools {
 		tools = append(tools, execTool)
 	}
-	tools = append(tools, subagentTools.All()...)
+	if enableSubagentTools {
+		tools = append(tools, subagentTools.All()...)
+	}
 	return openClawToolsBundle{
 		tools:         tools,
 		execMgr:       mgr,
@@ -3316,6 +3324,10 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 		// the same TokenCounter instance, ensuring consistent token
 		// counting across tailoring and compaction.
 	}
+	// Apply IncludeOutputSchemaInDescription if explicitly set to false.
+	if !spec.IncludeOutputSchemaInDescription {
+		opts = append(opts, openai.WithIncludeOutputSchemaInDescription(false))
+	}
 	return openai.New(name, opts...), nil
 }
 
@@ -3336,15 +3348,16 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 	}
 
 	spec := registry.ModelSpec{
-		Type:                 mode,
-		Name:                 opts.OpenAIModel,
-		BaseURL:              baseURL,
-		OpenAIVariant:        opts.OpenAIVariant,
-		DebugRecorderEnabled: opts.DebugRecorderEnabled,
-		Config:               opts.ModelConfig,
-		ContextWindow:        opts.ModelContextWindow,
-		EnableTokenTailoring: opts.ModelTokenTailoringEnabled,
-		TailoringStrategy:    opts.ModelTokenTailoringStrategy,
+		Type:                             mode,
+		Name:                             opts.OpenAIModel,
+		BaseURL:                          baseURL,
+		OpenAIVariant:                    opts.OpenAIVariant,
+		DebugRecorderEnabled:             opts.DebugRecorderEnabled,
+		Config:                           opts.ModelConfig,
+		ContextWindow:                    opts.ModelContextWindow,
+		EnableTokenTailoring:             opts.ModelTokenTailoringEnabled,
+		TailoringStrategy:                opts.ModelTokenTailoringStrategy,
+		IncludeOutputSchemaInDescription: opts.ModelTokenTailoringIncludeOutputSchemaDesc,
 	}
 	return f(spec)
 }
