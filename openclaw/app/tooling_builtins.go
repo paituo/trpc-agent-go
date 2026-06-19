@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/tool"
+	agenttool "trpc.group/trpc-go/trpc-agent-go/tool/agent"
 	"trpc.group/trpc-go/trpc-agent-go/tool/duckduckgo"
 	"trpc.group/trpc-go/trpc-agent-go/tool/file"
 	"trpc.group/trpc-go/trpc-agent-go/tool/luaexec"
@@ -46,14 +47,15 @@ const (
 	toolProviderImage      = "image_inspect"
 	toolProviderWebFetch   = "webfetch_http"
 
-	toolSetProviderMCP     = "mcp"
-	toolSetProviderFile    = "file"
-	toolSetProviderOpenAPI = "openapi"
-	toolSetProviderGoogle  = "google"
-	toolSetProviderWiki    = "wikipedia"
-	toolSetProviderArxiv   = "arxivsearch"
-	toolSetProviderEmail   = "email"
-	toolSetProviderLua     = "lua"
+	toolSetProviderMCP       = "mcp"
+	toolSetProviderFile      = "file"
+	toolSetProviderOpenAPI   = "openapi"
+	toolSetProviderGoogle    = "google"
+	toolSetProviderWiki      = "wikipedia"
+	toolSetProviderArxiv     = "arxivsearch"
+	toolSetProviderEmail     = "email"
+	toolSetProviderLua       = "lua"
+	toolSetProviderAgentTool = "agent_tool"
 
 	defaultHTTPTimeout = 30 * time.Second
 
@@ -116,6 +118,10 @@ func init() {
 	must(registry.RegisterToolSetProvider(
 		toolSetProviderLua,
 		newLuaToolSet,
+	))
+	must(registry.RegisterToolSetProvider(
+		toolSetProviderAgentTool,
+		newAgentToolSet,
 	))
 }
 
@@ -956,3 +962,103 @@ func toolsFromInvocationContext(ctx context.Context) []tool.Tool {
 	}
 	return inv.Agent.Tools()
 }
+
+// --- Agent tool set provider ---
+
+// agentToolSetConfig maps the YAML "tools.toolsets[].config" section for agent_tool.
+type agentToolSetConfig struct {
+	Enabled             bool     `yaml:"enabled,omitempty"`
+	HistoryScope        string   `yaml:"history_scope,omitempty"`
+	StreamInner         bool     `yaml:"stream_inner,omitempty"`
+	ExposeToolSelection bool     `yaml:"expose_tool_selection,omitempty"`
+	ExposeInstruction   bool     `yaml:"expose_instruction,omitempty"`
+	ExcludeTools        []string `yaml:"exclude_tools,omitempty"`
+}
+
+func (c *agentToolSetConfig) toHistoryScope() agenttool.HistoryScope {
+	switch strings.ToLower(strings.TrimSpace(c.HistoryScope)) {
+	case "parent_branch":
+		return agenttool.HistoryScopeParentBranch
+	default:
+		return agenttool.HistoryScopeIsolated
+	}
+}
+
+// filterByBlacklist filters tools by excluding those whose names match the blacklist.
+func filterByBlacklist(tools []tool.Tool, blacklist []string) []tool.Tool {
+	if len(blacklist) == 0 {
+		return tools
+	}
+	exclude := make(map[string]bool, len(blacklist))
+	for _, name := range blacklist {
+		exclude[name] = true
+	}
+	out := make([]tool.Tool, 0, len(tools))
+	for _, t := range tools {
+		if !exclude[t.Declaration().Name] {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func newAgentToolSet(
+	_ registry.ToolSetProviderDeps,
+	spec registry.PluginSpec,
+) (tool.ToolSet, error) {
+	var cfg agentToolSetConfig
+	if err := registry.DecodeStrict(spec.Config, &cfg); err != nil {
+		return nil, err
+	}
+	if !cfg.Enabled {
+		return nil, nil
+	}
+
+	// Use CapabilitySurfaceProvider to dynamically obtain the tool list
+	// from the parent invocation at call time, solving the chicken-and-egg
+	// problem where the full tool list is not yet available at ToolSet
+	// creation time. This mirrors the Lua tool's toolsFromInvocationContext pattern.
+	provider := func(ctx context.Context, parentInv *agent.Invocation) ([]tool.Tool, map[string]bool) {
+		if parentInv == nil || parentInv.Agent == nil {
+			return nil, nil
+		}
+		allTools := parentInv.Agent.Tools()
+		return filterByBlacklist(allTools, cfg.ExcludeTools), nil
+	}
+
+	agentTool := agenttool.NewDynamicTool(
+		agenttool.WithCapabilityProvider(provider),
+		agenttool.WithHistoryScope(cfg.toHistoryScope()),
+		agenttool.WithStreamInner(cfg.StreamInner),
+		agenttool.WithExposeToolSelection(cfg.ExposeToolSelection),
+		agenttool.WithExposeInstruction(cfg.ExposeInstruction),
+	)
+
+	name := strings.TrimSpace(spec.Name)
+	if name == "" {
+		name = toolSetProviderAgentTool
+	}
+	return &singleToolToolSet{tool: agentTool, name: name}, nil
+}
+
+// singleToolToolSet wraps a single tool.Tool as a tool.ToolSet.
+type singleToolToolSet struct {
+	tool tool.Tool
+	name string
+}
+
+func (s *singleToolToolSet) Tools(_ context.Context) []tool.Tool {
+	if s == nil || s.tool == nil {
+		return nil
+	}
+	return []tool.Tool{s.tool}
+}
+
+func (s *singleToolToolSet) Name() string {
+	if s == nil {
+		return ""
+	}
+	return s.name
+}
+
+func (s *singleToolToolSet) Close() error { return nil }
