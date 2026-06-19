@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	toolSubagentsSpawn  = "subagents_spawn"
-	toolSubagentsList   = "subagents_list"
-	toolSubagentsGet    = "subagents_get"
-	toolSubagentsCancel = "subagents_cancel"
-	toolSubagentsWait   = "subagents_wait"
+	toolSubagentsSpawn     = "subagents_spawn"
+	toolSubagentsList      = "subagents_list"
+	toolSubagentsGet       = "subagents_get"
+	toolSubagentsCancel    = "subagents_cancel"
+	toolSubagentsWait      = "subagents_wait"
+	toolSubagentsTranscript = "subagents_transcript"
 
 	toolSessionsSpawn  = "sessions_spawn"
 	toolSessionsList   = "sessions_list"
@@ -67,6 +68,7 @@ type Tools struct {
 	get    *getTool
 	cancel *cancelTool
 	wait   *waitTool
+	transcript *transcriptTool
 
 	spawnAlias  *spawnTool
 	listAlias   *listTool
@@ -76,13 +78,14 @@ type Tools struct {
 	cfg ToolsConfig
 }
 
-func NewTools(svc *Service, cfg ToolsConfig) Tools {
+func NewTools(svc *Service, cfg ToolsConfig, sessionSvc session.Service) Tools {
 	return Tools{
 		spawn:       &spawnTool{name: toolSubagentsSpawn, svc: svc},
 		list:        &listTool{name: toolSubagentsList, svc: svc},
 		get:         &getTool{name: toolSubagentsGet, svc: svc},
 		cancel:      &cancelTool{name: toolSubagentsCancel, svc: svc},
 		wait:        &waitTool{name: toolSubagentsWait, svc: svc},
+		transcript:  &transcriptTool{name: toolSubagentsTranscript, svc: svc, sessionSvc: sessionSvc},
 		spawnAlias:  &spawnTool{name: toolSessionsSpawn, alias: true, svc: svc},
 		listAlias:   &listTool{name: toolSessionsList, alias: true, svc: svc},
 		getAlias:    &getTool{name: toolSessionsGet, alias: true, svc: svc},
@@ -101,6 +104,7 @@ func (t *Tools) SetService(svc *Service) {
 		t.get,
 		t.cancel,
 		t.wait,
+		t.transcript,
 		t.spawnAlias,
 		t.listAlias,
 		t.getAlias,
@@ -122,6 +126,7 @@ func (t *Tools) All() []tool.Tool {
 		t.get,
 		t.cancel,
 		t.wait,
+		t.transcript,
 	}
 	if t.cfg.EnableSessionAlias {
 		tools = append(tools,
@@ -714,4 +719,150 @@ func enhanceWaitError(
 
 	// Wrap the original error to preserve error chain
 	return fmt.Errorf("%s: %w", builder.String(), err)
+}
+
+// --- Transcript tool ---
+
+type transcriptInput struct {
+	ID    string `json:"id"`
+	Limit int    `json:"limit"`
+}
+
+type transcriptEvent struct {
+	ID        string    `json:"id"`
+	Author    string    `json:"author"`
+	Role      string    `json:"role"`
+	Content   string    `json:"content"`
+	ToolID    string    `json:"tool_id,omitempty"`
+	ToolName  string    `json:"tool_name,omitempty"`
+	ToolCalls []string  `json:"tool_calls,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type transcriptResult struct {
+	ID             string            `json:"id"`
+	Status         string            `json:"status"`
+	ChildSessionID string            `json:"child_session_id"`
+	Events         []transcriptEvent `json:"events"`
+}
+
+type transcriptTool struct {
+	name       string
+	svc        *Service
+	sessionSvc session.Service
+}
+
+func (t *transcriptTool) setService(svc *Service) {
+	t.svc = svc
+}
+
+func (t *transcriptTool) Declaration() *tool.Declaration {
+	return &tool.Declaration{
+		Name: t.name,
+		Description: "Read the transcript (session events) of a completed " +
+			"or running subagent run. This allows the parent agent to see " +
+			"what the subagent did, what tools it called, and what it said.",
+		InputSchema: &tool.Schema{
+			Type:     schemaTypeObject,
+			Required: []string{argID},
+			Properties: map[string]*tool.Schema{
+				argID: {
+					Type:        schemaTypeString,
+					Description: "Subagent run id returned by spawn.",
+				},
+				"limit": {
+					Type:        schemaTypeInteger,
+					Description: "Optional maximum number of recent events to return (default 40, max 200).",
+				},
+			},
+		},
+	}
+}
+
+func (t *transcriptTool) Call(
+	ctx context.Context,
+	args []byte,
+) (any, error) {
+	if t == nil || t.svc == nil {
+		return nil, fmt.Errorf("subagent: service unavailable")
+	}
+	if t.sessionSvc == nil {
+		return nil, fmt.Errorf("subagent: session service unavailable")
+	}
+
+	var in transcriptInput
+	if err := json.Unmarshal(args, &in); err != nil {
+		return nil, err
+	}
+	in.ID = strings.TrimSpace(in.ID)
+	if in.ID == "" {
+		return nil, fmt.Errorf("subagent: empty run id")
+	}
+	if in.Limit <= 0 {
+		in.Limit = 40
+	}
+	if in.Limit > 200 {
+		in.Limit = 200
+	}
+
+	userID, sess, err := currentContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	run, err := t.svc.GetForUser(userID, in.ID)
+	if err != nil {
+		return nil, fmt.Errorf("subagent: get run %q: %w", in.ID, err)
+	}
+	if run == nil {
+		return nil, fmt.Errorf("subagent: run %q not found", in.ID)
+	}
+
+	childSessionID := run.ChildSessionID
+	if childSessionID == "" {
+		return transcriptResult{
+			ID:     run.ID,
+			Status: string(run.Status),
+		}, nil
+	}
+
+	child, err := t.sessionSvc.GetSession(ctx, session.Key{
+		AppName:   sess.AppName,
+		UserID:    userID,
+		SessionID: childSessionID,
+	}, session.WithEventNum(in.Limit))
+	if err != nil {
+		return nil, fmt.Errorf("subagent: get child session: %w", err)
+	}
+
+	events := make([]transcriptEvent, 0, len(child.Events))
+	for _, e := range child.Events {
+		evt := transcriptEvent{
+			ID:        e.ID,
+			Author:    e.Author,
+			Timestamp: e.Timestamp,
+		}
+		if len(e.Choices) > 0 {
+			evt.Role = string(e.Choices[0].Message.Role)
+			evt.Content = e.Choices[0].Message.Content
+			evt.ToolID = e.Choices[0].Message.ToolID
+			evt.ToolName = e.Choices[0].Message.ToolName
+			if len(e.Choices[0].Message.ToolCalls) > 0 {
+				names := make([]string, 0, len(e.Choices[0].Message.ToolCalls))
+				for _, tc := range e.Choices[0].Message.ToolCalls {
+					names = append(names, tc.Function.Name)
+				}
+				evt.ToolCalls = names
+			}
+		}
+		events = append(events, evt)
+	}
+
+	return transcriptResult{
+		ID:             run.ID,
+		Status:         string(run.Status),
+		ChildSessionID: childSessionID,
+		Events:         events,
+	}, nil
 }
