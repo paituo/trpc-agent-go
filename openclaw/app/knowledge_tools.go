@@ -690,13 +690,14 @@ func buildKnowledgeReranker(node *yaml.Node) (reranker.Reranker, error) {
 // ---------- Source support ----------
 
 type knowledgeSourceConfig struct {
-	Name           string   `yaml:"name,omitempty"`
-	Type           string   `yaml:"type,omitempty"`
-	Paths          []string `yaml:"paths,omitempty"`
-	URLs           []string `yaml:"urls,omitempty"`
-	Recursive      *bool    `yaml:"recursive,omitempty"`
-	FileExtensions []string `yaml:"file_extensions,omitempty"`
-	FileReaderType string   `yaml:"file_reader_type,omitempty"`
+	Name           string         `yaml:"name,omitempty"`
+	Type           string         `yaml:"type,omitempty"`
+	Paths          []string       `yaml:"paths,omitempty"`
+	URLs           []string       `yaml:"urls,omitempty"`
+	Recursive      *bool          `yaml:"recursive,omitempty"`
+	FileExtensions []string       `yaml:"file_extensions,omitempty"`
+	FileReaderType string         `yaml:"file_reader_type,omitempty"`
+	Metadata       map[string]any `yaml:"metadata,omitempty"`
 }
 
 func buildKnowledgeSources(nodes []*rawKnowledgeComponent) ([]source.Source, error) {
@@ -735,6 +736,9 @@ func buildKnowledgeSource(node *yaml.Node) (source.Source, error) {
 		if len(cfg.FileExtensions) > 0 {
 			opts = append(opts, dirknowledge.WithFileExtensions(cfg.FileExtensions))
 		}
+		if len(cfg.Metadata) > 0 {
+			opts = append(opts, dirknowledge.WithMetadata(cfg.Metadata))
+		}
 		return dirknowledge.New(cfg.Paths, opts...), nil
 
 	case "url":
@@ -747,6 +751,9 @@ func buildKnowledgeSource(node *yaml.Node) (source.Source, error) {
 		}
 		if v := strings.TrimSpace(cfg.FileReaderType); v != "" {
 			urlOpts = append(urlOpts, urlknowledge.WithFileReaderType(source.FileReaderType(v)))
+		}
+		if len(cfg.Metadata) > 0 {
+			urlOpts = append(urlOpts, urlknowledge.WithMetadata(cfg.Metadata))
 		}
 		return urlknowledge.New(cfg.URLs, urlOpts...), nil
 
