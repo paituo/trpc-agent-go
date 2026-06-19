@@ -136,6 +136,13 @@ type options struct {
 	// This can be useful when a provider rejects file inputs in chat messages,
 	// while still keeping the file parts in-memory for downstream tools.
 	OmitFileContentParts bool
+
+	// IncludeOutputSchemaInDescription controls whether the output schema is
+	// appended to the tool description when building tool definitions for the
+	// OpenAI API. When false, only the tool's original description is used,
+	// reducing token consumption from tool definitions.
+	// Defaults to true for backward compatibility.
+	IncludeOutputSchemaInDescription bool
 }
 
 var (
@@ -151,7 +158,8 @@ var (
 			InputTokensFloor:       imodel.DefaultInputTokensFloor,
 			MaxInputTokensRatio:    imodel.DefaultMaxInputTokensRatio,
 		},
-		OptimizeForCache: false,
+		OptimizeForCache:                   false,
+		IncludeOutputSchemaInDescription: true,
 	}
 )
 
@@ -325,6 +333,17 @@ func WithVariant(variant Variant) Option {
 func WithOmitFileContentParts(omit bool) Option {
 	return func(opts *options) {
 		opts.OmitFileContentParts = omit
+	}
+}
+
+// WithIncludeOutputSchemaInDescription controls whether the output schema is
+// appended to the tool description when building tool definitions for the
+// OpenAI API. When false, only the tool's original description is used,
+// reducing token consumption from tool definitions.
+// Defaults to true for backward compatibility.
+func WithIncludeOutputSchemaInDescription(include bool) Option {
+	return func(opts *options) {
+		opts.IncludeOutputSchemaInDescription = include
 	}
 }
 
