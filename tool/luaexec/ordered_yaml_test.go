@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // TestOrderedYAML_FieldOrder verifies that YAML serialization preserves
@@ -217,4 +218,85 @@ return { no_binary = not has_binary, has_chinese_p1 = has_chinese_preview1, has_
 	assert.Equal(t, true, resp["no_binary"], "Chinese+HTML content should NOT be encoded as !!binary")
 	assert.Equal(t, true, resp["has_chinese_p1"], "Chinese text in preview1 should be readable")
 	assert.Equal(t, true, resp["has_chinese_p"], "Chinese text in preview should be readable")
+}
+
+// TestDecodeAuto_UTF8Valid verifies that decodeAuto correctly
+// identifies and decodes valid UTF-8 content.
+func TestDecodeAuto_UTF8Valid(t *testing.T) {
+	// Test with pure ASCII
+	ascii := []byte("name: test\nvalue: 42\n")
+	result, err := decodeAuto(ascii)
+	require.NoError(t, err)
+	assert.Equal(t, string(ascii), result)
+
+	// Test with Chinese UTF-8 content
+	chineseUTF8 := []byte("工程名称: 梅花～邵屯T接城东变电站110kV线路工程")
+	result, err = decodeAuto(chineseUTF8)
+	require.NoError(t, err)
+	assert.Contains(t, result, "工程名称")
+	assert.Contains(t, result, "梅花")
+}
+
+// TestDecodeAuto_GBKContent verifies that decodeAuto correctly
+// detects and decodes GBK-encoded content.
+func TestDecodeAuto_GBKContent(t *testing.T) {
+	// Create GBK-encoded text
+	gbkEncoder := simplifiedchinese.GBK.NewEncoder()
+	gbkBytes, err := gbkEncoder.Bytes([]byte("工程名称: 梅花～邵屯T接城东变电站110kV线路工程"))
+	require.NoError(t, err)
+
+	result, err := decodeAuto(gbkBytes)
+	require.NoError(t, err)
+	assert.Contains(t, result, "工程名称")
+	assert.Contains(t, result, "梅花")
+}
+
+// TestDecodeAuto_CJKHeuristic verifies that the CJK heuristic
+// correctly prefers GBK decoding when UTF-8 bytes were written
+// from a GBK source (mojibake scenario).
+func TestDecodeAuto_CJKHeuristic(t *testing.T) {
+	// Simulate the mojibake scenario: raw bytes are valid UTF-8
+	// that spell "鍦板尯缂栧埗" (GBK mojibake of "地区编制手册"),
+	// and also valid GBK that decodes to "地区编制手册".
+	//
+	// When raw = correct Chinese, decodeAuto should prefer GBK
+	// decoding if it produces significantly more CJK characters.
+
+	// RegionName is the GBK encoding of the correct Chinese text
+	correctChinese := []byte("地区编制手册")
+	gbkEncoder := simplifiedchinese.GBK.NewEncoder()
+	gbkBytes, err := gbkEncoder.Bytes(correctChinese)
+	require.NoError(t, err)
+
+	// Now gbkBytes are GBK-encoded. When interpreted as UTF-8,
+	// they form the mojibake characters. decodeAuto should detect
+	// this via the CJK heuristic.
+	result, err := decodeAuto(gbkBytes)
+	require.NoError(t, err)
+	assert.Equal(t, string(correctChinese), result, "decodeAuto should prefer GBK decoding for GBK content with CJK heuristic")
+}
+
+// TestCountCJKChars verifies the CJK character counter.
+func TestCountCJKChars(t *testing.T) {
+	// Pure ASCII
+	assert.Equal(t, 0, countCJKChars("hello world"))
+
+	// Chinese only
+	assert.Equal(t, 2, countCJKChars("地区"))
+
+	// Chinese + ASCII (6 CJK chars: 地区编制手册)
+	assert.Equal(t, 6, countCJKChars("地区编制手册.md"))
+
+	// GBK-encoded bytes, when interpreted as raw bytes (not valid UTF-8),
+	// should yield 0 CJK characters because DecodeRuneInString returns RuneError.
+	gbkEncoder := simplifiedchinese.GBK.NewEncoder()
+	correctChinese := "地区编制手册.md"
+	gbkBytes, _ := gbkEncoder.Bytes([]byte(correctChinese))
+	// GBK bytes as a Go string (not valid UTF-8) should contain no valid CJK
+	mojibakeCJKCount := countCJKChars(string(gbkBytes))
+	assert.Equal(t, 0, mojibakeCJKCount, "raw GBK bytes as string should contain 0 valid CJK chars")
+
+	// Correct Chinese should have correct CJK count
+	cjkCorrect := countCJKChars(correctChinese)
+	assert.Equal(t, 6, cjkCorrect, "正确中文应有6个CJK字符")
 }
