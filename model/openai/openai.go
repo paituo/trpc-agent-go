@@ -441,9 +441,10 @@ type Model struct {
 	safetyMarginRatio      float64
 	maxInputTokensRatio    float64
 
-	accumulateChunkUsage AccumulateChunkUsage
-	optimizeForCache     bool // Optimize message structure for prompt caching
-	omitFileContentParts bool
+	accumulateChunkUsage             AccumulateChunkUsage
+	optimizeForCache                 bool // Optimize message structure for prompt caching
+	omitFileContentParts             bool
+	includeOutputSchemaInDescription bool // Append output schema to tool description
 }
 
 // New creates a new OpenAI-like model.
@@ -534,6 +535,7 @@ func New(name string, opts ...Option) *Model {
 		accumulateChunkUsage:       o.accumulateChunkUsage,
 		optimizeForCache:           o.OptimizeForCache,
 		omitFileContentParts:       o.OmitFileContentParts,
+		includeOutputSchemaInDescription: o.IncludeOutputSchemaInDescription,
 	}
 }
 
@@ -1762,7 +1764,7 @@ func (m *Model) convertTools(tools map[string]tool.Tool) []openai.ChatCompletion
 		result = append(result, openai.ChatCompletionToolParam{
 			Function: openai.FunctionDefinitionParam{
 				Name:        declaration.Name,
-				Description: openai.String(buildToolDescription(declaration)),
+				Description: openai.String(m.buildToolDescription(declaration)),
 				Parameters:  parameters,
 			},
 		})
@@ -1771,10 +1773,10 @@ func (m *Model) convertTools(tools map[string]tool.Tool) []openai.ChatCompletion
 }
 
 // buildToolDescription builds the description for a tool.
-// It appends the output schema to the description.
-func buildToolDescription(declaration *tool.Declaration) string {
+// It appends the output schema to the description when includeOutputSchema is true.
+func (m *Model) buildToolDescription(declaration *tool.Declaration) string {
 	desc := declaration.Description
-	if declaration.OutputSchema == nil {
+	if !m.includeOutputSchemaInDescription || declaration.OutputSchema == nil {
 		return desc
 	}
 	schemaJSON, err := json.Marshal(declaration.OutputSchema)

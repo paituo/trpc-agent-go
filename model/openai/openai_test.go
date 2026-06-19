@@ -1693,6 +1693,7 @@ func validateStrictTopLevelObjectProperties(payload []byte) error {
 }
 
 func TestBuildToolDescription_AppendsOutputSchema(t *testing.T) {
+	m := New("dummy")
 	schema := &tool.Schema{
 		Type: "object",
 		Properties: map[string]*tool.Schema{
@@ -1705,7 +1706,7 @@ func TestBuildToolDescription_AppendsOutputSchema(t *testing.T) {
 		OutputSchema: schema,
 	}
 
-	desc := buildToolDescription(decl)
+	desc := m.buildToolDescription(decl)
 
 	assert.Contains(t, desc, "base", "expected base description to be preserved")
 	assert.Contains(t, desc, "Output schema:", "expected output schema label to be present")
@@ -1713,6 +1714,7 @@ func TestBuildToolDescription_AppendsOutputSchema(t *testing.T) {
 }
 
 func TestBuildToolDescription_MarshalError(t *testing.T) {
+	m := New("dummy")
 	logger := &stubLogger{}
 	originalLogger := agentlog.Default
 	agentlog.Default = logger
@@ -1727,7 +1729,7 @@ func TestBuildToolDescription_MarshalError(t *testing.T) {
 		},
 	}
 
-	desc := buildToolDescription(decl)
+	desc := m.buildToolDescription(decl)
 
 	assert.Equal(t, "desc", desc, "description should fall back when marshal fails")
 	assert.True(t, logger.errorfCalled, "expected marshal error to be logged")
@@ -1735,14 +1737,33 @@ func TestBuildToolDescription_MarshalError(t *testing.T) {
 }
 
 func TestBuildToolDescription_NoOutputSchema(t *testing.T) {
+	m := New("dummy")
 	decl := &tool.Declaration{
 		Name:        "example",
 		Description: "only desc",
 	}
 
-	desc := buildToolDescription(decl)
+	desc := m.buildToolDescription(decl)
 
 	assert.Equal(t, "only desc", desc, "description should remain unchanged without output schema")
+}
+
+func TestBuildToolDescription_Disabled(t *testing.T) {
+	m := New("dummy", WithIncludeOutputSchemaInDescription(false))
+	decl := &tool.Declaration{
+		Name:        "test",
+		Description: "base",
+		OutputSchema: &tool.Schema{
+			Type: "object",
+			Properties: map[string]*tool.Schema{
+				"result": {Type: "string"},
+			},
+		},
+	}
+
+	desc := m.buildToolDescription(decl)
+
+	assert.Equal(t, "base", desc, "description should not include output schema when disabled")
 }
 
 func TestConvertTools_UsesOutputSchemaInDescription(t *testing.T) {
@@ -1765,7 +1786,7 @@ func TestConvertTools_UsesOutputSchemaInDescription(t *testing.T) {
 	})
 
 	require.Len(t, params, 1)
-	expectedDesc := buildToolDescription(decl)
+	expectedDesc := m.buildToolDescription(decl)
 	require.True(t, params[0].Function.Description.Valid(), "function description should be set")
 	assert.Equal(t, expectedDesc, params[0].Function.Description.Value)
 	assert.Contains(t, params[0].Function.Description.Value, `"value"`, "output schema JSON should be embedded")

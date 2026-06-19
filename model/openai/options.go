@@ -139,6 +139,13 @@ type options struct {
 
 	// textOnlyMessageContent overrides the variant default when set.
 	textOnlyMessageContent *bool
+
+	// IncludeOutputSchemaInDescription controls whether the output schema is
+	// appended to the tool description when building tool definitions for the
+	// OpenAI API. When false, only the tool's original description is used,
+	// reducing token consumption from tool definitions.
+	// Defaults to true for backward compatibility.
+	IncludeOutputSchemaInDescription bool
 }
 
 var (
@@ -154,7 +161,8 @@ var (
 			InputTokensFloor:       imodel.DefaultInputTokensFloor,
 			MaxInputTokensRatio:    imodel.DefaultMaxInputTokensRatio,
 		},
-		OptimizeForCache: false,
+		OptimizeForCache:                   false,
+		IncludeOutputSchemaInDescription: true,
 	}
 )
 
@@ -341,6 +349,17 @@ func WithOmitFileContentParts(omit bool) Option {
 func WithTextOnlyMessageContent(enabled bool) Option {
 	return func(opts *options) {
 		opts.textOnlyMessageContent = &enabled
+	}
+}
+
+// WithIncludeOutputSchemaInDescription controls whether the output schema is
+// appended to the tool description when building tool definitions for the
+// OpenAI API. When false, only the tool's original description is used,
+// reducing token consumption from tool definitions.
+// Defaults to true for backward compatibility.
+func WithIncludeOutputSchemaInDescription(include bool) Option {
+	return func(opts *options) {
+		opts.IncludeOutputSchemaInDescription = include
 	}
 }
 
