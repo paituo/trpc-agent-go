@@ -161,6 +161,40 @@ func WithDeleteFilesEnabled(e bool) Option {
 	}
 }
 
+// WithFileManageEnabled enables or disables the file_manage tool
+// (combined move/copy/delete), default is true.
+// When enabled, the individual move_files, copy_files, and delete_files
+// tools are replaced by a single file_manage tool.
+func WithFileManageEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.fileManageEnabled = e
+	}
+}
+
+// WithFileManageMoveEnabled enables or disables the move action within
+// the file_manage tool, default is true.
+func WithFileManageMoveEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.fileManageMoveEnabled = e
+	}
+}
+
+// WithFileManageCopyEnabled enables or disables the copy action within
+// the file_manage tool, default is true.
+func WithFileManageCopyEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.fileManageCopyEnabled = e
+	}
+}
+
+// WithFileManageDeleteEnabled enables or disables the delete action within
+// the file_manage tool, default is true.
+func WithFileManageDeleteEnabled(e bool) Option {
+	return func(f *fileToolSet) {
+		f.fileManageDeleteEnabled = e
+	}
+}
+
 // WithCreateDirMode sets the permission mode for creating directory,
 // default is 0755 (rwxr-xr-x).
 func WithCreateDirMode(m os.FileMode) Option {
@@ -224,6 +258,10 @@ type fileToolSet struct {
 	moveFilesEnabled         bool
 	copyFilesEnabled         bool
 	deleteFilesEnabled       bool
+	fileManageEnabled        bool
+	fileManageMoveEnabled    bool
+	fileManageCopyEnabled    bool
+	fileManageDeleteEnabled  bool
 	createDirMode            os.FileMode
 	createFileMode           os.FileMode
 	maxFileSize              int64
@@ -264,6 +302,10 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 		moveFilesEnabled:         true,
 		copyFilesEnabled:         true,
 		deleteFilesEnabled:       true,
+		fileManageEnabled:        true,
+		fileManageMoveEnabled:    true,
+		fileManageCopyEnabled:    true,
+		fileManageDeleteEnabled:  true,
 		createDirMode:            defaultCreateDirMode,
 		createFileMode:           defaultCreateFileMode,
 		maxFileSize:              defaultMaxFileSize,
@@ -332,14 +374,18 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	if fileToolSet.replaceContentEnabled {
 		tools = append(tools, fileToolSet.replaceContentTool())
 	}
-	if fileToolSet.moveFilesEnabled {
-		tools = append(tools, fileToolSet.moveFilesTool())
-	}
-	if fileToolSet.copyFilesEnabled {
-		tools = append(tools, fileToolSet.copyFilesTool())
-	}
-	if fileToolSet.deleteFilesEnabled {
-		tools = append(tools, fileToolSet.deleteFilesTool())
+	if fileToolSet.fileManageEnabled {
+		tools = append(tools, fileToolSet.fileManageTool())
+	} else {
+		if fileToolSet.moveFilesEnabled {
+			tools = append(tools, fileToolSet.moveFilesTool())
+		}
+		if fileToolSet.copyFilesEnabled {
+			tools = append(tools, fileToolSet.copyFilesTool())
+		}
+		if fileToolSet.deleteFilesEnabled {
+			tools = append(tools, fileToolSet.deleteFilesTool())
+		}
 	}
 	fileToolSet.tools = tools
 	return fileToolSet, nil
