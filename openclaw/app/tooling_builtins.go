@@ -419,6 +419,12 @@ type fileToolSetConfig struct {
 	EnableCopy   *bool `yaml:"enable_copy,omitempty"`
 	EnableDelete *bool `yaml:"enable_delete,omitempty"`
 
+	EnableFileManage *bool `yaml:"enable_file_manage,omitempty"`
+
+	EnableFileManageMove   *bool `yaml:"enable_file_manage_move,omitempty"`
+	EnableFileManageCopy   *bool `yaml:"enable_file_manage_copy,omitempty"`
+	EnableFileManageDelete *bool `yaml:"enable_file_manage_delete,omitempty"`
+
 	MaxFileSize        int64 `yaml:"max_file_size,omitempty"`
 	MaxToolResultChars int64 `yaml:"max_tool_result_chars,omitempty"`
 }
@@ -512,6 +518,30 @@ func newFileToolSet(
 		deleteEnabled = *cfg.EnableDelete
 	}
 	opts = append(opts, file.WithDeleteFilesEnabled(deleteEnabled))
+
+	fileManageEnabled := true
+	if cfg.EnableFileManage != nil {
+		fileManageEnabled = *cfg.EnableFileManage
+	}
+	opts = append(opts, file.WithFileManageEnabled(fileManageEnabled))
+
+	fileManageMoveEnabled := true
+	if cfg.EnableFileManageMove != nil {
+		fileManageMoveEnabled = *cfg.EnableFileManageMove
+	}
+	opts = append(opts, file.WithFileManageMoveEnabled(fileManageMoveEnabled))
+
+	fileManageCopyEnabled := true
+	if cfg.EnableFileManageCopy != nil {
+		fileManageCopyEnabled = *cfg.EnableFileManageCopy
+	}
+	opts = append(opts, file.WithFileManageCopyEnabled(fileManageCopyEnabled))
+
+	fileManageDeleteEnabled := true
+	if cfg.EnableFileManageDelete != nil {
+		fileManageDeleteEnabled = *cfg.EnableFileManageDelete
+	}
+	opts = append(opts, file.WithFileManageDeleteEnabled(fileManageDeleteEnabled))
 
 	if cfg.MaxFileSize > 0 {
 		opts = append(opts, file.WithMaxFileSize(cfg.MaxFileSize))
