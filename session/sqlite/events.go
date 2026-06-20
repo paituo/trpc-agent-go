@@ -12,11 +12,16 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/internal/session/hook"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 )
 
@@ -73,6 +78,7 @@ func (s *Service) appendEventInternal(
 	if err := s.addEvent(ctx, key, e); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
+	s.indexEventAfterPersist(sess, e)
 	return nil
 }
 
@@ -235,3 +241,208 @@ func (s *Service) startAsyncPersistWorker() {
 		}(ch)
 	}
 }
+
+// ---------- Embedding indexing ----------
+
+// shouldIndexEvent reports whether the event should be indexed for search.
+func shouldIndexEvent(evt *event.Event) bool {
+	return evt != nil && evt.Response != nil &&
+		!evt.IsPartial && evt.IsValidContent()
+}
+
+// extractEventText extracts indexable text and role from an event.
+func extractEventText(evt *event.Event) (string, model.Role) {
+	if !shouldIndexEvent(evt) {
+		return "", ""
+	}
+	if len(evt.Response.Choices) == 0 {
+		return "", ""
+	}
+	msg := evt.Response.Choices[0].Message
+	if len(msg.ToolCalls) > 0 {
+		return "", ""
+	}
+	content := msg.Content
+	if content == "" && len(msg.ContentParts) > 0 {
+		var sb strings.Builder
+		for _, p := range msg.ContentParts {
+			if p.Text != nil {
+				sb.WriteString(*p.Text)
+				sb.WriteString(" ")
+			}
+		}
+		content = strings.TrimSpace(sb.String())
+	}
+	if content == "" {
+		return "", ""
+	}
+	role := msg.Role
+	if role == "" {
+		role = model.RoleAssistant
+	}
+	if msg.ToolID != "" || role == model.RoleTool {
+		role = model.RoleTool
+	}
+	if role == model.RoleTool {
+		toolName := strings.TrimSpace(msg.ToolName)
+		if toolName != "" {
+			content = toolName + ": " + content
+		}
+	}
+	return content, role
+}
+
+// indexEventAfterPersist triggers embedding generation after event persistence.
+func (s *Service) indexEventAfterPersist(
+	sess *session.Session,
+	evt *event.Event,
+) {
+	if s.opts.embedder == nil {
+		return
+	}
+	if !shouldIndexEvent(evt) {
+		return
+	}
+	if s.opts.syncIndexing {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			s.opts.embedTimeout,
+		)
+		defer cancel()
+		s.asyncIndexEvent(ctx, sess, evt)
+		return
+	}
+	s.triggerAsyncIndexEvent(sess, evt)
+}
+
+// triggerAsyncIndexEvent detaches indexing work from the request context.
+func (s *Service) triggerAsyncIndexEvent(
+	sess *session.Session,
+	evt *event.Event,
+) {
+	if !shouldIndexEvent(evt) {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			s.opts.embedTimeout,
+		)
+		defer cancel()
+		s.asyncIndexEvent(ctx, sess, evt)
+	}()
+}
+
+// asyncIndexEvent generates embedding and updates the vec0 index.
+func (s *Service) asyncIndexEvent(
+	ctx context.Context,
+	sess *session.Session,
+	evt *event.Event,
+) {
+	text, role := extractEventText(evt)
+	if text == "" {
+		return
+	}
+	if s.opts.embedder == nil {
+		return
+	}
+	emb, err := s.opts.embedder.GetEmbedding(ctx, text)
+	if err != nil {
+		log.WarnfContext(ctx,
+			"sqlite session: embedding failed: %v", err)
+		return
+	}
+	if len(emb) == 0 {
+		log.WarnfContext(ctx,
+			"sqlite session: empty embedding returned")
+		return
+	}
+	if err := s.updateEventEmbedding(
+		ctx, sess, evt, text, string(role), emb,
+	); err != nil {
+		log.WarnfContext(ctx,
+			"sqlite session: update embedding failed: %v", err)
+	}
+}
+
+// updateEventEmbedding updates the vec0 index with the generated embedding.
+func (s *Service) updateEventEmbedding(
+	ctx context.Context,
+	sess *session.Session,
+	evt *event.Event,
+	contentText string,
+	role string,
+	emb []float64,
+) error {
+	// Serialize embedding to vec0 blob format.
+	f32 := make([]float32, len(emb))
+	for i, v := range emb {
+		f32[i] = float32(v)
+	}
+	blob, err := vecSerializeFloat32(f32)
+	if err != nil {
+		return fmt.Errorf("serialize embedding: %w", err)
+	}
+
+	// Find the matching event row in session_events.
+	var rowID int64
+	matchExpr := `event->>'id' = ?`
+	matchValue := evt.ID
+	if matchValue == "" {
+		eventBytes, err := json.Marshal(evt)
+		if err != nil {
+			return fmt.Errorf("marshal event: %w", err)
+		}
+		matchExpr = `event = ?`
+		matchValue = string(eventBytes)
+	}
+
+	query := fmt.Sprintf(`SELECT id FROM %s
+WHERE app_name = ? AND user_id = ? AND session_id = ?
+AND %s AND deleted_at IS NULL
+ORDER BY created_at DESC LIMIT 1`,
+		s.tableSessionEvents, matchExpr)
+
+	err = s.db.QueryRowContext(ctx, query,
+		matchValue,
+		sess.AppName, sess.UserID, sess.ID,
+	).Scan(&rowID)
+	if err != nil {
+		return fmt.Errorf("find event row: %w", err)
+	}
+
+	// Insert or replace into vec0 table.
+	now := time.Now().UTC()
+	vecSQL := fmt.Sprintf(`INSERT OR REPLACE INTO %s(
+  rowid, embedding, app_name, user_id, session_id,
+  content_text, role, created_at
+) VALUES (?, `+vecBlobPlaceholder+`, ?, ?, ?, ?, ?, ?)`,
+		s.vecTableName())
+
+	_, err = s.db.ExecContext(ctx, vecSQL,
+		rowID, blob,
+		sess.AppName, sess.UserID, sess.ID,
+		contentText, role, now.UnixNano(),
+	)
+	if err != nil {
+		return fmt.Errorf("insert vec0: %w", err)
+	}
+
+	// Update FTS5 index if enabled.
+	if s.opts.enableFTS {
+		ftsSQL := fmt.Sprintf(`INSERT OR REPLACE INTO %s(rowid, content_text) VALUES(?, ?)`,
+			s.ftsTableName())
+		if _, err := s.db.ExecContext(ctx, ftsSQL, rowID, contentText); err != nil {
+			return fmt.Errorf("insert fts5: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// vecBlobPlaceholder is the SQL placeholder for vec_f32 serialized blob.
+const vecBlobPlaceholder = "vec_f32(?)"
+
+// indexerWg is used to wait for async indexing goroutines to complete.
+// It is embedded in the Service struct via the initDB path.
+var globalIndexerWg sync.WaitGroup
