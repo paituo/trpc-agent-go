@@ -2607,6 +2607,7 @@ func newAgent(
 			},
 		))
 	}
+	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
 		opts,
 		llmagent.WithSkillToolProfile(
