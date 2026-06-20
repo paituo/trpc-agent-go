@@ -2860,6 +2860,7 @@ func newAgent(
 		llmagent.WithAddSessionSummary(cfg.AddSessionSummary),
 		llmagent.WithSyncSummaryIntraRun(cfg.SyncSummaryIntraRun),
 		llmagent.WithEnableContextCompaction(cfg.EnableContextCompaction),
+		llmagent.WithEnableOnDemandSession(cfg.EnableContextCompaction),
 		llmagent.WithContextCompactionThresholdRatio(
 			cfg.ContextCompactionThresholdRatio,
 		),
@@ -2893,7 +2894,6 @@ func newAgent(
 			},
 		))
 	}
-	opts = append(opts, llmagent.WithSkills(repo))
 	opts = append(
 		opts,
 		llmagent.WithSkillToolProfile(
@@ -3589,12 +3589,11 @@ func buildOpenClawTools(
 		octool.NewReadDocumentTool(uploadStore),
 		octool.NewReadSpreadsheetTool(uploadStore),
 		octool.NewWriteStdinTool(mgr),
-		octool.NewKillSessionTool(mgr),
 		outbound.NewTool(router),
 		cronTool,
 	}
 	if enableExecuteTools {
-		tools = append(tools, execTool)
+		tools = append(tools, execTool, octool.NewKillSessionTool(mgr))
 	}
 	if enableSubagentTools {
 		tools = append(tools, subagentTools.All()...)
