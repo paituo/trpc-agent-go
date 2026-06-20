@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/internal/session/sqldb"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/summary"
 )
@@ -34,6 +35,12 @@ const (
 	defaultAsyncSummaryNum   = 3
 	defaultSummaryQueueSize  = 100
 	defaultSummaryJobTimeout = 60 * time.Second
+
+	defaultIndexDimension = 1536
+	defaultMaxResults     = 5
+	defaultEmbedTimeout   = 30 * time.Second
+	defaultHybridRRFK     = 60
+	defaultCandidateRatio = 3
 )
 
 // ServiceOpts is the options for the sqlite session service.
@@ -65,6 +72,16 @@ type ServiceOpts struct {
 
 	appendEventHooks []session.AppendEventHook
 	getSessionHooks  []session.GetSessionHook
+
+	// search-related options
+	embedder       embedder.Embedder
+	embedTimeout   time.Duration
+	indexDimension int
+	maxResults     int
+	hybridRRFK     int
+	candidateRatio int
+	enableFTS      bool
+	syncIndexing   bool
 }
 
 // ServiceOpt is the option for the sqlite session service.
@@ -77,6 +94,11 @@ var defaultOptions = ServiceOpts{
 	summaryQueueSize:  defaultSummaryQueueSize,
 	summaryJobTimeout: defaultSummaryJobTimeout,
 	softDelete:        true,
+	indexDimension:    defaultIndexDimension,
+	maxResults:        defaultMaxResults,
+	embedTimeout:      defaultEmbedTimeout,
+	hybridRRFK:        defaultHybridRRFK,
+	candidateRatio:    defaultCandidateRatio,
 }
 
 func (opts ServiceOpts) shouldCascadeFullSessionSummary() bool {
@@ -248,5 +270,74 @@ func WithAppendEventHook(hooks ...session.AppendEventHook) ServiceOpt {
 func WithGetSessionHook(hooks ...session.GetSessionHook) ServiceOpt {
 	return func(opts *ServiceOpts) {
 		opts.getSessionHooks = append(opts.getSessionHooks, hooks...)
+	}
+}
+
+// WithEmbedder sets the embedder for generating event embeddings.
+// Required for SearchableService support (semantic search).
+func WithEmbedder(e embedder.Embedder) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		opts.embedder = e
+	}
+}
+
+// WithEmbedTimeout sets the timeout for embedding API calls.
+func WithEmbedTimeout(timeout time.Duration) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		if timeout > 0 {
+			opts.embedTimeout = timeout
+		}
+	}
+}
+
+// WithIndexDimension sets the embedding vector dimension (default: 1536).
+func WithIndexDimension(dim int) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		if dim > 0 {
+			opts.indexDimension = dim
+		}
+	}
+}
+
+// WithMaxResults sets the default max results for SearchEvents (default: 5).
+func WithMaxResults(n int) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		if n > 0 {
+			opts.maxResults = n
+		}
+	}
+}
+
+// WithHybridRRFK sets the RRF constant used when SearchModeHybrid is enabled (default: 60).
+func WithHybridRRFK(k int) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		if k > 0 {
+			opts.hybridRRFK = k
+		}
+	}
+}
+
+// WithHybridCandidateRatio sets how many candidates each hybrid branch fetches before fusion (default: 3x).
+func WithHybridCandidateRatio(ratio int) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		if ratio > 0 {
+			opts.candidateRatio = ratio
+		}
+	}
+}
+
+// WithEnableFTS enables full-text search using FTS5 for keyword search.
+// Requires building with -tags=sqlite_fts5 to enable FTS5 in the SQLite driver.
+func WithEnableFTS(enable bool) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		opts.enableFTS = enable
+	}
+}
+
+// WithSyncIndexing controls whether event embeddings are generated synchronously
+// after persistence. When false (default), embeddings are generated asynchronously.
+func WithSyncIndexing(sync bool) ServiceOpt {
+	return func(opts *ServiceOpts) {
+		opts.syncIndexing = sync
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"trpc.group/trpc-go/trpc-agent-go/internal/session/sqldb"
 )
@@ -168,6 +169,8 @@ type indexDefinition struct {
 	template string
 }
 
+var vecInitOnce sync.Once
+
 func (s *Service) initDB(ctx context.Context) error {
 	tables := []tableDefinition{
 		{sqldb.TableNameSessionStates, sqlCreateSessionStatesTable},
@@ -261,6 +264,57 @@ func (s *Service) initDB(ctx context.Context) error {
 		stmt = strings.ReplaceAll(stmt, "{{INDEX_NAME}}", indexName)
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("create index %s: %w", indexName, err)
+		}
+	}
+
+	// Initialize sqlite-vec extension and create vec0 virtual table
+	// for vector search support when embedder is configured.
+	if s.opts.embedder != nil {
+		vecInitOnce.Do(vecAuto)
+		if err := s.initVecSearch(ctx); err != nil {
+			return fmt.Errorf("init vector search: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// vecTableName returns the vec0 virtual table name for session events.
+func (s *Service) vecTableName() string {
+	return s.fullTableName("session_events_vec")
+}
+
+// ftsTableName returns the FTS5 virtual table name for session events.
+func (s *Service) ftsTableName() string {
+	return s.fullTableName("session_events_fts")
+}
+
+// initVecSearch creates the vec0 virtual table and FTS5 table for search.
+func (s *Service) initVecSearch(ctx context.Context) error {
+	// Create vec0 virtual table for vector search.
+	vecSQL := fmt.Sprintf(`CREATE VIRTUAL TABLE IF NOT EXISTS %s USING vec0(
+  rowid integer primary key,
+  embedding float[%d] distance_metric=cosine,
+  app_name text,
+  user_id text,
+  session_id text,
+  content_text text,
+  role text,
+  created_at integer
+)`, s.vecTableName(), s.opts.indexDimension)
+	if _, err := s.db.ExecContext(ctx, vecSQL); err != nil {
+		return fmt.Errorf("create vec0 table: %w", err)
+	}
+
+	// Create FTS5 table for keyword search if enabled.
+	if s.opts.enableFTS {
+		ftsSQL := fmt.Sprintf(`CREATE VIRTUAL TABLE IF NOT EXISTS %s USING fts5(
+  rowid UNINDEXED,
+  content_text,
+  tokenize='unicode61'
+)`, s.ftsTableName())
+		if _, err := s.db.ExecContext(ctx, ftsSQL); err != nil {
+			return fmt.Errorf("create fts5 table: %w (hint: build with -tags=sqlite_fts5)", err)
 		}
 	}
 
