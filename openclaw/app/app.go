@@ -3973,12 +3973,11 @@ func buildOpenClawTools(
 		octool.NewReadDocumentTool(uploadStore),
 		octool.NewReadSpreadsheetTool(uploadStore),
 		octool.NewWriteStdinTool(mgr),
-		octool.NewKillSessionTool(mgr),
 		outbound.NewTool(router),
 		cronTool,
 	}
 	if enableExecuteTools {
-		tools = append(tools, execTool)
+		tools = append(tools, execTool, octool.NewKillSessionTool(mgr))
 	}
 	if enableSubagentTools {
 		tools = append(tools, subagentTools.All()...)
