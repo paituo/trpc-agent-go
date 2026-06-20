@@ -53,6 +53,11 @@ type sqliteSessionConfig struct {
 	DSN        string `yaml:"dsn,omitempty"`
 	SkipDBInit bool   `yaml:"skip_db_init,omitempty"`
 	TablePref  string `yaml:"table_prefix,omitempty"`
+
+	// Search-related options.
+	IndexDimension int                    `yaml:"index_dimension,omitempty"`
+	MaxResults     int                    `yaml:"max_results,omitempty"`
+	Embedder       *openAIEmbedderConfig  `yaml:"embedder,omitempty"`
 }
 
 type sqliteMemoryConfig struct {
