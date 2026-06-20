@@ -57,7 +57,7 @@ func newSQLiteSessionBackend(
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	opts := make([]sessionsqlite.ServiceOpt, 0, 4)
+	opts := make([]sessionsqlite.ServiceOpt, 0, 8)
 	if cfg.SkipDBInit {
 		opts = append(opts, sessionsqlite.WithSkipDBInit(true))
 	}
@@ -74,6 +74,22 @@ func newSQLiteSessionBackend(
 	}
 	if deps.Summarizer != nil {
 		opts = append(opts, sessionsqlite.WithSummarizer(deps.Summarizer))
+	}
+	if cfg.IndexDimension > 0 {
+		opts = append(opts, sessionsqlite.WithIndexDimension(cfg.IndexDimension))
+	}
+	if cfg.MaxResults > 0 {
+		opts = append(opts, sessionsqlite.WithMaxResults(cfg.MaxResults))
+	}
+	if cfg.Embedder != nil {
+		emb, err := newOpenAIEmbedder(cfg.Embedder)
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf(
+				"create session embedder: %w", err,
+			)
+		}
+		opts = append(opts, sessionsqlite.WithEmbedder(emb))
 	}
 
 	svc, err := sessionsqlite.NewService(db, opts...)
