@@ -41,6 +41,7 @@ func registerUTF8Bridge(L *lua.LState) {
 	L.SetField(mod, "codes", L.NewFunction(bridgeUTF8Codes))
 	L.SetField(mod, "byteoffset", L.NewFunction(bridgeUTF8Byteoffset))
 	L.SetField(mod, "validate", L.NewFunction(bridgeUTF8Validate))
+	L.SetField(mod, "rep", L.NewFunction(bridgeUTF8Rep))
 
 	// Regex matching (from re module, Go regexp natively supports UTF-8)
 	L.SetField(mod, "find", L.NewFunction(bridgeUTF8Find))
@@ -261,6 +262,19 @@ func bridgeUTF8Byteoffset(L *lua.LState) int {
 func bridgeUTF8Validate(L *lua.LState) int {
 	s := L.CheckString(1)
 	L.Push(lua.LBool(utf8.ValidString(s)))
+	return 1
+}
+
+// bridgeUTF8Rep implements utf8.rep(s, n) → string repeated n times.
+// Unlike string.rep which operates on bytes, utf8.rep operates on the whole string.
+func bridgeUTF8Rep(L *lua.LState) int {
+	s := L.CheckString(1)
+	n := L.CheckInt(2)
+	if n <= 0 {
+		L.Push(lua.LString(""))
+		return 1
+	}
+	L.Push(lua.LString(strings.Repeat(s, n)))
 	return 1
 }
 
