@@ -67,16 +67,11 @@ func TestFileTool_InputSchemaDescriptions(t *testing.T) {
 			"new_string":       "Replacement text; supports multi-line content",
 			"num_replacements": "Optional replacement limit; 0 means 1 and negative means replace all matches",
 		},
-		"move_files": {
-			"items":     "List of source-destination pairs to move",
-			"overwrite": "Whether to replace existing files at the destination",
-		},
-		"copy_files": {
-			"items":     "List of source-destination pairs to copy",
-			"overwrite": "Whether to replace existing files at the destination",
-		},
-		"delete_files": {
-			"paths": "List of paths relative to base_directory to delete",
+		"file_manage": {
+			"action":    "Operation to perform: move copy or delete",
+			"items":     "List of source-destination pairs for move/copy actions",
+			"paths":     "List of paths relative to base_directory to delete (for delete action)",
+			"overwrite": "Whether to replace existing files at the destination (for move/copy actions)",
 		},
 	}
 
