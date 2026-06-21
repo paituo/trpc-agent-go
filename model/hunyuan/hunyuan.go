@@ -311,7 +311,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			)
 			return
 		}
-		log.WarnContext(ctx, "token tailoring failed in hunyuan.Model", "error", err)
+		log.DebugfContext(ctx, "token tailoring failed in hunyuan.Model", err)
 		return
 	}
 

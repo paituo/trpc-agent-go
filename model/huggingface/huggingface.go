@@ -507,7 +507,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			)
 			return
 		}
-		log.Warn("token tailoring failed in huggingface.Model", err)
+		log.DebugfContext(ctx, "token tailoring failed in huggingface.Model", err)
 		return
 	}
 
