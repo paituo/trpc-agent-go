@@ -23,6 +23,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/memory/extractor"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/session"
+	"trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 )
 
 // Default values for auto memory configuration.
@@ -390,6 +391,9 @@ func (w *AutoMemoryWorker) processJob(job *MemoryJob) {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	ctx, span := trace.Tracer.Start(ctx, "auto_memory.extract")
+	defer span.End()
 
 	if err := w.createAutoMemory(ctx, job.UserKey, job.Messages); err != nil {
 		log.WarnfContext(ctx, "auto_memory: job failed for user %s/%s: %v",
