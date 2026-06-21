@@ -213,7 +213,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
-	log.Infof("embedding request: base_url=%s, text_len=%d", e.baseURL, len(text))
+	log.Debugf("embedding request: base_url=%s, text_len=%d", e.baseURL, len(text))
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.baseURL))
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		Dimensions:    e.dimensions,
