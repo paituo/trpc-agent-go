@@ -209,6 +209,7 @@ var (
 		ContextCompactionThresholdRatio:      0.7,
 		ContextCompactionToolResultMaxTokens: processor.DefaultContextCompactionToolResultMaxTokens,
 		ContextCompactionKeepRecentRequests:  processor.DefaultContextCompactionKeepRecentRequests,
+		ContextCompactionKeepRecentToolResults: processor.DefaultContextCompactionKeepRecentToolResults,
 		// Pass 2 is opt-in. Defaulting to 0 keeps EnableContextCompaction=false
 		// truly equivalent to "framework does not modify tool results". Users
 		// who want the head+tail truncation safety net should explicitly call
@@ -390,6 +391,13 @@ type Options struct {
 	// ContextCompactionKeepRecentRequests preserves the latest N completed
 	// requests in full when request-side context compaction is enabled.
 	ContextCompactionKeepRecentRequests int
+	// ContextCompactionKeepRecentToolResults preserves the latest N tool
+	// results within the current request from compaction (Pass 1.5). Earlier
+	// tool results in the same request are compacted using placeholder
+	// replacement, gated on ToolResultMaxTokens. This enables context
+	// reduction in long-running tool-call sequences without waiting for a
+	// session summary. 0 disables current-request compaction.
+	ContextCompactionKeepRecentToolResults int
 	// ContextCompactionOversizedToolResultMaxTokens sets the token threshold
 	// above which any tool result (including from the current request) is
 	// truncated using head+tail preservation. Like Pass 1, this also requires
@@ -1761,6 +1769,21 @@ func WithContextCompactionKeepRecentRequests(n int) Option {
 	return func(opts *Options) {
 		if n >= 0 {
 			opts.ContextCompactionKeepRecentRequests = n
+		}
+	}
+}
+
+// WithContextCompactionKeepRecentToolResults preserves the latest N tool
+// results within the current request from compaction (Pass 1.5). Earlier
+// tool results in the same request are compacted using placeholder
+// replacement, gated on ToolResultMaxTokens. This enables context
+// reduction in long-running tool-call sequences without waiting for a
+// session summary. 0 disables current-request compaction; all tool
+// results in the current request are preserved.
+func WithContextCompactionKeepRecentToolResults(n int) Option {
+	return func(opts *Options) {
+		if n >= 0 {
+			opts.ContextCompactionKeepRecentToolResults = n
 		}
 	}
 }

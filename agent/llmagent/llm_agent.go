@@ -449,6 +449,9 @@ func buildRequestProcessorsWithAgent(a *LLMAgent, options *Options) []flow.Reque
 		processor.WithContextCompactionKeepRecentRequests(
 			options.ContextCompactionKeepRecentRequests,
 		),
+		processor.WithContextCompactionKeepRecentToolResults(
+			options.ContextCompactionKeepRecentToolResults,
+		),
 		processor.WithContextCompactionToolResultMaxTokens(
 			options.ContextCompactionToolResultMaxTokens,
 		),
