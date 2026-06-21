@@ -469,8 +469,8 @@ func (e *Embedder) response(ctx context.Context, text string) (*openai.CreateEmb
 	}
 	// Upstream moved the embedding trace/span into send(), which now records
 	// the request attributes, provider prompt tokens, and error. The branch
-	// trace added in ece400a69/5ada55196 is functionally covered by send(),
-	// so we keep the upstream single-call form here.
+	// trace added in ece400a69/5ada55196/8cd206ed3 is functionally covered by
+	// send(), so we keep the upstream single-call form here.
 	return e.send(ctx, e.newRequest(openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)}))
 }
 
