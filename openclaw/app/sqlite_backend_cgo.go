@@ -18,8 +18,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	_ "github.com/mattn/go-sqlite3"
+
+	vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
 	"trpc.group/trpc-go/trpc-agent-go/internal/session/sqldb"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -27,6 +30,8 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 )
+
+var vecAutoOnce sync.Once
 
 func newSQLiteSessionBackend(
 	deps registry.SessionDeps,
@@ -48,6 +53,10 @@ func newSQLiteSessionBackend(
 
 	if err := ensureSQLiteDir(path); err != nil {
 		return nil, err
+	}
+
+	if cfg.Embedder != nil {
+		vecAutoOnce.Do(vec.Auto)
 	}
 
 	db, err := sql.Open("sqlite3", dsn)
