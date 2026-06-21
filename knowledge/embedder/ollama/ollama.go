@@ -286,7 +286,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 		rsp = &embedResponse{
 			Embeddings: [][]float64{res.Embedding},
 		}
-		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
+		log.Debugf("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
 		return rsp, nil
 	}
 	req := &api.EmbedRequest{
@@ -324,6 +324,6 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 		}
 		rsp.Embeddings = append(rsp.Embeddings, embdeddings)
 	}
-	log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
+	log.Debugf("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
 	return
 }
