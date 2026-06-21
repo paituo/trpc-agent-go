@@ -375,6 +375,7 @@ func TestBuildRequestProcessors_ContextCompactionWiring(t *testing.T) {
 	opts := &Options{}
 	WithEnableContextCompaction(true)(opts)
 	WithContextCompactionKeepRecentRequests(2)(opts)
+	WithContextCompactionKeepRecentToolResults(4)(opts)
 	WithContextCompactionToolResultMaxTokens(2048)(opts)
 	counter := model.NewSimpleTokenCounter(model.WithApproxRunesPerToken(1))
 	WithContextCompactionTokenCounter(counter)(opts)
@@ -392,6 +393,7 @@ func TestBuildRequestProcessors_ContextCompactionWiring(t *testing.T) {
 	require.NotNil(t, crp)
 	require.True(t, crp.ContextCompactionConfig.Enabled)
 	require.Equal(t, 2, crp.ContextCompactionConfig.KeepRecentRequests)
+	require.Equal(t, 4, crp.ContextCompactionConfig.KeepRecentToolResults)
 	require.Equal(t, 2048, crp.ContextCompactionConfig.ToolResultMaxTokens)
 	require.Same(t, counter, crp.ContextCompactionConfig.TokenCounter)
 	require.NotNil(t, crp.ContextCompactionConfig.SkipRecentFunc)
