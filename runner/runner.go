@@ -1039,7 +1039,7 @@ func (r *runner) newExecutionContext(
 	}
 
 	// [DIAG-CTX-CANCEL] log execution context creation details
-	log.InfofContext(ctx, "[DIAG-CTX-CANCEL] newExecutionContext: request_id=%s, max_run_duration=%v, parent_has_deadline=%v, parent_deadline=%v, effective_timeout=%v, detached_cancel=%v",
+	log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] newExecutionContext: request_id=%s, max_run_duration=%v, parent_has_deadline=%v, parent_deadline=%v, effective_timeout=%v, detached_cancel=%v",
 		ro.RequestID, ro.MaxRunDuration, ok, func() string {
 			if ok {
 				return deadline.Format(time.RFC3339Nano)
@@ -1371,13 +1371,13 @@ func (r *runner) runEventLoop(ctx context.Context, loop *eventLoopContext) {
 		case agentEvent, ok := <-loop.agentEventCh:
 			if !ok {
 				// [DIAG-CTX-CANCEL] agent event channel closed (agent finished normally)
-				log.InfofContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: agentEventCh closed, request_id=%s", loop.invocation.RunOptions.RequestID)
+				log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: agentEventCh closed, request_id=%s", loop.invocation.RunOptions.RequestID)
 				return
 			}
 			if err := r.processSingleAgentEvent(ctx, loop, agentEvent); err != nil {
 				log.Errorf("process single agent event: %v", err)
 				// [DIAG-CTX-CANCEL] processSingleAgentEvent returned error, ctx_err=%v
-				log.WarnfContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: processSingleAgentEvent error, ctx_err=%v, request_id=%s", ctx.Err(), loop.invocation.RunOptions.RequestID)
+				log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: processSingleAgentEvent error, ctx_err=%v, request_id=%s", ctx.Err(), loop.invocation.RunOptions.RequestID)
 				return
 			}
 		case req, ok := <-loop.flushChan:
@@ -1396,7 +1396,7 @@ func (r *runner) runEventLoop(ctx context.Context, loop *eventLoopContext) {
 			}
 		case <-ctx.Done():
 			// [DIAG-CTX-CANCEL] runner event loop exiting due to context done
-			log.WarnfContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: context done, ctx_err=%v, request_id=%s", ctx.Err(), loop.invocation.RunOptions.RequestID)
+			log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] runEventLoop: context done, ctx_err=%v, request_id=%s", ctx.Err(), loop.invocation.RunOptions.RequestID)
 			return
 		}
 	}
@@ -2764,7 +2764,7 @@ func shouldPropagateFallbackState(err *model.ResponseError) bool {
 func (r *runner) emitRunnerCompletion(ctx context.Context, loop *eventLoopContext) {
 	// [DIAG-CTX-CANCEL] log runner completion state
 	traceStatus := resolveExecutionTraceStatus(loop, ctx.Err())
-	log.InfofContext(ctx, "[DIAG-CTX-CANCEL] emitRunnerCompletion: request_id=%s, ctx_err=%v, trace_status=%v, has_final_error=%v, graph_completion_seen=%v",
+	log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] emitRunnerCompletion: request_id=%s, ctx_err=%v, trace_status=%v, has_final_error=%v, graph_completion_seen=%v",
 		loop.invocation.RunOptions.RequestID, ctx.Err(), traceStatus,
 		loop.finalError != nil, loop.graphCompletionSeen)
 
