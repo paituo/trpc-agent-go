@@ -228,7 +228,7 @@ func (s *Server) streamMessage(
 		ctx = context.Background()
 	}
 	// [DIAG-CTX-CANCEL] log incoming stream context state
-	log.InfofContext(ctx, "[DIAG-CTX-CANCEL] streamMessage: session_id=%s, request_id=%s, ctx_err=%v, ctx_deadline=%v",
+	log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] streamMessage: session_id=%s, request_id=%s, ctx_err=%v, ctx_deadline=%v",
 		req.SessionID, req.RequestID, ctx.Err(), func() string {
 			if dl, ok := ctx.Deadline(); ok {
 				return dl.Format(time.RFC3339Nano)
@@ -352,7 +352,7 @@ func (s *Server) handleMessagesStream(
 		req.StreamOptions,
 	)
 	// [DIAG-CTX-CANCEL] log HTTP request context state at stream start
-	log.InfofContext(r.Context(), "[DIAG-CTX-CANCEL] handleMessagesStream: session_id=%s, request_id=%s, http_ctx_err=%v, http_ctx_deadline=%v, remote_addr=%s",
+	log.DebugfContext(r.Context(), "[DIAG-CTX-CANCEL] handleMessagesStream: session_id=%s, request_id=%s, http_ctx_err=%v, http_ctx_deadline=%v, remote_addr=%s",
 		req.SessionID, req.RequestID, r.Context().Err(), func() string {
 			if dl, ok := r.Context().Deadline(); ok {
 				return dl.Format(time.RFC3339Nano)
@@ -432,7 +432,7 @@ func (s *Server) streamLocked(
 		RequestID: run.requestID,
 	}) {
 		// [DIAG-CTX-CANCEL] sendStreamEvent(RunStarted) returned false
-		log.WarnfContext(ctx, "[DIAG-CTX-CANCEL] streamLocked: sendStreamEvent(RunStarted) failed, session_id=%s, request_id=%s, ctx_err=%v", run.sessionID, run.requestID, ctx.Err())
+		log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] streamLocked: sendStreamEvent(RunStarted) failed, session_id=%s, request_id=%s, ctx_err=%v", run.sessionID, run.requestID, ctx.Err())
 		return streamOutcome{
 			status: traceStatusError,
 			errMsg: contextErrMessage(ctx),
@@ -681,7 +681,7 @@ func (s *Server) streamLocked(
 	if result.Error != nil {
 		if errors.Is(result.Error, context.Canceled) {
 			// [DIAG-CTX-CANCEL] runner returned context.Canceled — log full context state
-			log.WarnfContext(ctx, "[DIAG-CTX-CANCEL] streamLocked: runner result error is context.Canceled, session_id=%s, request_id=%s, ctx_err=%v, ctx_deadline=%v",
+			log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] streamLocked: runner result error is context.Canceled, session_id=%s, request_id=%s, ctx_err=%v, ctx_deadline=%v",
 				run.sessionID, run.requestID, ctx.Err(), func() string {
 					if dl, ok := ctx.Deadline(); ok {
 						return dl.Format(time.RFC3339Nano)
@@ -834,7 +834,7 @@ func sendStreamEvent(
 		return true
 	case <-ctx.Done():
 		// [DIAG-CTX-CANCEL] SSE send blocked — context canceled, event type=%v, ctx_err=%v
-		log.WarnfContext(ctx, "[DIAG-CTX-CANCEL] sendStreamEvent: context done, event_type=%v, ctx_err=%v", evt.Type, ctx.Err())
+		log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] sendStreamEvent: context done, event_type=%v, ctx_err=%v", evt.Type, ctx.Err())
 		return false
 	}
 }
