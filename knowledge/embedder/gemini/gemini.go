@@ -276,7 +276,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *genai.EmbedC
 	// Call Gemini embeddings API.
 	rsp, err = e.client.Models.EmbedContent(ctx, model, []*genai.Content{content}, &request)
 	if err == nil && rsp != nil {
-		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
+		log.Debugf("embedding response: model=%s, vectors=%d", e.model, len(rsp.Embeddings))
 	}
 	return
 }
