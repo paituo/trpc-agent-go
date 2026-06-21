@@ -1455,3 +1455,229 @@ func TestContentRequestProcessor_ProcessRequest_ContextCompactionWithInvocationF
 	require.Equal(t, "worker", req.Messages[1].ToolName)
 	require.Equal(t, "hello", req.Messages[2].Content)
 }
+
+func TestCompactIncrementEvents_CurrentRequestPass15(t *testing.T) {
+	// Build 5 tool result events within the same current request.
+	// With KeepRecentToolResults=2, the first 3 should be compacted,
+	// the last 2 preserved.
+	makeToolEvent := func(content string) event.Event {
+		return event.Event{
+			RequestID:    "req-current",
+			InvocationID: "inv-current",
+			FilterKey:    "test-agent",
+			Response: &model.Response{
+				Done: true,
+				Choices: []model.Choice{{
+					Message: model.NewToolMessage(
+						"call-"+content[:4],
+						"fs_read",
+						content,
+					),
+				}},
+			},
+		}
+	}
+
+	oldContent := strings.Repeat("old-result ", 64)
+	recentContent := strings.Repeat("recent-result ", 64)
+
+	compacted, stats := compactIncrementEvents(
+		context.Background(),
+		[]event.Event{
+			makeToolEvent(oldContent + "1"),
+			makeToolEvent(oldContent + "2"),
+			makeToolEvent(oldContent + "3"),
+			makeToolEvent(recentContent + "4"),
+			makeToolEvent(recentContent + "5"),
+		},
+		"req-current",
+		"inv-current",
+		ContextCompactionConfig{
+			Enabled:                true,
+			ToolResultMaxTokens:    10,
+			KeepRecentToolResults:  2,
+			KeepRecentRequests:     1,
+		},
+	)
+
+	require.Len(t, compacted, 5)
+	// First 3 events should be compacted (placeholder).
+	require.Contains(t,
+		compacted[0].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	require.Contains(t,
+		compacted[1].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	require.Contains(t,
+		compacted[2].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	// Last 2 events should be preserved.
+	require.Equal(t, recentContent+"4",
+		compacted[3].Response.Choices[0].Message.Content)
+	require.Equal(t, recentContent+"5",
+		compacted[4].Response.Choices[0].Message.Content)
+	require.Equal(t, 3, stats.ToolResultsCompacted)
+	require.Greater(t, stats.EstimatedTokensSaved, 0)
+}
+
+func TestCompactIncrementEvents_CurrentRequestPass15_SkipsWhenDisabled(t *testing.T) {
+	// When KeepRecentToolResults=0, Pass 1.5 is disabled and all current
+	// request tool results are preserved (only Pass 2 oversized applies).
+	makeToolEvent := func(content string) event.Event {
+		return event.Event{
+			RequestID:    "req-current",
+			InvocationID: "inv-current",
+			FilterKey:    "test-agent",
+			Response: &model.Response{
+				Done: true,
+				Choices: []model.Choice{{
+					Message: model.NewToolMessage(
+						"call-1",
+						"fs_read",
+						content,
+					),
+				}},
+			},
+		}
+	}
+
+	content := strings.Repeat("data ", 64)
+
+	compacted, stats := compactIncrementEvents(
+		context.Background(),
+		[]event.Event{
+			makeToolEvent(content + "1"),
+			makeToolEvent(content + "2"),
+		},
+		"req-current",
+		"inv-current",
+		ContextCompactionConfig{
+			Enabled:               true,
+			ToolResultMaxTokens:   10,
+			KeepRecentToolResults: 0,
+			KeepRecentRequests:    1,
+		},
+	)
+
+	require.Len(t, compacted, 2)
+	// All current-request results preserved (Pass 1.5 disabled).
+	require.Equal(t, content+"1",
+		compacted[0].Response.Choices[0].Message.Content)
+	require.Equal(t, content+"2",
+		compacted[1].Response.Choices[0].Message.Content)
+	require.Equal(t, 0, stats.ToolResultsCompacted)
+}
+
+func TestCompactIncrementEvents_CurrentRequestPass15_RespectsKeepToolNames(t *testing.T) {
+	// Tool results for keepToolName should not be compacted by Pass 1.5.
+	makeToolEvent := func(toolName, content string) event.Event {
+		return event.Event{
+			RequestID:    "req-current",
+			InvocationID: "inv-current",
+			FilterKey:    "test-agent",
+			Response: &model.Response{
+				Done: true,
+				Choices: []model.Choice{{
+					Message: model.NewToolMessage(
+						"call-"+toolName,
+						toolName,
+						content,
+					),
+				}},
+			},
+		}
+	}
+
+	bigContent := strings.Repeat("big-result ", 64)
+
+	compacted, stats := compactIncrementEvents(
+		context.Background(),
+		[]event.Event{
+			makeToolEvent("fs_read", bigContent),
+			makeToolEvent("todo_write", bigContent), // keepToolName
+			makeToolEvent("fs_read", "short"),
+		},
+		"req-current",
+		"inv-current",
+		ContextCompactionConfig{
+			Enabled:               true,
+			ToolResultMaxTokens:   10,
+			KeepRecentToolResults: 1,
+			KeepRecentRequests:    1,
+			toolResultCompactionRules: toolResultCompactionRules{
+				keepToolNames: map[string]struct{}{"todo_write": {}},
+			},
+		},
+	)
+
+	require.Len(t, compacted, 3)
+	// fs_read (index 0) should be compacted — it's before the recent window
+	// and exceeds ToolResultMaxTokens.
+	require.Contains(t,
+		compacted[0].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	// todo_write should be preserved regardless of position (keepToolName).
+	require.Equal(t, bigContent,
+		compacted[1].Response.Choices[0].Message.Content)
+	// Last fs_read is within KeepRecentToolResults=1 window — preserved.
+	require.Equal(t, "short",
+		compacted[2].Response.Choices[0].Message.Content)
+	require.Equal(t, 1, stats.ToolResultsCompacted)
+}
+
+func TestCompactIncrementEvents_CurrentRequestPass15_HistoricalEventsUnaffected(t *testing.T) {
+	// Pass 1.5 only affects current-request events. Historical events
+	// are handled by Pass 1.
+	makeToolEvent := func(requestID, content string) event.Event {
+		return event.Event{
+			RequestID:    requestID,
+			InvocationID: "inv-" + requestID,
+			FilterKey:    "test-agent",
+			Response: &model.Response{
+				Done: true,
+				Choices: []model.Choice{{
+					Message: model.NewToolMessage(
+						"call-"+requestID,
+						"worker",
+						content,
+					),
+				}},
+			},
+		}
+	}
+
+	oldContent := strings.Repeat("old-result ", 64)
+	currentContent := strings.Repeat("current-result ", 64)
+
+	compacted, stats := compactIncrementEvents(
+		context.Background(),
+		[]event.Event{
+			makeToolEvent("req-old", oldContent),       // historical
+			makeToolEvent("req-current", currentContent+"1"), // current, early
+			makeToolEvent("req-current", currentContent+"2"), // current, recent
+		},
+		"req-current",
+		"inv-current",
+		ContextCompactionConfig{
+			Enabled:               true,
+			ToolResultMaxTokens:   10,
+			KeepRecentToolResults: 1,
+			KeepRecentRequests:    0,
+		},
+	)
+
+	require.Len(t, compacted, 3)
+	// Historical event compacted by Pass 1.
+	require.Contains(t,
+		compacted[0].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	// Current request early tool result compacted by Pass 1.5.
+	require.Contains(t,
+		compacted[1].Response.Choices[0].Message.Content,
+		historicalToolResultPlaceholder)
+	// Current request recent tool result preserved.
+	require.Equal(t, currentContent+"2",
+		compacted[2].Response.Choices[0].Message.Content)
+	// Both Pass 1 and Pass 1.5 contributed.
+	require.Equal(t, 2, stats.ToolResultsCompacted)
+}

@@ -501,6 +501,19 @@ func WithContextCompactionKeepRecentRequests(n int) ContentOption {
 	}
 }
 
+// WithContextCompactionKeepRecentToolResults sets the number of the most
+// recent tool results within the current request that are preserved from
+// compaction (Pass 1.5). Earlier tool results in the same request are
+// compacted using placeholder replacement, gated on ToolResultMaxTokens.
+// This allows the framework to compress tool results that the model has
+// already consumed in earlier tool-call iterations without waiting for a
+// session summary. 0 disables current-request compaction.
+func WithContextCompactionKeepRecentToolResults(n int) ContentOption {
+	return func(p *ContentRequestProcessor) {
+		p.ContextCompactionConfig.KeepRecentToolResults = n
+	}
+}
+
 // WithContextCompactionToolResultMaxTokens sets the token threshold above which
 // historical tool results are replaced with a placeholder.
 func WithContextCompactionToolResultMaxTokens(tokens int) ContentOption {
