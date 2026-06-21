@@ -243,7 +243,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *embedRespons
 	}
 	rsp, err = e.parseResponse(resp)
 	if err == nil && rsp != nil {
-		log.Infof("embedding response: base_url=%s, vectors=%d", e.baseURL, len(rsp.Embeddings))
+		log.Debugf("embedding response: base_url=%s, vectors=%d", e.baseURL, len(rsp.Embeddings))
 	}
 	return
 }

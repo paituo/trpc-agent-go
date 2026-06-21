@@ -391,7 +391,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 	// Call OpenAI embeddings API.
 	rsp, err = e.client.Embeddings.New(ctx, request, requestOpts...)
 	if err == nil && rsp != nil {
-		log.Infof("embedding response: model=%s, vectors=%d", e.model, len(rsp.Data))
+		log.Debugf("embedding response: model=%s, vectors=%d", e.model, len(rsp.Data))
 	}
 	return
 }
