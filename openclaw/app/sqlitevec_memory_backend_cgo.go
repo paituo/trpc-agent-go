@@ -14,6 +14,8 @@ package app
 import (
 	"strings"
 
+	vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
+
 	memorysqlitevec "trpc.group/trpc-go/trpc-agent-go/memory/sqlitevec"
 
 	"trpc.group/trpc-go/trpc-agent-go/memory"
@@ -30,6 +32,8 @@ func newSQLiteVecMemoryBackend(
 	if err := registry.DecodeStrict(spec.Config, &cfg); err != nil {
 		return nil, err
 	}
+
+	vecAutoOnce.Do(vec.Auto)
 
 	db, err := openSQLiteMemoryDB(
 		cfg.Path,
