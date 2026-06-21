@@ -629,7 +629,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 	tailored, err := m.tailoringStrategy.TailorMessages(ctx, request.Messages, maxInputTokens)
 	if err != nil {
 		if len(tailored) > 0 {
-			log.WarnContext(
+			log.DebugfContext(
 				ctx,
 				"token tailoring returned best-effort messages in gemini.Model",
 				err,
@@ -637,7 +637,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			request.Messages = tailored
 			return
 		}
-		log.WarnContext(
+		log.DebugfContext(
 			ctx,
 			"token tailoring failed in gemini.Model",
 			err,

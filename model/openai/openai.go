@@ -754,7 +754,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 		// #endregion
 
 		if len(tailored) > 0 {
-			log.WarnContext(
+			log.DebugfContext(
 				ctx,
 				"token tailoring returned best-effort messages in openai.Model",
 				err,
@@ -762,7 +762,7 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 			request.Messages = tailored
 			return
 		}
-		log.WarnContext(
+		log.DebugfContext(
 			ctx,
 			"token tailoring failed in openai.Model",
 			err,
