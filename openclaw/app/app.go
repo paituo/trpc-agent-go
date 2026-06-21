@@ -1082,7 +1082,8 @@ func NewRuntimeWithOptions(
 			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
 			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
-			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionKeepRecentRequests:   opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionKeepRecentToolResults: opts.ContextCompactionKeepRecentToolResults,
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
 			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
@@ -1644,7 +1645,8 @@ func run(
 			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
 			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
 			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
-			ContextCompactionKeepRecentRequests:  opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionKeepRecentRequests:   opts.ContextCompactionKeepRecentRequests,
+			ContextCompactionKeepRecentToolResults: opts.ContextCompactionKeepRecentToolResults,
 			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
 			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
 			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
@@ -2583,6 +2585,9 @@ func newAgent(
 		llmagent.WithContextCompactionKeepRecentRequests(
 			cfg.ContextCompactionKeepRecentRequests,
 		),
+		llmagent.WithContextCompactionKeepRecentToolResults(
+			cfg.ContextCompactionKeepRecentToolResults,
+		),
 		llmagent.WithContextCompactionOversizedToolResultMaxTokens(
 			cfg.ContextCompactionOversizedToolResultMaxTokens,
 		),
@@ -2897,6 +2902,7 @@ type agentConfig struct {
 	ContextCompactionThresholdRatio               float64
 	ContextCompactionToolResultMaxTokens          int
 	ContextCompactionKeepRecentRequests           int
+	ContextCompactionKeepRecentToolResults        int
 	EnableDetailedContextMetrics                  bool
 	EnableTokenCounterCalibration                 bool
 	ContextCompactionForceCleanToolNames          []string
