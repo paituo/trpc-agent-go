@@ -335,7 +335,7 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
-	log.Infof("embedding request: model=%s, text_len=%d", e.model, len(text))
+	log.Debugf("embedding request: model=%s, text_len=%d", e.model, len(text))
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestEncodingFormat: &e.encodingFormat,
