@@ -28,6 +28,15 @@ const (
 	// placeholder.
 	DefaultContextCompactionToolResultMaxTokens = 1024
 
+	// DefaultContextCompactionKeepRecentToolResults is the default number of
+	// the most recent tool results within the current request that are
+	// preserved from compaction. Tool results before this window in the
+	// current request are compacted using the same placeholder replacement
+	// as the historical pass, gated on ToolResultMaxTokens.
+	// 0 means no current-request tool results are protected beyond
+	// keepToolResult rules.
+	DefaultContextCompactionKeepRecentToolResults = 3
+
 	// DefaultContextCompactionOversizedToolResultMaxTokens is the recommended
 	// token threshold above which ANY tool result (including current request)
 	// is truncated to head+tail when Pass 2 is opted into.
@@ -169,6 +178,16 @@ type ContextCompactionConfig struct {
 	Enabled             bool
 	KeepRecentRequests  int
 	ToolResultMaxTokens int
+	// KeepRecentToolResults preserves the latest N tool results within the
+	// current request from compaction (Pass 1.5). Earlier tool results in the
+	// same request are compacted using the same placeholder replacement as
+	// the historical pass, gated on ToolResultMaxTokens. This allows the
+	// framework to compress tool results that the model has already consumed
+	// in earlier tool-call iterations of the same request, without waiting
+	// for a session summary to be generated. 0 disables current-request
+	// compaction; the model's full tool history is preserved within the
+	// current request.
+	KeepRecentToolResults int
 	// OversizedToolResultMaxTokens is the token threshold above which any tool
 	// result (including current-request results) is truncated using head+tail
 	// preservation. Like Pass 1, this also requires Enabled=true; it will not
@@ -208,6 +227,9 @@ func normalizeContextCompactionConfig(
 ) ContextCompactionConfig {
 	if cfg.KeepRecentRequests < 0 {
 		cfg.KeepRecentRequests = 0
+	}
+	if cfg.KeepRecentToolResults < 0 {
+		cfg.KeepRecentToolResults = 0
 	}
 	if cfg.ToolResultMaxTokens < 0 {
 		cfg.ToolResultMaxTokens = 0
@@ -259,8 +281,9 @@ func compactIncrementEvents(
 
 	forceCleanActive := cfg.Enabled && cfg.hasForceCleanToolResults()
 	pass1Active := cfg.Enabled && cfg.ToolResultMaxTokens > 0
+	pass1hActive := cfg.Enabled && cfg.ToolResultMaxTokens > 0 && cfg.KeepRecentToolResults > 0
 	pass2Active := cfg.Enabled && cfg.OversizedToolResultMaxTokens > 0
-	if !forceCleanActive && !pass1Active && !pass2Active {
+	if !forceCleanActive && !pass1Active && !pass1hActive && !pass2Active {
 		return events, ContextCompactionStats{}
 	}
 
@@ -305,6 +328,24 @@ func compactIncrementEvents(
 			stats.OversizedTokensSaved = passStats.EstimatedTokensSaved
 			stats = mergeContextCompactionStats(stats, passStats)
 		}
+	}
+
+	// Pass 1.5: current-request tool results → placeholder replacement for
+	// results that fall outside the KeepRecentToolResults window.
+	// This compresses tool results that the model has already consumed in
+	// earlier tool-call iterations of the current request, without needing
+	// a session summary to be generated first. Like Pass 1, it respects
+	// keepToolResult rules and uses the ToolResultMaxTokens threshold.
+	if pass1hActive {
+		passEvents, passStats := applyCurrentRequestToolResultPass(
+			ctx,
+			compacted,
+			currentKey,
+			protectedRequestIDs,
+			cfg,
+		)
+		compacted = passEvents
+		stats = mergeContextCompactionStats(stats, passStats)
 	}
 
 	// Pass 2: oversized tool results (including current request) → head+tail
@@ -471,6 +512,91 @@ func applyOversizedToolResultPass(
 			continue
 		}
 		events[i] = evt
+		stats.ToolResultsCompacted += compactedCount
+		stats.EstimatedTokensSaved += savedTokens
+	}
+	return events, stats
+}
+
+// applyCurrentRequestToolResultPass compresses tool results within the current
+// request that fall outside the KeepRecentToolResults window. The most recent
+// N tool results in the current request are preserved; earlier ones exceeding
+// ToolResultMaxTokens are replaced with placeholders, just like the historical
+// pass. This enables context reduction in long-running tool-call sequences
+// without waiting for a session summary.
+func applyCurrentRequestToolResultPass(
+	ctx context.Context,
+	events []event.Event,
+	currentKey string,
+	protectedRequestIDs map[string]struct{},
+	cfg ContextCompactionConfig,
+) ([]event.Event, ContextCompactionStats) {
+	if currentKey == "" || cfg.KeepRecentToolResults <= 0 {
+		return events, ContextCompactionStats{}
+	}
+
+	// Collect indices of current-request tool result events (scanned in
+	// reverse so the last KeepRecentToolResults entries are the "recent" ones
+	// we want to protect).
+	toolResultIndices := make([]int, 0)
+	for i := range events {
+		unitKey := compactionUnitKey(events[i].RequestID, events[i].InvocationID)
+		if unitKey != currentKey {
+			continue
+		}
+		if events[i].Response == nil || len(events[i].Response.Choices) == 0 {
+			continue
+		}
+		// Check if this event has any tool result messages.
+		hasToolResult := false
+		for _, choice := range events[i].Response.Choices {
+			if choice.Message.Role == model.RoleTool && choice.Message.ToolID != "" {
+				hasToolResult = true
+				break
+			}
+		}
+		if hasToolResult {
+			toolResultIndices = append(toolResultIndices, i)
+		}
+	}
+
+	if len(toolResultIndices) <= cfg.KeepRecentToolResults {
+		// All current-request tool results fit within the protection window.
+		return events, ContextCompactionStats{}
+	}
+
+	// Build set of event indices that are within the recent protection window.
+	// The last KeepRecentToolResults tool result events are protected.
+	protectedIndices := make(map[int]struct{}, cfg.KeepRecentToolResults)
+	protectedCount := 0
+	for i := len(toolResultIndices) - 1; i >= 0 && protectedCount < cfg.KeepRecentToolResults; i-- {
+		protectedIndices[toolResultIndices[i]] = struct{}{}
+		protectedCount++
+	}
+
+	var stats ContextCompactionStats
+	for _, idx := range toolResultIndices {
+		if _, protected := protectedIndices[idx]; protected {
+			continue
+		}
+		evt, changed, compactedCount, savedTokens := rewriteToolResultEventMessages(
+			ctx,
+			events[idx],
+			cfg.ToolResultMaxTokens,
+			func(ctx context.Context, msg model.Message, maxTokens int, ref toolResultRecoveryRef) (model.Message, bool, int) {
+				if cfg.keepToolResult(msg) {
+					return msg, false, 0
+				}
+				return compactHistoricalToolResultMessageWithCounterAndRef(
+					ctx, msg, maxTokens, cfg.TokenCounter, ref,
+				)
+			},
+			"current_request_compaction",
+		)
+		if !changed {
+			continue
+		}
+		events[idx] = evt
 		stats.ToolResultsCompacted += compactedCount
 		stats.EstimatedTokensSaved += savedTokens
 	}
