@@ -372,19 +372,19 @@ func (s *Service) asyncIndexEvent(
 	}
 	emb, err := s.opts.embedder.GetEmbedding(ctx, text)
 	if err != nil {
-		log.WarnfContext(ctx,
+		log.DebugfContext(ctx,
 			"sqlite session: embedding failed: %v", err)
 		return
 	}
 	if len(emb) == 0 {
-		log.WarnfContext(ctx,
+		log.DebugfContext(ctx,
 			"sqlite session: empty embedding returned")
 		return
 	}
 	if err := s.updateEventEmbedding(
 		ctx, sess, evt, text, string(role), emb,
 	); err != nil {
-		log.WarnfContext(ctx,
+		log.DebugfContext(ctx,
 			"sqlite session: update embedding failed: %v", err)
 	}
 }
