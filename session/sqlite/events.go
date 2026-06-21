@@ -78,7 +78,7 @@ func (s *Service) appendEventInternal(
 	if err := s.addEvent(ctx, key, e); err != nil {
 		return fmt.Errorf("append event: %w", err)
 	}
-	s.indexEventAfterPersist(sess, e)
+	s.indexEventAfterPersist(ctx, sess, e)
 	return nil
 }
 
@@ -294,6 +294,7 @@ func extractEventText(evt *event.Event) (string, model.Role) {
 
 // indexEventAfterPersist triggers embedding generation after event persistence.
 func (s *Service) indexEventAfterPersist(
+	ctx context.Context,
 	sess *session.Session,
 	evt *event.Event,
 ) {
@@ -304,19 +305,20 @@ func (s *Service) indexEventAfterPersist(
 		return
 	}
 	if s.opts.syncIndexing {
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
+		ictx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
 			s.opts.embedTimeout,
 		)
 		defer cancel()
-		s.asyncIndexEvent(ctx, sess, evt)
+		s.asyncIndexEvent(ictx, sess, evt)
 		return
 	}
-	s.triggerAsyncIndexEvent(sess, evt)
+	s.triggerAsyncIndexEvent(ctx, sess, evt)
 }
 
 // triggerAsyncIndexEvent detaches indexing work from the request context.
 func (s *Service) triggerAsyncIndexEvent(
+	ctx context.Context,
 	sess *session.Session,
 	evt *event.Event,
 ) {
@@ -324,12 +326,12 @@ func (s *Service) triggerAsyncIndexEvent(
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
+		ictx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
 			s.opts.embedTimeout,
 		)
 		defer cancel()
-		s.asyncIndexEvent(ctx, sess, evt)
+		s.asyncIndexEvent(ictx, sess, evt)
 	}()
 }
 
