@@ -105,7 +105,8 @@ const (
 	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
 	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
 	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
+	flagContextCompactionKeepRecentRequests   = "context-compaction-keep-recent-requests"
+	flagContextCompactionKeepRecentToolResults = "context-compaction-keep-recent-tool-results"
 	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
 	flagEnableTokenCounterCalibration        = "enable-token-counter-calibration"
 	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
@@ -230,6 +231,7 @@ type runOptions struct {
 	ContextCompactionThresholdRatio            float64
 	ContextCompactionToolResultMaxTokens       int
 	ContextCompactionKeepRecentRequests        int
+	ContextCompactionKeepRecentToolResults     int
 	EnableDetailedContextMetrics               bool
 	EnableTokenCounterCalibration              bool
 	ContextCompactionForceCleanToolNames       string
@@ -608,6 +610,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagContextCompactionKeepRecentRequests,
 		0,
 		"Number of recent requests to keep during compaction",
+	)
+	fs.IntVar(
+		&opts.ContextCompactionKeepRecentToolResults,
+		flagContextCompactionKeepRecentToolResults,
+		0,
+		"Number of recent tool results within current request to preserve from compaction (Pass 1.5)",
 	)
 	fs.BoolVar(
 		&opts.EnableDetailedContextMetrics,
@@ -1428,6 +1436,7 @@ type agentRunConfig struct {
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
+	ContextCompactionKeepRecentToolResults        *int     `yaml:"context_compaction_keep_recent_tool_results,omitempty"`
 	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
 	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	// MaxLLMCalls limits agent-facing model calls per invocation. Auxiliary
@@ -2137,6 +2146,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.ContextCompactionKeepRecentRequests != nil &&
 			!flagWasSet(set, flagContextCompactionKeepRecentRequests) {
 			opts.ContextCompactionKeepRecentRequests = *cfg.Agent.ContextCompactionKeepRecentRequests
+		}
+		if cfg.Agent.ContextCompactionKeepRecentToolResults != nil &&
+			!flagWasSet(set, flagContextCompactionKeepRecentToolResults) {
+			opts.ContextCompactionKeepRecentToolResults = *cfg.Agent.ContextCompactionKeepRecentToolResults
 		}
 		if cfg.Agent.EnableDetailedContextMetrics != nil &&
 			!flagWasSet(set, flagEnableDetailedContextMetrics) {
