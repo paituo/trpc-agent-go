@@ -488,11 +488,11 @@ func (m *Model) applyTokenTailoring(ctx context.Context, request *model.Request)
 	tailored, err := m.tailoringStrategy.TailorMessages(ctx, request.Messages, maxInputTokens)
 	if err != nil {
 		if len(tailored) > 0 {
-			log.WarnContext(ctx, "token tailoring returned best-effort messages in huggingface.Model", err)
-			modeltailoring.ApplyResult(ctx, "huggingface.Model", request, tailored)
+			log.DebugfContext(ctx, "token tailoring returned best-effort messages in huggingface.Model", err)
+			request.Messages = tailored
 			return
 		}
-		log.Warn("token tailoring failed in huggingface.Model", err)
+		log.DebugfContext(ctx, "token tailoring failed in huggingface.Model", err)
 		return
 	}
 
