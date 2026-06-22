@@ -33,7 +33,7 @@ var (
 func initGSESegmenter() error {
 	gseOnce.Do(func() {
 		var seg gse.Segmenter
-		gseInitErr = seg.LoadDict()
+		gseInitErr = seg.LoadDictEmbed()
 		if gseInitErr != nil {
 			return
 		}
