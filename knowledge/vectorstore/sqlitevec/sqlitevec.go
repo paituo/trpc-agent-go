@@ -80,7 +80,7 @@ func New(opts ...Option) (*Store, error) {
 	// Initialize gse segmenter if FTS is enabled.
 	if o.enableFTS {
 		var seg gse.Segmenter
-		if err := seg.LoadDict(); err != nil {
+		if err := seg.LoadDictEmbed(); err != nil {
 			_ = s.db.Close()
 			return nil, fmt.Errorf("sqlitevec: load gse dict: %w", err)
 		}
