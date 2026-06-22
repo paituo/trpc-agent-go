@@ -37,7 +37,7 @@ var (
 
 func getSegmenter() (*gse.Segmenter, error) {
 	segOnce.Do(func() {
-		segErr = seg.LoadDict()
+		segErr = seg.LoadDictEmbed()
 	})
 	if segErr != nil {
 		return nil, fmt.Errorf(
