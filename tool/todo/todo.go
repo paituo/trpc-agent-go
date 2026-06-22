@@ -111,13 +111,16 @@ func (s Status) IsValid() bool {
 //   - ActiveForm is the present-continuous form, intended for UI spinners
 //     or status lines ("Running tests", "Fixing auth bug").
 //   - ID is a globally-unique GUID that the LLM MUST generate for every new
-//     item and then PRESERVE the same ID in all subsequent calls. Changing an
-//     item's ID between calls will break step tracking (e.g. AG-UI frontend
-//     will see disconnected step.started / step.finished events).
+//     item and then PRESERVE the same ID in all subsequent calls. The ID
+//     must be unique not only within the current list but across ALL future
+//     todo lists — never reuse an ID from a previous session or list for a
+//     different task. Changing an item's ID between calls will break step
+//     tracking (e.g. AG-UI frontend will see disconnected step.started /
+//     step.finished events).
 //   - ParentID references the parent item's ID. When non-empty,
 //     this item is a sub-task of the referenced parent.
 type Item struct {
-	ID         string `json:"id"          description:"Globally-unique GUID for this task item. You MUST generate a fresh UUID for every new item and PRESERVE the same ID for existing items in all subsequent calls."`
+	ID         string `json:"id"          description:"Globally-unique GUID for this task item. You MUST generate a fresh UUID for every new item and PRESERVE the same ID for existing items in all subsequent calls. The ID must be unique not only within the current list but across ALL future todo lists — never reuse an ID from a previous session or list for a different task."`
 	ParentID   string `json:"parentId,omitempty" description:"ID of the parent task item. Empty for top-level items."`
 	Content    string `json:"content"    description:"Imperative description of the task, e.g. 'Run tests'"`
 	ActiveForm string `json:"activeForm" description:"Present-continuous form shown while the task is running, e.g. 'Running tests'"`
@@ -203,7 +206,7 @@ func (t *Tool) Declaration() *tool.Declaration {
 		Properties: map[string]*tool.Schema{
 			"id": {
 				Type:        "string",
-				Description: "Globally-unique GUID for this task item (e.g. 'a1b2c3d4-...'). You MUST generate a fresh UUID/GUID for every new item and then PRESERVE the same ID for that item in all subsequent calls when updating its status. Do not change IDs between calls — changing IDs will break step tracking.",
+				Description: "Globally-unique GUID for this task item (e.g. 'a1b2c3d4-...'). You MUST generate a fresh UUID/GUID for every new item and then PRESERVE the same ID for that item in all subsequent calls when updating its status. The ID must be unique not only within the current list but across ALL future todo lists — never reuse an ID from a previous session or list for a different task. Do not change IDs between calls — changing IDs will break step tracking.",
 			},
 			"parentId": {
 				Type:        "string",
@@ -235,7 +238,7 @@ func (t *Tool) Declaration() *tool.Declaration {
 		Properties: map[string]*tool.Schema{
 			"todos": {
 				Type:        "array",
-				Description: "The complete, updated todo list. Replaces the previous list entirely. IMPORTANT: You MUST preserve the same 'id' for each item across calls — do not change IDs when updating status.",
+				Description: "The complete, updated todo list. Replaces the previous list entirely. IMPORTANT: You MUST preserve the same 'id' for each item across calls — do not change IDs when updating status. Each item's ID must be globally unique across ALL future todo lists, not just the current one.",
 				Items:       itemSchema,
 			},
 		},
