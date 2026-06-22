@@ -14,7 +14,8 @@ package todo
 // the function-calling prompt.
 const DefaultToolDescription = "Maintain a structured todo list for the current session. " +
 	"Call this proactively to plan, track and report progress on multi-step tasks. " +
-	"Each call replaces the entire list; at most one task may be 'in_progress' at any time."
+	"Each call replaces the entire list; at most one task may be 'in_progress' at any time. " +
+	"Each item's ID must be a globally-unique UUID — never reuse an ID from a previous list or session for a different task."
 
 // DefaultToolPrompt is a long-form usage guide for the todo tool,
 // intended to be concatenated into an agent's system instruction.
@@ -59,6 +60,9 @@ Rules:
 - Each call replaces the ENTIRE list. Send the full updated list every time.
 - Content must be unique across the list; do not duplicate tasks.
 - Remove tasks that are no longer relevant instead of leaving them stale.
+- Each item's ID must be a globally-unique UUID. The ID must be unique
+  not only within the current list but across ALL future todo lists —
+  never reuse an ID from a previous session or list for a different task.
 
 ### Example
 
