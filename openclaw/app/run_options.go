@@ -101,22 +101,22 @@ const (
 	flagPreloadMemory                                 = "preload-memory"
 	flagToolCallArgumentsJSONRepair                   = "tool-call-arguments-json-repair"
 
-	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests   = "context-compaction-keep-recent-requests"
+	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
 	flagContextCompactionKeepRecentToolResults = "context-compaction-keep-recent-tool-results"
-	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
-	flagEnableTokenCounterCalibration        = "enable-token-counter-calibration"
-	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
-	flagContextWindow                        = "context-window"
-	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
-	flagSkillsManagedRoot                    = "skills-managed-root"
-	flagPlannerType                          = "agent-planner-type"
-	flagPlannerConfig                        = "agent-planner-config"
+	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
+	flagEnableTokenCounterCalibration          = "enable-token-counter-calibration"
+	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
+	flagContextWindow                          = "context-window"
+	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
+	flagSkillsManagedRoot                      = "skills-managed-root"
+	flagPlannerType                            = "agent-planner-type"
+	flagPlannerConfig                          = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -1736,8 +1736,8 @@ type sandboxShellEnvOptions struct {
 
 // subagentToolsConfig maps the YAML "tools.subagent" section.
 type subagentToolsConfig struct {
-	EnableSessionAlias  *bool `yaml:"enable_session_alias,omitempty"`
-	EnableSubagentTools *bool `yaml:"enable_subagent_tools,omitempty"`
+	Enabled            *bool `yaml:"enabled,omitempty"`
+	EnableSessionAlias *bool `yaml:"enable_session_alias,omitempty"`
 }
 
 // taskrunToolsConfig maps the YAML "tools.taskrun" section.
@@ -2593,16 +2593,16 @@ func (cfg *fileConfig) apply(
 			opts.EnableExecuteTools = *cfg.Tools.EnableExecuteTools
 		}
 		if cfg.Tools.Subagent != nil &&
+			cfg.Tools.Subagent.Enabled != nil &&
+			!flagWasSet(set, "enable-subagent-tools") {
+			opts.Subagent.EnableSubagentTools =
+				*cfg.Tools.Subagent.Enabled
+		}
+		if cfg.Tools.Subagent != nil &&
 			cfg.Tools.Subagent.EnableSessionAlias != nil &&
 			!flagWasSet(set, "enable-session-alias") {
 			opts.Subagent.EnableSessionAlias =
 				*cfg.Tools.Subagent.EnableSessionAlias
-		}
-		if cfg.Tools.Subagent != nil &&
-			cfg.Tools.Subagent.EnableSubagentTools != nil &&
-			!flagWasSet(set, "enable-subagent-tools") {
-			opts.Subagent.EnableSubagentTools =
-				*cfg.Tools.Subagent.EnableSubagentTools
 		}
 		if cfg.Tools.Taskrun != nil &&
 			cfg.Tools.Taskrun.Enabled != nil &&
