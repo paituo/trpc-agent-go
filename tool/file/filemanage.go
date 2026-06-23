@@ -35,21 +35,24 @@ const (
 // fileManageItem represents a single source-destination pair for move/copy operations.
 type fileManageItem struct {
 	// Source is the source path relative to base_directory.
-	Source string `json:"source" jsonschema:"description=Source path relative to base_directory (required for move and copy actions)"`
+	Source string `json:"source" jsonschema:"description=Source path relative to base_directory,required"`
 	// Destination is the destination path relative to base_directory.
-	Destination string `json:"destination" jsonschema:"description=Destination path relative to base_directory (required for move and copy actions)"`
+	Destination string `json:"destination" jsonschema:"description=Destination path relative to base_directory,required"`
 }
 
 // fileManageRequest represents the input for the file manage operation.
 type fileManageRequest struct {
 	// Action is the operation to perform: "move", "copy", or "delete".
-	Action string `json:"action" jsonschema:"description=Operation to perform: move copy or delete"`
+	Action string `json:"action" jsonschema:"description=Operation to perform,enum=move,enum=copy,enum=delete"`
 	// Items is the list of source-destination pairs for move/copy actions.
-	Items []fileManageItem `json:"items,omitempty" jsonschema:"description=List of source-destination pairs for move/copy actions"`
+	// Each item must have both "source" and "destination" fields.
+	// Required when action is "move" or "copy".
+	Items []fileManageItem `json:"items,omitempty" jsonschema:"description=List of items for move/copy. Each item must have 'source' and 'destination'. Required for move/copy actions"`
 	// Paths is the list of paths to delete for delete action.
-	Paths []string `json:"paths,omitempty" jsonschema:"description=List of paths relative to base_directory to delete (for delete action)"`
+	// Required when action is "delete".
+	Paths []string `json:"paths,omitempty" jsonschema:"description=List of paths to delete. Required for delete action"`
 	// Overwrite controls whether existing destination files are replaced (for move/copy actions).
-	Overwrite bool `json:"overwrite" jsonschema:"description=Whether to replace existing files at the destination (for move/copy actions)"`
+	Overwrite bool `json:"overwrite" jsonschema:"description=Whether to replace existing files at the destination (default false). Only used for move/copy actions"`
 }
 
 // fileManageResult represents the result of a single operation.
@@ -539,7 +542,16 @@ func (f *fileToolSet) fileManageTool() tool.CallableTool {
 	if len(actions) > 0 {
 		desc += " Supports actions: " + strings.Join(actions, ", ") + "."
 	}
-	desc += " Use 'items' for move/copy actions and 'paths' for delete action."
+	desc += " Parameter rules by action:"
+	if f.fileManageMoveEnabled {
+		desc += " For 'move': provide 'items' (array of {source, destination}) and optionally 'overwrite'."
+	}
+	if f.fileManageCopyEnabled {
+		desc += " For 'copy': provide 'items' (array of {source, destination}) and optionally 'overwrite'."
+	}
+	if f.fileManageDeleteEnabled {
+		desc += " For 'delete': provide 'paths' (array of path strings)."
+	}
 	return function.NewFunctionTool(
 		f.fileManage,
 		function.WithName("file_manage"),

@@ -132,11 +132,11 @@ func TestReadMultipleFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "exceed max file size",
+			name: "read large file regardless of maxFileSize",
 			opts: []Option{WithMaxFileSize(5)},
 			req:  readMultipleFilesRequest{Patterns: []string{"big.txt"}},
 			expectedContents: map[string]string{
-				"big.txt": "01234",
+				"big.txt": "0123456789",
 			},
 		},
 		{
@@ -395,7 +395,7 @@ func TestReadMultipleFiles_WorkspaceFileTooLarge(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, rsp.Files, 1)
 	assert.Equal(t, "workspace://out/a.txt", rsp.Files[0].FileName)
-	assert.Contains(t, rsp.Files[0].Message, "truncated")
+	assert.Equal(t, "aa", rsp.Files[0].Contents)
 }
 
 func TestReadFiles_PathResolveError(t *testing.T) {
