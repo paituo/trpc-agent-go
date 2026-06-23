@@ -71,42 +71,53 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 	// Register bridge modules (default all enabled, DeniedModules excludes).
 	if !denied["tool"] && len(cfg.Tools) > 0 {
 		registerToolBridge(L, cfg.Tools, cfg.DeniedTools)
+		L.PreloadModule("tool", preloadGlobal(L, "tool"))
 	}
 	if !denied["yaml"] {
 		registerYAMLBridge(L, cfg.AllowIOLib)
+		L.PreloadModule("yaml", preloadGlobal(L, "yaml"))
 	}
 	if !denied["json"] {
 		registerJSONBridge(L)
+		L.PreloadModule("json", preloadGlobal(L, "json"))
 	}
 	if !denied["html"] {
 		registerHTMLBridge(L)
+		L.PreloadModule("html", preloadGlobal(L, "html"))
 	}
 	if !denied["md"] {
 		registerMDBridge(L)
+		L.PreloadModule("md", preloadGlobal(L, "md"))
 	}
 	if !denied["htmltable"] {
 		registerTableBridge(L)
+		L.PreloadModule("htmltable", preloadGlobal(L, "htmltable"))
 	}
 	if !denied["summarize"] {
 		registerSummarizeBridge(L)
+		L.PreloadModule("summarize", preloadGlobal(L, "summarize"))
 	}
 	if !denied["utf8"] {
 		registerUTF8Bridge(L)
+		L.PreloadModule("utf8", preloadGlobal(L, "utf8"))
+		L.PreloadModule("re", preloadGlobal(L, "re"))
 		// Backward compatibility: if re is explicitly denied, remove re alias
 		if denied["re"] {
 			L.SetGlobal("re", lua.LNil)
 		}
 	}
 
-	// Register fs bridge module (controlled by AllowFS + DeniedModules).
-	if cfg.AllowFS && !denied["fs"] {
+	// Register fs bridge module (controlled by AllowFSLib + DeniedModules).
+	if cfg.AllowFSLib && !denied["fs"] {
 		registerFSBridge(L, cfg)
+		L.PreloadModule("fs", preloadGlobal(L, "fs"))
 	}
 
 	// Register log bridge module (always enabled, debug level gated by EnableDebug).
 	if !denied["log"] {
 		lc := newLogCollector(cfg.MaxLogEntries, cfg.EnableDebug)
 		registerLogBridge(L, lc)
+		L.PreloadModule("log", preloadGlobal(L, "log"))
 		return L, cancel, lc
 	}
 
@@ -156,6 +167,15 @@ func openFilteredOSLib(L *lua.LState) {
 		for _, name := range []string{"execute", "getenv", "exit", "remove", "rename", "tmpname"} {
 			tbl.RawSetString(name, lua.LNil)
 		}
+	}
+}
+
+// preloadGlobal returns a loader function that pushes the global value with the given name.
+// This allows bridge modules registered via SetGlobal to also be loaded via require().
+func preloadGlobal(L *lua.LState, name string) lua.LGFunction {
+	return func(L *lua.LState) int {
+		L.Push(L.GetGlobal(name))
+		return 1
 	}
 }
 

@@ -344,7 +344,7 @@ func buildDescription(cfg Config) string {
 		logDesc := "log: info/warn/error/debug(需配置enable_debug开启)"
 		available = append(available, logDesc)
 	}
-	if cfg.AllowFS && !denied["fs"] {
+	if cfg.AllowFSLib && !denied["fs"] {
 		available = append(available, "fs: read_file/write_file/list_dir/file_exists/is_dir/mkdir/remove/copy/move/stat(受控文件系统操作，路径限制在白名单目录)")
 	}
 	if len(available) > 0 {
