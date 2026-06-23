@@ -134,7 +134,7 @@ func TestSearchContent(t *testing.T) {
 			},
 		},
 		{
-			name: "skip large files by maxFileSize",
+			name: "search large files regardless of maxFileSize",
 			opts: []Option{WithMaxFileSize(5)},
 			req: searchContentRequest{
 				Path:           "",
@@ -142,6 +142,7 @@ func TestSearchContent(t *testing.T) {
 				ContentPattern: "foo",
 			},
 			wantFiles: map[string][]int{
+				"big.log":   {1},
 				"small.log": {1},
 			},
 		},
