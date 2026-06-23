@@ -156,6 +156,16 @@ func (p *Planner) ProcessPlanningResponse(
 		}
 	}
 
+	// When the response is final, clean up planner tags from the content
+	// to avoid exposing internal markers to the user.
+	if processedResponse.Done && len(processedResponse.Choices) > 0 {
+		for i := range processedResponse.Choices {
+			processedResponse.Choices[i].Message.Content = p.cleanTags(
+				processedResponse.Choices[i].Message.Content,
+			)
+		}
+	}
+
 	return &processedResponse
 }
 
@@ -267,6 +277,31 @@ func (p *Planner) hasFinalAnswerTag(content string) bool {
 		}
 	}
 	return true
+}
+
+// cleanTags removes all planner tags from the content to avoid exposing
+// internal markers to the user in the final response.
+func (p *Planner) cleanTags(content string) string {
+	tags := []string{
+		PlanningTag,
+		ReplanningTag,
+		ReasoningTag,
+		ActionTag,
+		FinalAnswerTag,
+	}
+	for _, tag := range tags {
+		content = strings.ReplaceAll(content, tag, "")
+	}
+	// Clean up extra whitespace left after tag removal.
+	lines := strings.Split(content, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+	return strings.Join(cleaned, "\n")
 }
 
 // splitByLastPattern splits text by the last occurrence of a separator.
