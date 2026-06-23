@@ -165,6 +165,7 @@ func TestPlanner_FinalAns(t *testing.T) {
 		ReasoningTag + " This is reasoning\n" +
 		FinalAnswerTag + " This is the final answer."
 	response := &model.Response{
+		Done: true,
 		Choices: []model.Choice{
 			{
 				Message: model.Message{
@@ -181,9 +182,10 @@ func TestPlanner_FinalAns(t *testing.T) {
 	}
 
 	choice := result.Choices[0]
-	// Current implementation preserves original content without processing
-	if choice.Message.Content != originalContent {
-		t.Errorf("Expected content %q, got %q", originalContent, choice.Message.Content)
+	// Tags should be cleaned from the final response.
+	expectedContent := "Step 1: Do something\nThis is reasoning\nThis is the final answer."
+	if choice.Message.Content != expectedContent {
+		t.Errorf("Expected content %q, got %q", expectedContent, choice.Message.Content)
 	}
 }
 
