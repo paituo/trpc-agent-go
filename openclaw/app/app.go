@@ -2183,6 +2183,7 @@ func run(
 			StateDir:                resolvedStateDir,
 			MemoryFileStore:         fileMemoryStore,
 			EnableExecuteTools:      opts.EnableExecuteTools,
+			OpenClawToolingGuide:    opts.OpenClawToolingGuide,
 
 			EnableLocalExec:          opts.EnableLocalExec,
 			CodeExecutor:             opts.CodeExecutor,
