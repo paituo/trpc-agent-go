@@ -136,6 +136,16 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Unlock()
 }
 
+// Controller returns the underlying taskrun Controller for use by taskrun
+// tools. The returned Controller is the shared core used by both subagent
+// and taskrun tools.
+func (s *Service) Controller() coretaskrun.Controller {
+	if s == nil {
+		return nil
+	}
+	return s.core
+}
+
 func (s *Service) Close() error {
 	if s == nil || s.core == nil {
 		return nil
