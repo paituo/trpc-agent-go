@@ -144,20 +144,6 @@ func (f *fileToolSet) searchContentByFilePatternRef(
 		path = fileref.WorkspaceRef(ref.Path)
 	}
 
-	if int64(len(content)) > f.maxFileSize {
-		match := searchTextContent(path, content[:f.maxFileSize], re)
-		if len(match.Matches) == 0 {
-			return []*fileMatch{}, true, nil
-		}
-		match.Message = fmt.Sprintf(
-			"Found %d matches in large file '%s' (partial search, first %d bytes)",
-			len(match.Matches),
-			path,
-			f.maxFileSize,
-		)
-		return []*fileMatch{match}, true, nil
-	}
-
 	match := searchTextContent(path, content, re)
 	if len(match.Matches) == 0 {
 		return []*fileMatch{}, true, nil
@@ -262,40 +248,20 @@ func (f *fileToolSet) searchContentLocal(
 		if stat.IsDir() {
 			continue
 		}
-		fileIsLarge := stat.Size() > f.maxFileSize
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			var match *fileMatch
-			if fileIsLarge {
-				content, readErr := readFilePartialContent(fullPath, f.maxFileSize)
-				if readErr != nil {
-					return
-				}
-				match = searchTextContent(relPath, content, re)
-				if len(match.Matches) == 0 {
-					return
-				}
-				match.Message = fmt.Sprintf(
-					"Found %d matches in large file '%s' (partial search, first %d bytes)",
-					len(match.Matches),
-					relPath,
-					f.maxFileSize,
-				)
-			} else {
-				var err error
-				match, err = searchFileContent(fullPath, re)
-				if err != nil || len(match.Matches) == 0 {
-					return
-				}
-				match.FilePath = relPath
-				match.Message = fmt.Sprintf(
-					"Found %d matches in file '%s'",
-					len(match.Matches),
-					relPath,
-				)
+			match, err := searchFileContent(fullPath, re)
+			if err != nil || len(match.Matches) == 0 {
+				return
 			}
+			match.FilePath = relPath
+			match.Message = fmt.Sprintf(
+				"Found %d matches in file '%s'",
+				len(match.Matches),
+				relPath,
+			)
 			mu.Lock()
 			fileMatches = append(fileMatches, match)
 			mu.Unlock()
@@ -344,23 +310,6 @@ func (f *fileToolSet) searchSingleLocalFile(
 	st, err := os.Stat(fullPath)
 	if err != nil || st.IsDir() {
 		return nil, false
-	}
-	if st.Size() > f.maxFileSize {
-		content, err := readFilePartialContent(fullPath, f.maxFileSize)
-		if err != nil {
-			return nil, false
-		}
-		match := searchTextContent(reqPath, content, re)
-		if len(match.Matches) == 0 {
-			return []*fileMatch{}, true
-		}
-		match.Message = fmt.Sprintf(
-			"Found %d matches in large file '%s' (partial search, first %d bytes)",
-			len(match.Matches),
-			reqPath,
-			f.maxFileSize,
-		)
-		return []*fileMatch{match}, true
 	}
 	match, err := searchFileContent(fullPath, re)
 	if err != nil || len(match.Matches) == 0 {
@@ -470,21 +419,6 @@ func (f *fileToolSet) searchWorkspaceContent(
 			req.FileCaseSensitive,
 		)
 		if err != nil || !ok {
-			continue
-		}
-		if int64(len(entry.Content)) > f.maxFileSize {
-			path := fileref.WorkspaceRef(full)
-			match := searchTextContent(path, entry.Content[:f.maxFileSize], re)
-			if len(match.Matches) == 0 {
-				continue
-			}
-			match.Message = fmt.Sprintf(
-				"Found %d matches in large file '%s' (partial search, first %d bytes)",
-				len(match.Matches),
-				path,
-				f.maxFileSize,
-			)
-			out = append(out, match)
 			continue
 		}
 		path := fileref.WorkspaceRef(full)
