@@ -70,12 +70,12 @@ type Config struct {
 	// always removed.
 	AllowOSLib bool
 
-	// AllowFS controls whether the fs bridge module is available.
+	// AllowFSLib controls whether the fs bridge module is available.
 	// The fs module provides controlled filesystem operations: read_file,
 	// write_file, list_dir, file_exists, is_dir, mkdir, remove, copy, move,
 	// stat. All operations are restricted to allowed_script_dirs.
 	// Defaults to true.
-	AllowFS bool
+	AllowFSLib bool
 
 	// Tools is the list of registered tools passed by openclaw at init time.
 	// luaexec lazily builds an internal dictionary on first tool.call().
@@ -114,6 +114,6 @@ func defaultConfig() Config {
 		MaxErrorLen:    1024,
 		AllowIOLib:     false,
 		AllowOSLib:     false,
-		AllowFS:        true,
+		AllowFSLib:     true,
 	}
 }
