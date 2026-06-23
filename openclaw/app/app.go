@@ -75,6 +75,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 	openclawsubagent "trpc.group/trpc-go/trpc-agent-go/openclaw/subagent"
+	"trpc.group/trpc-go/trpc-agent-go/tool/taskrun"
 )
 
 const (
@@ -1250,6 +1251,7 @@ func NewRuntimeWithOptions(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
 		opts.Subagent.EnableSubagentTools,
+		opts.EnableTaskRunTools,
 		subagentrun.ToolsConfig{
 			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
 		},
@@ -1666,6 +1668,7 @@ func NewRuntimeWithOptions(
 			}
 		}
 		openClawTools.subagentTools.SetService(subagentSvc)
+		openClawTools.taskrunTools.SetController(subagentSvc.Controller()) // 共用 Controller
 		subagentSvc.Start(ctx)
 		rt.subagent = subagentSvc
 		rt.subagentSvc = subagentSvc
@@ -2058,6 +2061,7 @@ func run(
 		opts.EnableOpenClawTools,
 		opts.EnableExecuteTools,
 		opts.Subagent.EnableSubagentTools,
+		opts.EnableTaskRunTools,
 		subagentrun.ToolsConfig{
 			EnableSessionAlias: opts.Subagent.EnableSessionAlias,
 		},
@@ -2496,9 +2500,11 @@ func run(
 			}
 		}
 		openClawTools.subagentTools.SetService(subagentSvc)
+		openClawTools.taskrunTools.SetController(subagentSvc.Controller())
 		subagentSvc.Start(runCtx)
 		cleanupSubagent = func() {
 			openClawTools.subagentTools.SetService(nil)
+			openClawTools.taskrunTools.SetController(nil)
 			if subagentSvc != nil {
 				_ = subagentSvc.Close()
 				subagentSvc = nil
@@ -2616,6 +2622,7 @@ func run(
 	}
 	if subagentSvc != nil {
 		openClawTools.subagentTools.SetService(nil)
+		openClawTools.taskrunTools.SetController(nil)
 		cleanupSubagent = nil
 		_ = subagentSvc.Close()
 		subagentSvc = nil
@@ -3840,6 +3847,7 @@ type openClawToolsBundle struct {
 	router        *outbound.Router
 	cronTool      *cron.Tool
 	subagentTools subagentrun.Tools
+	taskrunTools  taskrun.Tools
 	deps          *deps.Report
 }
 
@@ -3893,6 +3901,7 @@ func buildOpenClawTools(
 	enabled bool,
 	enableExecuteTools bool,
 	enableSubagentTools bool,
+	enableTaskRunTools bool,
 	subagentCfg subagentrun.ToolsConfig,
 	stateDir string,
 	uploadStore *uploads.Store,
@@ -3911,6 +3920,7 @@ func buildOpenClawTools(
 	router := outbound.NewRouter()
 	cronTool := cron.NewTool(nil)
 	subagentTools := subagentrun.NewTools(nil, subagentCfg, sessionSvc)
+	taskrunTools := taskrun.NewTools(nil) // Controller 后续注入
 	var depsReport *deps.Report
 	if sources, err := deps.SourcesForProfiles(deps.DefaultProfiles()); err ==
 		nil {
@@ -3988,12 +3998,16 @@ func buildOpenClawTools(
 	if enableSubagentTools {
 		tools = append(tools, subagentTools.All()...)
 	}
+	if enableTaskRunTools {
+		tools = append(tools, taskrunTools.All()...)
+	}
 	return openClawToolsBundle{
 		tools:         tools,
 		execMgr:       mgr,
 		router:        router,
 		cronTool:      cronTool,
 		subagentTools: subagentTools,
+		taskrunTools:  taskrunTools,
 		deps:          depsReport,
 	}
 }

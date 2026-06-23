@@ -361,6 +361,7 @@ type runOptions struct {
 	EnableOpenClawTools                bool
 	OpenClawToolingGuide               *string
 	EnableParallelTools                bool
+	EnableTaskRunTools                 bool
 	DeferToolSurface                   bool
 	DeferToolSurfaceMode               string
 	DeferToolSurfaceChars              int
@@ -1163,6 +1164,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Enable subagent tools (subagents_spawn, list, get, cancel, wait)",
 	)
 	fs.BoolVar(
+		&opts.EnableTaskRunTools,
+		"enable-taskrun-tools",
+		false,
+		"Enable task run tools (start_task_run, list, get, cancel, wait)",
+	)
+	fs.BoolVar(
 		&opts.RefreshToolSetsOnRun,
 		"refresh-toolsets-on-run",
 		false,
@@ -1673,6 +1680,7 @@ type toolsConfig struct {
 	HostExecMaxIdleWaitCamel      *string             `yaml:"hostExecMaxIdleWait,omitempty"`
 
 	Subagent *subagentToolsConfig `yaml:"subagent,omitempty"`
+	Taskrun  *taskrunToolsConfig  `yaml:"taskrun,omitempty"`
 
 	Providers []filePluginSpec `yaml:"providers,omitempty"`
 	ToolSets  []filePluginSpec `yaml:"toolsets,omitempty"`
@@ -1730,6 +1738,11 @@ type sandboxShellEnvOptions struct {
 type subagentToolsConfig struct {
 	EnableSessionAlias  *bool `yaml:"enable_session_alias,omitempty"`
 	EnableSubagentTools *bool `yaml:"enable_subagent_tools,omitempty"`
+}
+
+// taskrunToolsConfig maps the YAML "tools.taskrun" section.
+type taskrunToolsConfig struct {
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 type sessionConfig struct {
@@ -2590,6 +2603,11 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "enable-subagent-tools") {
 			opts.Subagent.EnableSubagentTools =
 				*cfg.Tools.Subagent.EnableSubagentTools
+		}
+		if cfg.Tools.Taskrun != nil &&
+			cfg.Tools.Taskrun.Enabled != nil &&
+			!flagWasSet(set, "enable-taskrun-tools") {
+			opts.EnableTaskRunTools = *cfg.Tools.Taskrun.Enabled
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {
