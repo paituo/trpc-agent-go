@@ -897,7 +897,7 @@ type luaToolSetConfig struct {
 	DeniedModules      []string `yaml:"denied_modules,omitempty"`
 	AllowIOLib         *bool    `yaml:"allow_io_lib,omitempty"`
 	AllowOSLib         *bool    `yaml:"allow_os_lib,omitempty"`
-	AllowFS            *bool    `yaml:"allow_fs,omitempty"`
+	AllowFSLib         *bool    `yaml:"allow_fs_lib,omitempty"`
 	DeniedTools        []string `yaml:"denied_tools,omitempty"`
 	AllowedScriptDirs  []string `yaml:"allowed_script_dirs,omitempty"`
 	AddSkillScriptDirs *bool    `yaml:"add_skill_script_dirs,omitempty"`
@@ -936,8 +936,8 @@ func newLuaToolSet(
 	if cfg.AllowOSLib != nil {
 		opts = append(opts, luaexec.WithAllowOSLib(*cfg.AllowOSLib))
 	}
-	if cfg.AllowFS != nil {
-		opts = append(opts, luaexec.WithAllowFS(*cfg.AllowFS))
+	if cfg.AllowFSLib != nil {
+		opts = append(opts, luaexec.WithAllowFSLib(*cfg.AllowFSLib))
 	}
 	if len(cfg.DeniedTools) > 0 {
 		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))
