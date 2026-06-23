@@ -653,7 +653,7 @@ func TestFileMemoryStoreForBackend_FileOnly(t *testing.T) {
 func TestBuildOpenClawTools_HidesMemoryFileEnvWithoutFileBackend(t *testing.T) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, true, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil)
+	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(
@@ -672,7 +672,7 @@ func TestBuildOpenClawTools_ExposesMemoryFileEnvForFileBackend(t *testing.T) {
 	store, err := memoryfile.NewStore(root)
 	require.NoError(t, err)
 
-	bundle := buildOpenClawTools(true, true, subagentrun.ToolsConfig{}, t.TempDir(), nil, store)
+	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, store, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(t, decl.Description, "OPENCLAW_MEMORY_FILE")
@@ -736,7 +736,7 @@ func TestBuildOpenClawTools_IncludesConversationHistoryTool(
 ) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil)
+	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil)
 	decl := findToolDeclaration(bundle.tools, "conversation_history")
 	require.NotNil(t, decl)
 	require.Contains(
@@ -749,7 +749,7 @@ func TestBuildOpenClawTools_IncludesConversationHistoryTool(
 func TestBuildOpenClawTools_IncludesSubagentTools(t *testing.T) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil)
+	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{EnableSessionAlias: true}, t.TempDir(), nil, nil, nil)
 	require.NotNil(
 		t,
 		findToolDeclaration(bundle.tools, "subagents_spawn"),

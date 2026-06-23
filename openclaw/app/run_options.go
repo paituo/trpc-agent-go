@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,22 +95,22 @@ const (
 	flagMaxToolIterations                             = "max-tool-iterations"
 	flagPreloadMemory                                 = "preload-memory"
 
-	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests   = "context-compaction-keep-recent-requests"
+	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
 	flagContextCompactionKeepRecentToolResults = "context-compaction-keep-recent-tool-results"
-	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
-	flagEnableTokenCounterCalibration        = "enable-token-counter-calibration"
-	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
-	flagContextWindow                        = "context-window"
-	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
-	flagSkillsManagedRoot                    = "skills-managed-root"
-	flagPlannerType                          = "agent-planner-type"
-	flagPlannerConfig                        = "agent-planner-config"
+	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
+	flagEnableTokenCounterCalibration          = "enable-token-counter-calibration"
+	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
+	flagContextWindow                          = "context-window"
+	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
+	flagSkillsManagedRoot                      = "skills-managed-root"
+	flagPlannerType                            = "agent-planner-type"
+	flagPlannerConfig                          = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -318,15 +319,15 @@ type runOptions struct {
 	MemoryAutoMessageThreshold int
 	MemoryAutoTimeInterval     time.Duration
 
-	SessionSummaryEnabled                   bool
-	SessionSummaryMode                      string
-	SessionSummaryPolicy                    string
-	SessionSummaryEventCount                int
-	SessionSummaryTokenCount                int
-	SessionSummaryIdleThreshold             time.Duration
-	SessionSummaryMaxWords                  int
-	SessionSummaryContextThresholdRatio     float64
-	SessionSummaryContextThresholdMinTokens int
+	SessionSummaryEnabled                        bool
+	SessionSummaryMode                           string
+	SessionSummaryPolicy                         string
+	SessionSummaryEventCount                     int
+	SessionSummaryTokenCount                     int
+	SessionSummaryIdleThreshold                  time.Duration
+	SessionSummaryMaxWords                       int
+	SessionSummaryContextThresholdRatio          float64
+	SessionSummaryContextThresholdMinTokens      int
 	SessionSummaryContextThresholdFallbackWindow int
 
 	EnableLocalExec                    bool
@@ -342,6 +343,7 @@ type runOptions struct {
 	DeferToolSurfaceDirect             string
 	DynamicAgentTimeout                time.Duration
 	Subagent                           subagentRunOptions
+	EnableTaskRunTools                 bool
 
 	enableOpenClawToolsExplicit  bool
 	deferToolSurfaceModeExplicit bool
@@ -1078,6 +1080,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		"Enable subagent tools (subagents_spawn, list, get, cancel, wait)",
 	)
 	fs.BoolVar(
+		&opts.EnableTaskRunTools,
+		"enable-taskrun-tools",
+		false,
+		"Enable task run tools (start_task_run, list, get, cancel, wait)",
+	)
+	fs.BoolVar(
 		&opts.RefreshToolSetsOnRun,
 		"refresh-toolsets-on-run",
 		false,
@@ -1479,12 +1487,12 @@ type toolsConfig struct {
 	DynamicAgentTimeoutCamel      *string             `yaml:"dynamicAgentTimeout,omitempty"`
 
 	Subagent *subagentToolsConfig `yaml:"subagent,omitempty"`
+	Taskrun  *taskrunToolsConfig  `yaml:"taskrun,omitempty"`
 
 	Providers []filePluginSpec `yaml:"providers,omitempty"`
 	ToolSets  []filePluginSpec `yaml:"toolsets,omitempty"`
 }
 
-<<<<<<< HEAD
 type codeExecutorConfig struct {
 	Type                  string                     `yaml:"type,omitempty"`
 	AutoExecuteCodeBlocks *bool                      `yaml:"auto_execute_code_blocks,omitempty"`
@@ -1537,6 +1545,11 @@ type sandboxShellEnvOptions struct {
 type subagentToolsConfig struct {
 	EnableSessionAlias  *bool `yaml:"enable_session_alias,omitempty"`
 	EnableSubagentTools *bool `yaml:"enable_subagent_tools,omitempty"`
+}
+
+// taskrunToolsConfig maps the YAML "tools.taskrun" section.
+type taskrunToolsConfig struct {
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
 
 type sessionConfig struct {
@@ -1642,16 +1655,16 @@ type redisConfig struct {
 }
 
 type summaryConfig struct {
-	Enabled                   *bool    `yaml:"enabled,omitempty"`
-	Mode                      *string  `yaml:"mode,omitempty"`
-	Policy                    *string  `yaml:"policy,omitempty"`
-	EventThreshold            *int     `yaml:"event_threshold,omitempty"`
-	TokenThreshold            *int     `yaml:"token_threshold,omitempty"`
-	IdleThreshold             *string  `yaml:"idle_threshold,omitempty"`
-	MaxWords                  *int     `yaml:"max_words,omitempty"`
+	Enabled                        *bool    `yaml:"enabled,omitempty"`
+	Mode                           *string  `yaml:"mode,omitempty"`
+	Policy                         *string  `yaml:"policy,omitempty"`
+	EventThreshold                 *int     `yaml:"event_threshold,omitempty"`
+	TokenThreshold                 *int     `yaml:"token_threshold,omitempty"`
+	IdleThreshold                  *string  `yaml:"idle_threshold,omitempty"`
+	MaxWords                       *int     `yaml:"max_words,omitempty"`
 	ContextThresholdRatio          *float64 `yaml:"context_threshold_ratio,omitempty"`
-	ContextThresholdMinTokens     *int     `yaml:"context_threshold_min_tokens,omitempty"`
-	ContextThresholdFallbackWindow *int    `yaml:"context_threshold_fallback_window,omitempty"`
+	ContextThresholdMinTokens      *int     `yaml:"context_threshold_min_tokens,omitempty"`
+	ContextThresholdFallbackWindow *int     `yaml:"context_threshold_fallback_window,omitempty"`
 }
 
 type memoryAuto struct {
@@ -2302,6 +2315,11 @@ func (cfg *fileConfig) apply(
 			!flagWasSet(set, "enable-subagent-tools") {
 			opts.Subagent.EnableSubagentTools =
 				*cfg.Tools.Subagent.EnableSubagentTools
+		}
+		if cfg.Tools.Taskrun != nil &&
+			cfg.Tools.Taskrun.Enabled != nil &&
+			!flagWasSet(set, "enable-taskrun-tools") {
+			opts.EnableTaskRunTools = *cfg.Tools.Taskrun.Enabled
 		}
 		if cfg.Tools.RefreshToolSetsOnRun != nil &&
 			!flagWasSet(set, "refresh-toolsets-on-run") {
@@ -3069,7 +3087,6 @@ func finalizeRunOptions(opts *runOptions) error {
 	opts.LangfuseTraceURLTemplate = strings.TrimSpace(
 		opts.LangfuseTraceURLTemplate,
 	)
-<<<<<<< HEAD
 	if v := opts.SessionSummaryApproxRunesPerToken; math.IsNaN(v) ||
 		math.IsInf(v, 0) || v < 0 {
 		return fmt.Errorf(
