@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -791,17 +791,18 @@ func overrideToolSetName(ts tool.ToolSet, name string) tool.ToolSet {
 // --- Lua tool set provider ---
 
 type luaToolSetConfig struct {
-	DefaultTimeout       int      `yaml:"default_timeout,omitempty"`
-	MaxOutputLen         int      `yaml:"max_output_len,omitempty"`
-	MaxErrorLen          int      `yaml:"max_error_len,omitempty"`
-	DeniedModules        []string `yaml:"denied_modules,omitempty"`
-	AllowIOLib           *bool    `yaml:"allow_io_lib,omitempty"`
-	AllowOSLib           *bool    `yaml:"allow_os_lib,omitempty"`
-	DeniedTools          []string `yaml:"denied_tools,omitempty"`
-	AllowedScriptDirs    []string `yaml:"allowed_script_dirs,omitempty"`
-	AddSkillScriptDirs   *bool    `yaml:"add_skill_script_dirs,omitempty"`
-	EnableDebug          *bool    `yaml:"enable_debug,omitempty"`
-	MaxLogEntries        int      `yaml:"max_log_entries,omitempty"`
+	DefaultTimeout     int      `yaml:"default_timeout,omitempty"`
+	MaxOutputLen       int      `yaml:"max_output_len,omitempty"`
+	MaxErrorLen        int      `yaml:"max_error_len,omitempty"`
+	DeniedModules      []string `yaml:"denied_modules,omitempty"`
+	AllowIOLib         *bool    `yaml:"allow_io_lib,omitempty"`
+	AllowOSLib         *bool    `yaml:"allow_os_lib,omitempty"`
+	AllowFSLib         *bool    `yaml:"allow_fs_lib,omitempty"`
+	DeniedTools        []string `yaml:"denied_tools,omitempty"`
+	AllowedScriptDirs  []string `yaml:"allowed_script_dirs,omitempty"`
+	AddSkillScriptDirs *bool    `yaml:"add_skill_script_dirs,omitempty"`
+	EnableDebug        *bool    `yaml:"enable_debug,omitempty"`
+	MaxLogEntries      int      `yaml:"max_log_entries,omitempty"`
 }
 
 func newLuaToolSet(
@@ -834,6 +835,9 @@ func newLuaToolSet(
 	}
 	if cfg.AllowOSLib != nil {
 		opts = append(opts, luaexec.WithAllowOSLib(*cfg.AllowOSLib))
+	}
+	if cfg.AllowFSLib != nil {
+		opts = append(opts, luaexec.WithAllowFSLib(*cfg.AllowFSLib))
 	}
 	if len(cfg.DeniedTools) > 0 {
 		opts = append(opts, luaexec.WithDeniedTools(cfg.DeniedTools...))

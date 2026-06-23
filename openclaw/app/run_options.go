@@ -1543,8 +1543,8 @@ type sandboxShellEnvOptions struct {
 
 // subagentToolsConfig maps the YAML "tools.subagent" section.
 type subagentToolsConfig struct {
-	EnableSessionAlias  *bool `yaml:"enable_session_alias,omitempty"`
-	EnableSubagentTools *bool `yaml:"enable_subagent_tools,omitempty"`
+	Enabled            *bool `yaml:"enabled,omitempty"`
+	EnableSessionAlias *bool `yaml:"enable_session_alias,omitempty"`
 }
 
 // taskrunToolsConfig maps the YAML "tools.taskrun" section.
@@ -2305,16 +2305,16 @@ func (cfg *fileConfig) apply(
 			opts.EnableExecuteTools = *cfg.Tools.EnableExecuteTools
 		}
 		if cfg.Tools.Subagent != nil &&
+			cfg.Tools.Subagent.Enabled != nil &&
+			!flagWasSet(set, "enable-subagent-tools") {
+			opts.Subagent.EnableSubagentTools =
+				*cfg.Tools.Subagent.Enabled
+		}
+		if cfg.Tools.Subagent != nil &&
 			cfg.Tools.Subagent.EnableSessionAlias != nil &&
 			!flagWasSet(set, "enable-session-alias") {
 			opts.Subagent.EnableSessionAlias =
 				*cfg.Tools.Subagent.EnableSessionAlias
-		}
-		if cfg.Tools.Subagent != nil &&
-			cfg.Tools.Subagent.EnableSubagentTools != nil &&
-			!flagWasSet(set, "enable-subagent-tools") {
-			opts.Subagent.EnableSubagentTools =
-				*cfg.Tools.Subagent.EnableSubagentTools
 		}
 		if cfg.Tools.Taskrun != nil &&
 			cfg.Tools.Taskrun.Enabled != nil &&
