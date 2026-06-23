@@ -156,9 +156,10 @@ func (p *Planner) ProcessPlanningResponse(
 		}
 	}
 
-	// When the response is final, clean up planner tags from the content
-	// to avoid exposing internal markers to the user.
-	if processedResponse.Done && len(processedResponse.Choices) > 0 {
+	// Clean up planner tags from the content regardless of Done state,
+	// to avoid exposing internal markers to the user even in intermediate
+	// responses (e.g., when Done is set to false due to intent detection).
+	if len(processedResponse.Choices) > 0 {
 		for i := range processedResponse.Choices {
 			processedResponse.Choices[i].Message.Content = p.cleanTags(
 				processedResponse.Choices[i].Message.Content,

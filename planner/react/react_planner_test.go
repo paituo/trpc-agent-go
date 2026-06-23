@@ -290,46 +290,50 @@ func TestPlanner_IntentDescriptionDetection(t *testing.T) {
 	invocation := &agent.Invocation{}
 
 	tests := []struct {
-		name         string
-		content      string
-		done         bool
-		expectedDone bool
-		description  string
+		name           string
+		content        string
+		done           bool
+		expectedDone   bool
+		expectedOutput string // expected content after tag cleaning (empty means no tag cleaning needed)
+		description    string
 	}{
 		{
-			name:         "intent_description_i_will",
-			content:      "I will fetch the Special:Log page for the Legume article to inspect log entries.",
-			done:         true,
-			expectedDone: false, // Should be marked as not done
-			description:  "Intent description with 'I will' should not be final",
+			name:           "intent_description_i_will",
+			content:        "I will fetch the Special:Log page for the Legume article to inspect log entries.",
+			done:           true,
+			expectedDone:   false, // Should be marked as not done
+			description:    "Intent description with 'I will' should not be final",
 		},
 		{
-			name:         "intent_with_action_tag",
-			content:      "/*ACTION*/\nI will search for the information.\nfunctions.web_search",
-			done:         true,
-			expectedDone: false,
-			description:  "Content with ACTION tag but no actual tool call should not be final",
+			name:           "intent_with_action_tag",
+			content:        "/*ACTION*/\nI will search for the information.\nfunctions.web_search",
+			done:           true,
+			expectedDone:   false,
+			expectedOutput: "I will search for the information.\nfunctions.web_search",
+			description:    "Content with ACTION tag but no actual tool call should not be final",
 		},
 		{
-			name:         "intent_with_planning_tag",
-			content:      "/*PLANNING*/\n1. First search for the author\n2. Then find their publications",
-			done:         true,
-			expectedDone: false,
-			description:  "Content with PLANNING tag should not be final",
+			name:           "intent_with_planning_tag",
+			content:        "/*PLANNING*/\n1. First search for the author\n2. Then find their publications",
+			done:           true,
+			expectedDone:   false,
+			expectedOutput: "1. First search for the author\n2. Then find their publications",
+			description:    "Content with PLANNING tag should not be final",
 		},
 		{
-			name:         "final_answer_with_tag",
-			content:      "/*FINAL_ANSWER*/ The answer is 42.",
-			done:         true,
-			expectedDone: true, // Should remain done because it has FINAL_ANSWER tag
-			description:  "Content with FINAL_ANSWER tag should be final",
+			name:           "final_answer_with_tag",
+			content:        "/*FINAL_ANSWER*/ The answer is 42.",
+			done:           true,
+			expectedDone:   true, // Should remain done because it has FINAL_ANSWER tag
+			expectedOutput: "The answer is 42.",
+			description:    "Content with FINAL_ANSWER tag should be final",
 		},
 		{
-			name:         "empty_final_answer_tag",
-			content:      FinalAnswerTag,
-			done:         true,
-			expectedDone: false,
-			description:  "Empty FINAL_ANSWER tag should not be final",
+			name:           "empty_final_answer_tag",
+			content:        FinalAnswerTag,
+			done:           true,
+			expectedDone:   false,
+			description:    "Empty FINAL_ANSWER tag should not be final",
 		},
 		{
 			name: "final_answer_tag_then_action",
@@ -337,10 +341,9 @@ func TestPlanner_IntentDescriptionDetection(t *testing.T) {
 				[]string{FinalAnswerTag, ActionTag},
 				"\n\n",
 			),
-			done:         true,
-			expectedDone: false,
-			description: "FINAL_ANSWER tag without answer should not " +
-				"be final",
+			done:           true,
+			expectedDone:   false,
+			description:    "FINAL_ANSWER tag without answer should not be final",
 		},
 		{
 			name: "action_with_final_answer_prefix",
@@ -351,31 +354,33 @@ func TestPlanner_IntentDescriptionDetection(t *testing.T) {
 				},
 				"\n",
 			),
-			done:         true,
-			expectedDone: true,
-			description: "FINAL ANSWER line should allow a final " +
-				"response",
+			done:           true,
+			expectedDone:   true,
+			expectedOutput: "FINAL ANSWER: 42",
+			description:    "FINAL ANSWER line should allow a final response",
 		},
 		{
-			name:         "intent_with_final_answer",
-			content:      "I will provide the answer now. /*FINAL_ANSWER*/ The result is 42.",
-			done:         true,
-			expectedDone: true, // Has FINAL_ANSWER, so it's final
-			description:  "Content with both intent and FINAL_ANSWER should be final",
+			name:           "intent_with_final_answer",
+			content:        "I will provide the answer now. /*FINAL_ANSWER*/ The result is 42.",
+			done:           true,
+			expectedDone:   true, // Has FINAL_ANSWER, so it's final
+			expectedOutput: "I will provide the answer now.  The result is 42.",
+			description:    "Content with both intent and FINAL_ANSWER should be final",
 		},
 		{
-			name:         "normal_response_no_intent",
-			content:      "The capital of France is Paris.",
-			done:         true,
-			expectedDone: true, // No intent patterns, should remain as is
-			description:  "Normal response without intent patterns should remain final",
+			name:           "normal_response_no_intent",
+			content:        "The capital of France is Paris.",
+			done:           true,
+			expectedDone:   true, // No intent patterns, should remain as is
+			expectedOutput: "The capital of France is Paris.",
+			description:    "Normal response without intent patterns should remain final",
 		},
 		{
-			name:         "empty_content",
-			content:      "",
-			done:         true,
-			expectedDone: true, // Empty content is not an intent description
-			description:  "Empty content should remain final",
+			name:           "empty_content",
+			content:        "",
+			done:           true,
+			expectedDone:   true, // Empty content is not an intent description
+			description:    "Empty content should remain final",
 		},
 	}
 
@@ -400,6 +405,13 @@ func TestPlanner_IntentDescriptionDetection(t *testing.T) {
 
 			if result.Done != tt.expectedDone {
 				t.Errorf("%s: expected Done=%v, got Done=%v", tt.description, tt.expectedDone, result.Done)
+			}
+
+			if tt.expectedOutput != "" {
+				got := result.Choices[0].Message.Content
+				if got != tt.expectedOutput {
+					t.Errorf("%s: expected Content=%q, got %q", tt.description, tt.expectedOutput, got)
+				}
 			}
 		})
 	}
