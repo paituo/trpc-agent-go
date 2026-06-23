@@ -75,10 +75,10 @@ func TestFileTool_InputSchemaDescriptions(t *testing.T) {
 			"num_replacements": "Optional replacement limit; 0 means 1 and negative means replace all matches",
 		},
 		"file_manage": {
-			"action":    "Operation to perform: move copy or delete",
-			"items":     "List of source-destination pairs for move/copy actions",
-			"paths":     "List of paths relative to base_directory to delete (for delete action)",
-			"overwrite": "Whether to replace existing files at the destination (for move/copy actions)",
+			"action":    "Operation to perform",
+			"items":     "List of items for move/copy. Each item must have 'source' and 'destination'. Required for move/copy actions",
+			"paths":     "List of paths to delete. Required for delete action",
+			"overwrite": "Whether to replace existing files at the destination (default false). Only used for move/copy actions",
 		},
 	}
 

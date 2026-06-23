@@ -166,32 +166,13 @@ func (f *fileToolSet) readFiles(
 					)
 					return
 				}
-				fileContent := content
-				fileSize := len(content)
-				truncated := false
-				if int64(fileSize) > f.maxFileSize {
-					fileContent = content[:f.maxFileSize]
-					fileSize = int(f.maxFileSize)
-					truncated = true
-				}
-				results[idx].Contents = fileContent
-				lines := strings.Count(fileContent, "\n") + 1
-				if truncated {
-					results[idx].Message = fmt.Sprintf(
-						"Successfully read %s (truncated), total lines: %d, "+
-							"file size: %d bytes, max: %d bytes",
-						rp,
-						lines,
-						len(content),
-						f.maxFileSize,
-					)
-				} else {
-					results[idx].Message = fmt.Sprintf(
-						"Successfully read %s, total lines: %d",
-						rp,
-						lines,
-					)
-				}
+				results[idx].Contents = content
+				lines := strings.Count(content, "\n") + 1
+				results[idx].Message = fmt.Sprintf(
+					"Successfully read %s, total lines: %d",
+					rp,
+					lines,
+				)
 				return
 			}
 
@@ -215,28 +196,6 @@ func (f *fileToolSet) readFiles(
 			}
 			if stats.IsDir() {
 				results[idx].Message = fmt.Sprintf("Error: %s is a directory", rp)
-				return
-			}
-			if stats.Size() > f.maxFileSize {
-				data, err := readFilePartialContent(fullPath, f.maxFileSize)
-				if err != nil {
-					results[idx].Message = fmt.Sprintf(
-						"Error: cannot read file %s: %v",
-						rp,
-						err,
-					)
-					return
-				}
-				lines := strings.Count(data, "\n") + 1
-				results[idx].Contents = data
-				results[idx].Message = fmt.Sprintf(
-					"Successfully read %s (truncated), total lines: %d, "+
-						"file size: %d bytes, max: %d bytes",
-					rp,
-					lines,
-					stats.Size(),
-					f.maxFileSize,
-				)
 				return
 			}
 			data, err := os.ReadFile(fullPath)
