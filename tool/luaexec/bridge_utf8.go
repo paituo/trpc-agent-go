@@ -282,11 +282,14 @@ func bridgeUTF8Rep(L *lua.LState) int {
 // Returns the first match: full matched string + capture groups.
 // Returns nil if no match found.
 // init is an optional 1-based character index (negative means counting from end).
+// The pattern supports Lua-style regex syntax (e.g. %d, %s, %w) which is
+// automatically converted to Go regexp syntax.
 func bridgeUTF8Find(L *lua.LState) int {
 	s := L.CheckString(1)
 	pattern := L.CheckString(2)
 
-	re, err := regexp.Compile(pattern)
+	goPattern := luaPatternToGoRegex(pattern)
+	re, err := regexp.Compile(goPattern)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("utf8.find: invalid pattern %q: %v", pattern, err))
 		return 2
@@ -322,11 +325,14 @@ func bridgeUTF8Find(L *lua.LState) int {
 }
 
 // bridgeUTF8Match implements utf8.match(s, pattern) → array of matches.
+// The pattern supports Lua-style regex syntax (e.g. %d, %s, %w) which is
+// automatically converted to Go regexp syntax.
 func bridgeUTF8Match(L *lua.LState) int {
 	s := L.CheckString(1)
 	pattern := L.CheckString(2)
 
-	re, err := regexp.Compile(pattern)
+	goPattern := luaPatternToGoRegex(pattern)
+	re, err := regexp.Compile(goPattern)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("utf8.match: invalid pattern %q: %v", pattern, err))
 		return 2
@@ -342,12 +348,17 @@ func bridgeUTF8Match(L *lua.LState) int {
 }
 
 // bridgeUTF8Gsub implements utf8.gsub(s, pattern, replacement) → string.
+// The pattern supports Lua-style regex syntax (e.g. %d, %s, %w) which is
+// automatically converted to Go regexp syntax.
+// The replacement supports Lua-style back-references (%1-%9) which are
+// automatically converted to Go-style references (${1}-${9}).
 func bridgeUTF8Gsub(L *lua.LState) int {
 	s := L.CheckString(1)
 	pattern := L.CheckString(2)
 	replacement := L.CheckString(3)
 
-	re, err := regexp.Compile(pattern)
+	goPattern := luaPatternToGoRegex(pattern)
+	re, err := regexp.Compile(goPattern)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("utf8.gsub: invalid pattern %q: %v", pattern, err))
 		return 2
@@ -360,17 +371,20 @@ func bridgeUTF8Gsub(L *lua.LState) int {
 }
 
 // bridgeUTF8Matches implements utf8.matches(s, pattern) → array of all matches.
+// The pattern supports Lua-style regex syntax (e.g. %d, %s, %w) which is
+// automatically converted to Go regexp syntax.
 func bridgeUTF8Matches(L *lua.LState) int {
 	s := L.CheckString(1)
 	pattern := L.CheckString(2)
 
-	re, err := regexp.Compile(pattern)
+	goPattern := luaPatternToGoRegex(pattern)
+	re, err := regexp.Compile(goPattern)
 	if err != nil {
 		pushBridgeError(L, fmt.Sprintf("utf8.matches: invalid pattern %q: %v", pattern, err))
 		return 2
 	}
 
-	hasGroups := strings.Contains(pattern, "(")
+	hasGroups := strings.Contains(goPattern, "(")
 
 	tbl := L.NewTable()
 	if hasGroups {
@@ -392,7 +406,9 @@ func bridgeUTF8Matches(L *lua.LState) int {
 	return 1
 }
 
-// normalizeGsubReplacement converts $N references to ${N} for Go regexp.
+// normalizeGsubReplacement converts $N and %N references to ${N} for Go regexp.
+// Lua uses %1-%9 for back-references in gsub replacement strings,
+// while Go uses $1-$9 or ${1}-${9}. This function handles both styles.
 func normalizeGsubReplacement(s string) string {
 	var sb strings.Builder
 	i := 0
@@ -411,7 +427,127 @@ func normalizeGsubReplacement(s string) string {
 				continue
 			}
 		}
+		// Lua-style back-reference: %1-%9 → ${1}-${9}
+		if s[i] == '%' && i+1 < len(s) && s[i+1] >= '1' && s[i+1] <= '9' {
+			sb.WriteString("${")
+			sb.WriteByte(s[i+1])
+			sb.WriteString("}")
+			i += 2
+			continue
+		}
 		sb.WriteByte(s[i])
+		i++
+	}
+	return sb.String()
+}
+
+// luaPatternToGoRegex converts a Lua-style regex pattern to Go regexp syntax.
+// Lua uses %letter for character classes (e.g. %d for digits, %s for whitespace),
+// while Go uses \letter (e.g. \d, \s). This function handles the conversion.
+//
+// Key conversions:
+//   - %d → \d, %s → \s, %w → \w, etc. (Lua character classes)
+//   - % followed by non-letter → \ + that char (e.g. %| → \|, %( → \()
+//   - %% → % (literal percent sign)
+//   - - (non-greedy quantifier) → *? (Go equivalent)
+//   - %b() balanced match → not supported, returns error pattern
+//
+// Patterns that don't contain % are passed through unchanged (Go regexp syntax).
+func luaPatternToGoRegex(pattern string) string {
+	// Fast path: if no % and no -, it's already Go syntax or plain text
+	if !strings.Contains(pattern, "%") && !strings.Contains(pattern, "-") {
+		return pattern
+	}
+
+	var sb strings.Builder
+	i := 0
+	for i < len(pattern) {
+		if pattern[i] == '%' && i+1 < len(pattern) {
+			next := pattern[i+1]
+			switch next {
+			// Lua character classes → Go equivalents
+			case 's':
+				sb.WriteString("\\s")
+			case 'S':
+				sb.WriteString("\\S")
+			case 'd':
+				sb.WriteString("\\d")
+			case 'D':
+				sb.WriteString("\\D")
+			case 'w':
+				sb.WriteString("\\w")
+			case 'W':
+				sb.WriteString("\\W")
+			case 'a':
+				sb.WriteString("[a-zA-Z]")
+			case 'A':
+				sb.WriteString("[^a-zA-Z]")
+			case 'l':
+				sb.WriteString("[a-z]")
+			case 'L':
+				sb.WriteString("[^a-z]")
+			case 'u':
+				sb.WriteString("[A-Z]")
+			case 'U':
+				sb.WriteString("[^A-Z]")
+			case 'p':
+				sb.WriteString("\\p{P}")
+			case 'P':
+				sb.WriteString("\\P{P}")
+			case 'c':
+				sb.WriteString("\\x00-\\x1F")
+			case 'C':
+				sb.WriteString("[^\\x00-\\x1F]")
+			case 'x':
+				sb.WriteString("[0-9a-fA-F]")
+			case 'X':
+				sb.WriteString("[^0-9a-fA-F]")
+			case 'b':
+				// %b() balanced match - not supported in Go regexp
+				// Return an intentionally invalid pattern to signal the error.
+				// "[" is an invalid Go regexp syntax (unclosed character class).
+				return "["
+			case '%':
+				sb.WriteByte('%')
+			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+				// %0-%9 in pattern: Lua uses these for back-references in patterns,
+				// but Go regexp doesn't support back-references.
+				// Keep as-is; will fail at compile time if used in pattern.
+				sb.WriteByte('%')
+				sb.WriteByte(next)
+			default:
+				// % followed by any other character: escape that character
+				// e.g. %| → \|, %( → \(, %[ → \[
+				sb.WriteByte('\\')
+				sb.WriteByte(next)
+			}
+			i += 2
+			continue
+		}
+
+		// Lua non-greedy quantifier "-" → Go "*?"
+		// Must check context: "-" after a pattern element means non-greedy match.
+		// If preceded by '%', it's an escaped character (e.g. %- means literal '-'),
+		// so we should NOT convert it.
+		if pattern[i] == '-' && i > 0 {
+			prev := pattern[i-1]
+			// Check if the '-' is preceded by a '%' escape (e.g. %-)
+			if prev == '%' {
+				// This '-' is part of %- (escaped literal '-'), skip conversion
+				sb.WriteByte('-')
+				i++
+				continue
+			}
+			// Only convert if preceded by a pattern element that can be quantified
+			// (not at start, not after another quantifier)
+			if prev != '^' {
+				sb.WriteString("*?")
+				i++
+				continue
+			}
+		}
+
+		sb.WriteByte(pattern[i])
 		i++
 	}
 	return sb.String()
