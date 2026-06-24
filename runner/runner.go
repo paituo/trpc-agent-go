@@ -28,6 +28,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/artifact"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
+	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/appender"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/barrier"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/flush"
@@ -41,6 +42,8 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/appid"
+
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // Author types for events.
@@ -1014,6 +1017,15 @@ func (r *runner) processAgentEvents(
 	flushChan chan *flush.FlushRequest,
 	handle *runHandle,
 ) chan *event.Event {
+	// Inject the agent's root span context into the event-loop context so that
+	// async workers (e.g., session summary) share the same trace as the request.
+	if invocation != nil && invocation.RunOptions.RuntimeState != nil {
+		if raw, ok := invocation.RunOptions.RuntimeState[itrace.RootSpanContextKey]; ok {
+			if sc, ok := raw.(oteltrace.SpanContext); ok && sc.IsValid() {
+				ctx = oteltrace.ContextWithRemoteSpanContext(ctx, sc)
+			}
+		}
+	}
 	processedEventCh := make(chan *event.Event, cap(agentEventCh))
 	loop := &eventLoopContext{
 		sess:                      sess,

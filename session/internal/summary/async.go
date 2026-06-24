@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/session"
@@ -50,11 +52,21 @@ type AsyncSummaryConfig struct {
 }
 
 // DetachContext clones ctx and strips cancellation for asynchronous summary work.
+// It preserves the OpenTelemetry span context from the original context so that
+// child spans created in async workers are correctly parented under the original
+// request trace.
 func DetachContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithoutCancel(agent.CloneContext(ctx))
+	detached := context.WithoutCancel(agent.CloneContext(ctx))
+	// Re-inject the OTel span context explicitly. context.WithoutCancel
+	// preserves parent values in Go 1.21+, but we do this explicitly to
+	// ensure robustness across Go versions and custom context implementations.
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		detached = trace.ContextWithSpan(detached, span)
+	}
+	return detached
 }
 
 func (c AsyncSummaryConfig) hasSummarizer() bool {
