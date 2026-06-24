@@ -362,23 +362,20 @@ func buildDescription(cfg Config) string {
 		desc += "【标准库（需配置开启）】" + strings.Join(stdLibs, "; ") + "\n\n"
 	}
 
-	desc += "【Lua 5.1 陷阱】①数组索引从1开始 ②不等号用~= ③nil/false是假值，0和空串是真值 ④禁止require，桥接模块已全局注册 ⑤GopherLua不支持中文标识符，table中文key用{[\"key\"]=val} ⑥string库按字节操作中文，请改用utf8模块 ⑦utf8模块使用Go正则语法（\\d而非%d）\n\n"
+	desc += "【注意事项】①nil/false是假值，0和空串是真值 ②禁止require，桥接模块已全局注册 ③GopherLua不支持中文标识符，table中文key用{[\"key\"]=val} ④处理任何文本必须用utf8模块，string库按字节操作不适用于中文\n\n"
 
 	desc += "【html模块】elem:get_text()/get_attr(name)/find(tag)/find_all(tag)/select(css)/select_all(css)。html.parse(str)返回根节点。建议pcall包裹防崩溃。\n\n"
 
 	desc += "【md模块】md.parse/parse_table/extract_tables/detect_merge\n\n"
 
-	desc += "【utf8模块——字符级操作+Go正则+编码转换】\n"
+	desc += "【utf8模块——字符级操作+正则匹配+编码转换】\n"
 	desc += "字符操作：utf8.len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate\n"
-	desc += "正则（Go语法，\\d而非%d）：utf8.find/match/gsub/matches\n"
-	desc += "编码转换：utf8.encode(s,from,to)/decode(s,from)/detect(s)→\"utf-8\"/\"gbk\"/\"unknown\"\n"
-	desc += "处理中文必须用utf8模块，string库按字节操作不适用于中文。\n\n"
+	desc += "正则匹配：utf8.find/match/gsub/matches\n"
+	desc += "编码转换：utf8.encode(s,from,to)/decode(s,from)/detect(s)→\"utf-8\"/\"gbk\"/\"unknown\"\n\n"
 
 	desc += "【yaml模块】yaml.decode/encode/read_file/write_file/read_file_auto/read_text_file(path[,encoding])\n\n"
 
 	desc += "【log模块】log.info/warn/error/debug(...)。日志和print输出在diagnostics节点，与result分离。\n\n"
-
-	desc += "【GopherLua闭包】①局部变量必须先声明后使用 ②闭包捕获变量引用（非值） ③函数参数名会遮蔽外部同名local ④loadstring()在新闭包中执行，无法访问当前local ⑤全局变量可跨闭包访问。\n\n"
 
 	desc += "【参数传递】通过args参数传入，脚本内以ARGS全局table访问。例: lua_exec(script=\"return ARGS.x\", args={x=42}) → result=42\n\n"
 
@@ -386,22 +383,21 @@ func buildDescription(cfg Config) string {
 		desc += "【脚本文件执行】支持script_path参数指定白名单目录下的.lua文件路径，避免回显完整脚本内容。script和script_path二选一，不可同时提供。例: lua_exec(script_path=\"/scripts/validate.lua\", args={category=\"基础组件\"})\n\n"
 	}
 
-	desc += "【错误处理要求——必须遵守】\n"
-	desc += "① 桥接函数(fs.*/yaml.*)失败时返回 nil, {type=\"bridge\", message=\"原因\"}，必须用 err.message 获取错误描述，禁止 tostring(err)：local ok, err = fs.mkdir(path); if not ok then error(err and err.message or \"unknown\") end\n"
-	desc += "② io.lines(path) 文件不存在时抛出错误，必须用pcall包裹\n"
-	desc += "③ 脚本末尾必须return结果（至少含status字段）\n"
-	desc += "④ pcall捕获的错误不要静默忽略\n"
-	desc += "⑤ 工具调用失败时返回 nil, {type=\"tool_call\", ...}，检查第一个返回值\n\n"
+	desc += "【错误处理】\n"
+	desc += "① 桥接函数(fs.*/yaml.*)失败时返回 nil, {type=\"bridge\", message=\"原因\"}，用 err.message 获取错误描述\n"
+	desc += "② io.lines(path) 文件不存在时抛出错误，用pcall包裹\n"
+	desc += "③ 脚本末尾必须return结果\n"
+	desc += "④ 工具调用失败时返回 nil, {type=\"tool_call\", ...}，检查第一个返回值\n\n"
 
 	desc += "【常见错误】\n"
-	desc += "- attempt to call a nil value: 变量未定义或拼写错误，检查工具名/函数名是否正确\n"
-	desc += "- attempt to call a non-function object: 调用了非函数值，常见于html模块：elem:text()不存在，应改为elem:get_text()\n"
-	desc += "- bad argument #1 to 'pairs' (table expected, got string): 对非table值用了pairs()，先用type()检查\n"
+	desc += "- attempt to call a nil value: 变量未定义或拼写错误\n"
+	desc += "- attempt to call a non-function object: 调用了非函数值，html模块用elem:get_text()而非elem:text()\n"
+	desc += "- bad argument #1 to 'pairs' (table expected, got string): 对非table值用了pairs()\n"
 	desc += "- registry overflow: 循环过大或表元素过多，加循环上限(≤10000)\n"
-	desc += "- attempt to index a nil value: 工具返回nil(如搜索无结果)，先判nil再操作\n"
-	desc += "- Invalid token near '中文': 中文标识符不支持，table中文key改用方括号语法 {[\"中文key\"] = value}\n"
-	desc += "- bad argument #1 to 'load' (function expected, got string): GopherLua的load()行为与标准Lua不同，使用loadstring()替代\n"
-	desc += "- attempt to call a non-function object (os.execute/io.popen): 沙箱已移除这些函数，用yaml.write_file或tool调用替代"
+	desc += "- attempt to index a nil value: 工具返回nil，先判nil再操作\n"
+	desc += "- Invalid token near '中文': 中文标识符不支持，table中文key用{[\"中文key\"]=val}\n"
+	desc += "- bad argument #1 to 'load': GopherLua的load()行为不同，用loadstring()替代\n"
+	desc += "- os.execute/io.popen: 沙箱已移除，用yaml.write_file或tool调用替代"
 	return desc
 }
 
