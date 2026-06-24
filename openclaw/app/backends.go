@@ -21,6 +21,7 @@ import (
 	meminmemory "trpc.group/trpc-go/trpc-agent-go/memory/inmemory"
 	memredis "trpc.group/trpc-go/trpc-agent-go/memory/redis"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/internal/modelcontext"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/conversation"
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	sessioninmemory "trpc.group/trpc-go/trpc-agent-go/session/inmemory"
@@ -363,6 +364,19 @@ func newSessionSummarizer(
 			hasContextCheck = true
 		}
 		if hasContextCheck {
+			// When no explicit fallback window is configured and the
+			// summarizer model has a known context window, use it as the
+			// fallback. Without this, resolveContextWindowFromCtx falls
+			// back to 8192 tokens (since the wrapped checker below passes
+			// context.Background() which has no invocation context),
+			// making the effective threshold far too small (e.g. ~4.9K
+			// tokens at ratio 0.6) and triggering summarization after
+			// nearly every event.
+			if opts.SessionSummaryContextThresholdFallbackWindow <= 0 {
+				if w, ok := modelcontext.ResolveContextWindow(mdl); ok {
+					cto = append(cto, summary.WithContextThresholdFallbackWindow(w))
+				}
+			}
 			cc := summary.CheckContextThreshold(cto...)
 			checks = append(
 				checks,
