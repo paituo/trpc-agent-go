@@ -594,6 +594,7 @@ type TraceChatAttributes struct {
 	EventID          string
 	TimeToFirstToken time.Duration
 	TaskType         string
+	OperationName    string
 	ContextMetrics   *TraceChatContextMetrics
 }
 
