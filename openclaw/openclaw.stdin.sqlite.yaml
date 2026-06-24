@@ -13,7 +13,7 @@ admin:
 
 agent:
   type: "llm"
-  planner_type: "builtin"
+  planner_type: "react"
   planner_config:
     verification_prompt: "验证执行结果是否符合预期"
   instruction: |
@@ -45,6 +45,25 @@ agent:
     # 输出格式
     Markdown格式：标题组织结构、列表枚举、代码块包裹、表格对比、**加粗**关键、`反引号`术语。
     工程分析类回复按：问题概述→依据与前提→分析过程→计算结果→结论与建议。简单问题可直接回答。
+
+    ## 可合并模式
+    - **批量同类操作**：连续多次 `fs_read_file`/`fs_save`/`search_content` 等同类调用 → 合并为LUA循环批量处理
+    - **链式操作**：先读后写等有数据流的连续调用 → 合并为单个LUA脚本完成全流程
+
+    ## LUA脚本生成规范
+    1. **参数映射**：原工具调用的每个参数准确映射到 `tool.工具名({...})` 调用
+    2. **结果聚合**：返回统一格式 `{status, steps=[], results={}}`
+    3. **错误隔离**：用 `pcall` 包裹每个工具调用，单步失败不影响后续
+    4. **调试输出**：用 `log.info` 记录每步执行状态和耗时
+
+    ## 不合并的场景
+    - 调用涉及 `exec_command`/`subagents_*`/`agent_tool`/`message`/`cron` 等特殊工具
+    - 数据依赖复杂无法在LUA沙箱中表达
+    - 单工具结果超过 `max_single_result_size`
+
+  #1、只禁止使用 exec_command 工具，不限制其他工具、技能的使用；
+  #2、智能体支持并发调用工具；
+  #3、启用 tool_merge 功能时，优先分析工具调用序列并生成合并LUA脚本；
       
   # system_prompt_dir: "./prompts/system"
   #max_history_runs: 50
@@ -53,18 +72,18 @@ agent:
   enable_token_counter_calibration: false
   enable_detailed_context_metrics: true
   add_session_summary: true
-  session_summary_injection_mode: "user"
-  sync_summary_intra_run: false
+  session_summary_injection_mode: "system"
+  #sync_summary_intra_run: true
   enable_context_compaction: true
-  context_compaction_threshold_ratio: 0.4
+  context_compaction_threshold_ratio: 0.5
   context_compaction_tool_result_max_tokens: 1024
-  context_compaction_keep_recent_requests: 3
+  #context_compaction_keep_recent_requests: 3
+  context_compaction_keep_recent_tool_results: 30
   context_compaction_oversized_tool_result_max_tokens: 8192
   context_compaction_force_clean_tool_names:
     - "subagents_get"
   context_compaction_keep_tool_names:
-    - "session_load"
-    - "session_search"
+    - "todo_write"
 
 model:
   mode: "openai"
@@ -159,7 +178,7 @@ session:
     enabled: true
     mode: "manual"
     policy: "any"
-    max_words: 1000
+    max_words: 1500
     # 触发条件（任一满足即触发）
     context_threshold_ratio: 0.6
     #event_threshold: 40           # 自上次摘要后新增 40 个事件后触发
@@ -177,10 +196,20 @@ memory:
 #     path: "./data/memory.sqlite"
 #     skip_db_init: false
 #     index_dimension: 1024
+    index_dimension: 1024
+    max_results: 5
 #     embedder:
 #       type: "openai"
 #       model: "bge-m3"
 #       base_url: "http://172.20.0.162:9997/v1"
+#       api_key: "${EMBEDDER_API_KEY}"
+#       dimensions: 1024
+#   limit: 200
+#   auto:
+#     enabled: true
+#     policy: "any"
+#     message_threshold: 10
+
 #       api_key: "${EMBEDDER_API_KEY}"
 #       dimensions: 1024
 #   limit: 200
@@ -204,8 +233,9 @@ skills:
     1. **匹配即加载。** 用户提及技能名、斜杠命令或任务匹配技能描述时，
     当轮调用 `skill_load`，不得延迟、不得仅宣布而不调用、不得凭记忆作答。
 
-    2. **加载先于回答。** 匹配时必须先加载 `SKILL.md`，再作答。
-    相对路径从技能目录解析，只读必要内容，保持上下文最小。
+    2. **加载先于回答，严格遵循定义。** 匹配时必须先加载 `SKILL.md`，
+    再作答。相对路径从技能目录解析，只读必要内容，保持上下文最小。
+    执行中严格遵循 SKILL.md 的各项要求，不得降低标准或简化流程。
 
     3. **持久归技能，轻量归记忆。** 工作流、集成、规则等持久能力
     → 创建或更新本地技能；简单事实或偏好 → 用记忆存储。
@@ -217,14 +247,19 @@ skills:
     先本地探索再提问；技能缺失时简述问题并优雅回退。创建技能须写文件、
     不存原始密钥、校验、刷新后使用，复用已有资产。
 
+    6. **复杂步骤拆解。** 子步骤含3个以上操作环节时，用 `todo_write`
+    （merge=true）二次拆解为可独立验证的子任务，逐项执行。
+
 tools:
   enable_local_exec: true
   enable_openclaw_tools: true
   #enable_execute_tools: false
   enable_parallel_tools: true
   subagent:
-    enable_subagent_tools: false
+    enabled: false
     enable_session_alias: false
+  taskrun:
+    enabled: true
   # tool_call_retry_policy:
   #   max_attempts: 3
   #   initial_interval_ms: 200
@@ -261,13 +296,12 @@ tools:
         enable_read: true
         enable_read_multiple: true
         enable_list: true
+        enable_move: true
+        enable_copy: true
+        enable_delete: true
         enable_search_file: true
         enable_search_content: true
-        enable_file_manage: true
-        enable_file_manage_move: true
-        enable_file_manage_copy: true
-        enable_file_manage_delete: true
-        max_file_size: 61440
+        max_tool_result_chars: 8192
 
     - type: "lua"
       config:
