@@ -49,6 +49,13 @@ func registerUTF8Bridge(L *lua.LState) {
 	L.SetField(mod, "gsub", L.NewFunction(bridgeUTF8Gsub))
 	L.SetField(mod, "matches", L.NewFunction(bridgeUTF8Matches))
 
+	// String formatting (delegates to string.format, same format syntax)
+	L.SetField(mod, "format", L.NewFunction(bridgeUTF8Format))
+
+	// UTF-8 utility functions
+	L.SetField(mod, "truncate_bytes", L.NewFunction(bridgeUTF8TruncateBytes))
+	L.SetField(mod, "sanitize", L.NewFunction(bridgeUTF8Sanitize))
+
 	// Encoding conversion
 	L.SetField(mod, "encode", L.NewFunction(bridgeUTF8Encode))
 	L.SetField(mod, "decode", L.NewFunction(bridgeUTF8Decode))
@@ -275,6 +282,114 @@ func bridgeUTF8Rep(L *lua.LState) int {
 		return 1
 	}
 	L.Push(lua.LString(strings.Repeat(s, n)))
+	return 1
+}
+
+// bridgeUTF8Format implements utf8.format(fmt, ...) → string.
+// Delegates to string.format with the same format syntax.
+// This is safe because format templates are ASCII and string.format does not
+// perform byte-level operations on %s arguments — it outputs them as-is.
+// Scripts can use utf8.format instead of string.format for consistency.
+func bridgeUTF8Format(L *lua.LState) int {
+	n := L.GetTop()
+	if n < 1 {
+		L.Push(lua.LString(""))
+		return 1
+	}
+	fmtStr := L.CheckString(1)
+	// Call string.format(fmtStr, ...)
+	formatFn := L.GetGlobal("string")
+	tbl, ok := formatFn.(*lua.LTable)
+	if !ok {
+		L.Push(lua.LString(fmtStr))
+		return 1
+	}
+	L.Push(L.GetField(tbl, "format"))
+	L.Push(lua.LString(fmtStr))
+	for i := 2; i <= n; i++ {
+		L.Push(L.Get(i))
+	}
+	err := L.PCall(n, 1, nil) // n args: format + (n-1) variadic args
+	if err != nil {
+		pushBridgeError(L, fmt.Sprintf("utf8.format: %v", err))
+		return 2
+	}
+	return 1
+}
+
+// bridgeUTF8TruncateBytes implements utf8.truncate_bytes(s, max_bytes) → string.
+// Truncates a string to the specified number of bytes, ensuring no multi-byte
+// UTF-8 character is cut in half. This is useful for limiting preview lengths
+// without producing invalid UTF-8 sequences.
+func bridgeUTF8TruncateBytes(L *lua.LState) int {
+	s := L.CheckString(1)
+	maxBytes := L.CheckInt(2)
+	if maxBytes <= 0 {
+		L.Push(lua.LString(""))
+		return 1
+	}
+	if len(s) <= maxBytes {
+		L.Push(lua.LString(s))
+		return 1
+	}
+	// Start from maxBytes and walk backward to find a safe truncation point.
+	// pos is a 1-based byte index into the string.
+	pos := maxBytes
+	for pos > 0 {
+		b := s[pos-1] // 0-based index
+		if b < 0x80 {
+			// ASCII byte (single byte character) - safe to truncate here
+			break
+		}
+		if b >= 0xC0 {
+			// Leading byte of a multi-byte UTF-8 character.
+			// Check if this character fits entirely within maxBytes.
+			var charLen int
+			switch {
+			case b >= 0xF0:
+				charLen = 4
+			case b >= 0xE0:
+				charLen = 3
+			default: // b >= 0xC0
+				charLen = 2
+			}
+			if pos+charLen-1 <= maxBytes {
+				// Character fits entirely, safe to truncate after it
+				pos = pos + charLen - 1
+				break
+			}
+			// Character doesn't fit, truncate before it
+			pos--
+			break
+		}
+		// Continuation byte (0x80-0xBF), continue searching backward
+		pos--
+	}
+	L.Push(lua.LString(s[:pos]))
+	return 1
+}
+
+// bridgeUTF8Sanitize implements utf8.sanitize(s) → string.
+// Replaces invalid UTF-8 byte sequences with the Unicode replacement character (U+FFFD).
+// This ensures the string can be safely serialized as YAML without "invalid UTF-8" errors.
+func bridgeUTF8Sanitize(L *lua.LState) int {
+	s := L.CheckString(1)
+	if utf8.ValidString(s) {
+		L.Push(lua.LString(s))
+		return 1
+	}
+	var buf strings.Builder
+	buf.Grow(len(s))
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			buf.WriteString("\uFFFD")
+		} else {
+			buf.WriteString(s[i : i+size])
+		}
+		i += size
+	}
+	L.Push(lua.LString(buf.String()))
 	return 1
 }
 
