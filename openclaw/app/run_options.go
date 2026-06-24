@@ -129,7 +129,8 @@ const (
 	flagAgentRalphLoopVerifyTimeout     = "agent-ralph-verify-timeout"
 	flagAgentRalphLoopVerifyEnv         = "agent-ralph-verify-env"
 
-	flagEnableParallelTools = "enable-parallel-tools"
+	flagEnableParallelTools   = "enable-parallel-tools"
+	flagEnableContextBudget   = "enable-context-budget"
 
 	flagSkillsAllowBundled    = "skills-allow-bundled"
 	flagSkillsWatch           = "skills-watch"
@@ -204,6 +205,7 @@ type runOptions struct {
 
 	AddSessionSummary                             bool
 	EnableContextCompaction                       bool
+	EnableContextBudget                           bool
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	MaxLLMCalls                                   int
@@ -490,6 +492,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagEnableContextCompaction,
 		false,
 		"Enable prompt-side context compaction to control context window growth",
+	)
+	fs.BoolVar(
+		&opts.EnableContextBudget,
+		flagEnableContextBudget,
+		true,
+		"Enable context budget plugin that injects usage reminders into prompts",
 	)
 	fs.IntVar(
 		&opts.ContextCompactionOversizedToolResultMaxTokens,
@@ -1327,6 +1335,7 @@ type agentRunConfig struct {
 	SessionSummaryInjectionMode                   *string  `yaml:"session_summary_injection_mode,omitempty"`
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
 	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
+	EnableContextBudget                           *bool    `yaml:"enable_context_budget,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
@@ -1873,6 +1882,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.EnableContextCompaction != nil &&
 			!flagWasSet(set, flagEnableContextCompaction) {
 			opts.EnableContextCompaction = *cfg.Agent.EnableContextCompaction
+		}
+		if cfg.Agent.EnableContextBudget != nil &&
+			!flagWasSet(set, flagEnableContextBudget) {
+			opts.EnableContextBudget = *cfg.Agent.EnableContextBudget
 		}
 		if cfg.Agent.ContextCompactionOversizedToolResultMaxTokens != nil &&
 			!flagWasSet(set, flagContextCompactionOversizedToolResultMaxTokens) {
