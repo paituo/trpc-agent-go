@@ -1165,10 +1165,17 @@ func NewRuntimeWithOptions(
 
 	bridgedSessionSvc := conversationscope.WrapSessionService(sessionSvc)
 	rt.session = bridgedSessionSvc
+
 	runnerOpts := []runner.Option{
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
 		runner.WithAwaitUserReplyRouting(true),
+	}
+	if opts.EnableContextBudget {
+		runnerOpts = append(
+			runnerOpts,
+			runner.WithPlugins(conversation.ContextBudgetPlugin{}),
+		)
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
@@ -1730,6 +1737,12 @@ func run(
 		runner.WithSessionService(bridgedSessionSvc),
 		runner.WithPlugins(conversation.Plugin{}),
 		runner.WithAwaitUserReplyRouting(true),
+	}
+	if opts.EnableContextBudget {
+		runnerOpts = append(
+			runnerOpts,
+			runner.WithPlugins(conversation.ContextBudgetPlugin{}),
+		)
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
 	rlCfg, err := ralphLoopConfigFromRunOptions(opts)
