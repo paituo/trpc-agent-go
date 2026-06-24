@@ -501,6 +501,7 @@ type TraceChatAttributes struct {
 	EventID          string
 	TimeToFirstToken time.Duration
 	TaskType         string
+	OperationName    string
 	ContextMetrics   *TraceChatContextMetrics
 }
 
@@ -518,9 +519,13 @@ func TraceChat(span trace.Span, attributes *TraceChatAttributes) {
 	if !span.IsRecording() {
 		return
 	}
+	opName := OperationChat
+	if attributes != nil && attributes.OperationName != "" {
+		opName = attributes.OperationName
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String(semconvtrace.KeyGenAISystem, semconvtrace.SystemTRPCGoAgent),
-		attribute.String(semconvtrace.KeyGenAIOperationName, OperationChat),
+		attribute.String(semconvtrace.KeyGenAIOperationName, opName),
 	}
 	if attributes == nil {
 		span.SetAttributes(attrs...)

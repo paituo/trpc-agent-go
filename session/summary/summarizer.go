@@ -16,6 +16,9 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/event"
 	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
@@ -814,8 +817,26 @@ func (s *sessionSummarizer) generateSummary(
 	if s.model != nil {
 		modelName = s.model.Info().Name
 	}
-	_, span := trace.Tracer.Start(ctx, itelemetry.NewChatSpanName(modelName))
+
+	// Capture the parent span context before creating the summary span,
+	// so we can record the parent trace ID as metadata for Langfuse correlation.
+	parentSpanCtx := oteltrace.SpanContextFromContext(ctx)
+
+	ctx, span := trace.Tracer.Start(ctx, itelemetry.NewSummarizeTaskType(s.name))
 	defer span.End()
+
+	// Record model name as span attribute for traceability.
+	span.SetAttributes(attribute.String("gen_ai.request.model", modelName))
+
+	// Record the parent trace ID as metadata so that Langfuse can correlate
+	// summary LLM calls with their originating request traces even when the
+	// parent span has already ended.
+	if parentSpanCtx.IsValid() {
+		span.SetAttributes(attribute.String(
+			"langfuse.trace.metadata.summary_parent_trace_id",
+			parentSpanCtx.TraceID().String(),
+		))
+	}
 
 	request, mode, err := s.buildSummaryRequest(ctx, conversationText)
 	if err != nil {
@@ -882,6 +903,7 @@ func (s *sessionSummarizer) generateSummary(
 			Response:         finalResp,
 			TimeToFirstToken: tracker.FirstTokenTimeDuration(),
 			TaskType:         taskType,
+			OperationName:    taskType,
 		})
 	}()
 
