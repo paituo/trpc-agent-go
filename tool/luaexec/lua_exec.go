@@ -332,7 +332,7 @@ func buildDescription(cfg Config) string {
 		available = append(available, "json: decode/encode")
 	}
 	if !denied["utf8"] {
-		available = append(available, "utf8: len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate/find/match/gsub/matches/encode/decode/detect(统一文本处理：字符级操作+正则匹配+编码转换)")
+		available = append(available, "utf8: len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate/find/match/gsub/matches/format/truncate_bytes/sanitize/encode/decode/detect(统一文本处理：字符级操作+正则匹配+格式化+编码转换+UTF-8工具)")
 	}
 	if !denied["html"] {
 		available = append(available, "html: parse/find/find_all/select/select_all/get_text/get_attr/children/all_children/tag_name/parent")
@@ -368,9 +368,11 @@ func buildDescription(cfg Config) string {
 
 	desc += "【md模块】md.parse/parse_table/extract_tables/detect_merge\n\n"
 
-	desc += "【utf8模块——字符级操作+正则匹配+编码转换】\n"
-	desc += "字符操作：utf8.len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate\n"
-	desc += "正则匹配：utf8.find/match/gsub/matches\n"
+	desc += "【utf8模块——字符级操作+正则匹配+格式化+编码转换+UTF-8工具】\n"
+	desc += "字符操作：utf8.len/sub/reverse/upper/lower/char/codepoint/codes/byteoffset/validate/rep\n"
+	desc += "正则匹配：utf8.find/match/gsub/matches（支持Lua语法%d/%s，自动转换）\n"
+	desc += "格式化：utf8.format(fmt, ...) 同string.format\n"
+	desc += "UTF-8工具：utf8.truncate_bytes(s, max_bytes)安全截断 / utf8.sanitize(s)清洗无效UTF-8\n"
 	desc += "编码转换：utf8.encode(s,from,to)/decode(s,from)/detect(s)→\"utf-8\"/\"gbk\"/\"unknown\"\n\n"
 
 	desc += "【yaml模块】yaml.decode/encode/read_file/write_file/read_file_auto/read_text_file(path[,encoding])\n\n"
