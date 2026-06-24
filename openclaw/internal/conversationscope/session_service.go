@@ -11,6 +11,7 @@ package conversationscope
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -364,6 +365,47 @@ func (s *sessionService) searchEvents(
 		rewritten[i].SessionKey.UserID = requestUserID
 	}
 	return rewritten, nil
+}
+
+// GetEventWindow implements session.WindowService by delegating to the
+// underlying session service when it supports window-based loading.
+func (s *sessionService) GetEventWindow(
+	ctx context.Context,
+	req session.EventWindowRequest,
+) (*session.EventWindow, error) {
+	ws, ok := s.next.(session.WindowService)
+	if !ok {
+		return nil, errors.New("session service does not support GetEventWindow")
+	}
+	return ws.GetEventWindow(ctx, req)
+}
+
+// SearchEvents implements session.SearchableService by delegating to the
+// underlying session service when it supports event search.
+func (s *sessionService) SearchEvents(
+	ctx context.Context,
+	req session.EventSearchRequest,
+) ([]session.EventSearchResult, error) {
+	ss, ok := s.next.(session.SearchableService)
+	if !ok {
+		return nil, errors.New("session service does not support SearchEvents")
+	}
+	return ss.SearchEvents(ctx, req)
+}
+
+// AppendTrackEvent implements session.TrackService by delegating to the
+// underlying session service when it supports track events.
+func (s *sessionService) AppendTrackEvent(
+	ctx context.Context,
+	sess *session.Session,
+	event *session.TrackEvent,
+	opts ...session.Option,
+) error {
+	ts, ok := s.next.(session.TrackService)
+	if !ok {
+		return errors.New("session service does not support AppendTrackEvent")
+	}
+	return ts.AppendTrackEvent(ctx, sess, event, opts...)
 }
 
 func rewriteKeyForStorage(
