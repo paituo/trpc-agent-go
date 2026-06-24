@@ -87,7 +87,6 @@ func TestNewToolSet_Default(t *testing.T) {
 	assert.Equal(t, true, fts.readFileEnabled)
 	assert.Equal(t, true, fts.listFileEnabled)
 	assert.Equal(t, true, fts.searchFileEnabled)
-	assert.Equal(t, true, fts.fileManageEnabled)
 	assert.Equal(t, defaultCreateDirMode, fts.createDirMode)
 	assert.Equal(t, defaultCreateFileMode, fts.createFileMode)
 }
@@ -132,7 +131,6 @@ func TestNewToolSet_FeatureSwitch(t *testing.T) {
 		WithSearchContentEnabled(false),
 		WithReplaceContentEnabled(false),
 		WithReadMultipleFilesEnabled(false),
-		WithFileManageEnabled(false),
 		WithMoveFilesEnabled(false),
 		WithCopyFilesEnabled(false),
 		WithDeleteFilesEnabled(false),
@@ -143,75 +141,8 @@ func TestNewToolSet_FeatureSwitch(t *testing.T) {
 	assert.False(t, fts.readFileEnabled)
 	assert.False(t, fts.listFileEnabled)
 	assert.False(t, fts.searchFileEnabled)
-	assert.False(t, fts.fileManageEnabled)
 	tools := fts.Tools(context.Background())
 	assert.Len(t, tools, 1)
-}
-
-func TestNewToolSet_FileManageEnabled(t *testing.T) {
-	dir := t.TempDir()
-	set, err := NewToolSet(
-		WithBaseDir(dir),
-		WithFileManageEnabled(true),
-	)
-	assert.NoError(t, err)
-	fts := set.(*fileToolSet)
-	assert.True(t, fts.fileManageEnabled)
-	tools := fts.Tools(context.Background())
-	// file_manage replaces move_files, copy_files, delete_files
-	// Total: save_file, read_file, read_multiple_files, list_file,
-	//        search_file, search_content, replace_content, file_manage = 8
-	assert.Len(t, tools, 8)
-	hasFileManage := false
-	for _, tool := range tools {
-		if tool.Declaration().Name == "file_manage" {
-			hasFileManage = true
-			break
-		}
-	}
-	assert.True(t, hasFileManage, "file_manage tool should be registered")
-}
-
-func TestNewToolSet_FileManageDisabled(t *testing.T) {
-	dir := t.TempDir()
-	set, err := NewToolSet(
-		WithBaseDir(dir),
-		WithFileManageEnabled(false),
-	)
-	assert.NoError(t, err)
-	fts := set.(*fileToolSet)
-	assert.False(t, fts.fileManageEnabled)
-	tools := fts.Tools(context.Background())
-	// When file_manage is disabled, individual move_files, copy_files, delete_files are registered
-	// Total: save_file, read_file, read_multiple_files, list_file,
-	//        search_file, search_content, replace_content,
-	//        move_files, copy_files, delete_files = 10
-	assert.Len(t, tools, 10)
-	hasFileManage := false
-	for _, tool := range tools {
-		if tool.Declaration().Name == "file_manage" {
-			hasFileManage = true
-			break
-		}
-	}
-	assert.False(t, hasFileManage, "file_manage tool should not be registered when disabled")
-}
-
-func TestNewToolSet_FileManageSubActions(t *testing.T) {
-	dir := t.TempDir()
-	set, err := NewToolSet(
-		WithBaseDir(dir),
-		WithFileManageEnabled(true),
-		WithFileManageMoveEnabled(false),
-		WithFileManageCopyEnabled(true),
-		WithFileManageDeleteEnabled(false),
-	)
-	assert.NoError(t, err)
-	fts := set.(*fileToolSet)
-	assert.True(t, fts.fileManageEnabled)
-	assert.False(t, fts.fileManageMoveEnabled)
-	assert.True(t, fts.fileManageCopyEnabled)
-	assert.False(t, fts.fileManageDeleteEnabled)
 }
 
 func TestResolvePath_Normal(t *testing.T) {
