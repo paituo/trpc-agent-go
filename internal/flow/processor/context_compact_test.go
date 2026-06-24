@@ -474,8 +474,8 @@ func TestCompactIncrementEvents_ForceCleansOnlyUnprotectedToolNames(t *testing.T
 	)
 
 	require.Len(t, compacted, 4)
-	require.Equal(t, policyToolResultPlaceholder,
-		compacted[0].Response.Choices[0].Message.Content)
+	require.Contains(t, compacted[0].Response.Choices[0].Message.Content,
+		policyToolResultPlaceholder)
 	require.Equal(t, "recent result",
 		compacted[1].Response.Choices[0].Message.Content)
 	require.Equal(t, "skip result",
@@ -1250,7 +1250,7 @@ func TestToolResultCompactionHelpers_HandleTokenCounterErrors(t *testing.T) {
 		},
 	)
 	require.True(t, changed)
-	require.Equal(t, policyToolResultPlaceholder, cleaned.Content)
+	require.Contains(t, cleaned.Content, policyToolResultPlaceholder)
 	require.Zero(t, savedTokens)
 
 	compacted, changed, savedTokens := compactHistoricalToolResultMessageWithCounter(
@@ -1500,24 +1500,24 @@ func TestCompactIncrementEvents_CurrentRequestPass15(t *testing.T) {
 		"req-current",
 		"inv-current",
 		ContextCompactionConfig{
-			Enabled:                true,
-			ToolResultMaxTokens:    10,
-			KeepRecentToolResults:  2,
-			KeepRecentRequests:     1,
+			Enabled:               true,
+			ToolResultMaxTokens:   10,
+			KeepRecentToolResults: 2,
+			KeepRecentRequests:    1,
 		},
 	)
 
 	require.Len(t, compacted, 5)
-	// First 3 events should be compacted (placeholder).
+	// First 3 events should be compacted (placeholder) by Pass 1.5.
 	require.Contains(t,
 		compacted[0].Response.Choices[0].Message.Content,
-		historicalToolResultPlaceholder)
+		currentRequestToolResultPlaceholder)
 	require.Contains(t,
 		compacted[1].Response.Choices[0].Message.Content,
-		historicalToolResultPlaceholder)
+		currentRequestToolResultPlaceholder)
 	require.Contains(t,
 		compacted[2].Response.Choices[0].Message.Content,
-		historicalToolResultPlaceholder)
+		currentRequestToolResultPlaceholder)
 	// Last 2 events should be preserved.
 	require.Equal(t, recentContent+"4",
 		compacted[3].Response.Choices[0].Message.Content)
@@ -1618,11 +1618,11 @@ func TestCompactIncrementEvents_CurrentRequestPass15_RespectsKeepToolNames(t *te
 	)
 
 	require.Len(t, compacted, 3)
-	// fs_read (index 0) should be compacted — it's before the recent window
-	// and exceeds ToolResultMaxTokens.
+	// fs_read (index 0) should be compacted by Pass 1.5 — it's before the
+	// recent window and exceeds ToolResultMaxTokens.
 	require.Contains(t,
 		compacted[0].Response.Choices[0].Message.Content,
-		historicalToolResultPlaceholder)
+		currentRequestToolResultPlaceholder)
 	// todo_write should be preserved regardless of position (keepToolName).
 	require.Equal(t, bigContent,
 		compacted[1].Response.Choices[0].Message.Content)
@@ -1659,7 +1659,7 @@ func TestCompactIncrementEvents_CurrentRequestPass15_HistoricalEventsUnaffected(
 	compacted, stats := compactIncrementEvents(
 		context.Background(),
 		[]event.Event{
-			makeToolEvent("req-old", oldContent),       // historical
+			makeToolEvent("req-old", oldContent),             // historical
 			makeToolEvent("req-current", currentContent+"1"), // current, early
 			makeToolEvent("req-current", currentContent+"2"), // current, recent
 		},
@@ -1681,7 +1681,7 @@ func TestCompactIncrementEvents_CurrentRequestPass15_HistoricalEventsUnaffected(
 	// Current request early tool result compacted by Pass 1.5.
 	require.Contains(t,
 		compacted[1].Response.Choices[0].Message.Content,
-		historicalToolResultPlaceholder)
+		currentRequestToolResultPlaceholder)
 	// Current request recent tool result preserved.
 	require.Equal(t, currentContent+"2",
 		compacted[2].Response.Choices[0].Message.Content)

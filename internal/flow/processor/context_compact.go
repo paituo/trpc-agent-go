@@ -49,20 +49,10 @@ const (
 	// means "framework will not modify tool results".
 	DefaultContextCompactionOversizedToolResultMaxTokens = 8192
 
-	// historicalToolResultPlaceholder replaces historical tool result content
-	// after context compaction. The message MUST make it clear that the call
-	// succeeded and returned data that was already consumed, otherwise the
-	// model may interpret the elided payload as a failed/missing call and
-	// retry side-effecting tools at the top of the context window.
-	historicalToolResultPlaceholder = "[elided] Previous tool call " +
-		"succeeded and its result was already consumed by the assistant; " +
-		"payload has been dropped to save context. Use the available " +
-		"summary or recovery hints first. Re-run only read-only or " +
-		"idempotent tools when exact data is essential; do not repeat " +
-		"side-effecting operations just to recover this payload."
-	sessionLoadToolName         = "session_load"
-	policyToolResultPlaceholder = "Tool result omitted by context " +
-		"compaction policy."
+	historicalToolResultPlaceholder     = "Historical tool result omitted to save context."
+	currentRequestToolResultPlaceholder = "Current-request tool result omitted to save context."
+	sessionLoadToolName                 = "session_load"
+	policyToolResultPlaceholder         = "Tool result omitted by context compaction policy."
 )
 
 type toolResultRecoveryRef struct {
@@ -107,6 +97,8 @@ func recoverableToolResultPlaceholder(ref toolResultRecoveryRef) string {
 	switch ref.Reason {
 	case "current_invocation_summary":
 		b.WriteString(compactedToolResultPlaceholder)
+	case "current_request_compaction":
+		b.WriteString(currentRequestToolResultPlaceholder)
 	default:
 		b.WriteString(historicalToolResultPlaceholder)
 	}
@@ -133,12 +125,10 @@ func recoverableTruncationMarker(
 	if ref.ToolName != "" {
 		fmt.Fprintf(&b, "; tool_name=%s", ref.ToolName)
 	}
-	if ref.SessionLoadAvailable {
-		b.WriteString("; use session_load ...")
-	} else {
-		b.WriteString("; re-run only safe read-only/idempotent tools")
+	if ref.Reason != "" {
+		fmt.Fprintf(&b, "; reason=%s", ref.Reason)
 	}
-	b.WriteString("]\n\n")
+	b.WriteString("; use session_load ...]\n\n")
 	return b.String()
 }
 
@@ -161,6 +151,20 @@ func compactRecoverableTruncationMarker(
 			b.WriteString("; ")
 		}
 		fmt.Fprintf(&b, "tool_call_id=%s", ref.ToolCallID)
+		wroteField = true
+	}
+	if ref.ToolName != "" {
+		if wroteField {
+			b.WriteString("; ")
+		}
+		fmt.Fprintf(&b, "tool_name=%s", ref.ToolName)
+		wroteField = true
+	}
+	if ref.Reason != "" {
+		if wroteField {
+			b.WriteString("; ")
+		}
+		fmt.Fprintf(&b, "reason=%s", ref.Reason)
 		wroteField = true
 	}
 	if wroteField {
@@ -211,8 +215,12 @@ func isRecoverablePlaceholderContent(content string) bool {
 	if content == compactedToolResultPlaceholder {
 		return true
 	}
+	if content == currentRequestToolResultPlaceholder {
+		return true
+	}
 	return strings.HasPrefix(content, historicalToolResultPlaceholder+"\n") ||
-		strings.HasPrefix(content, compactedToolResultPlaceholder+"\n")
+		strings.HasPrefix(content, compactedToolResultPlaceholder+"\n") ||
+		strings.HasPrefix(content, currentRequestToolResultPlaceholder+"\n")
 }
 
 // ContextCompactionConfig controls request-side history compaction applied
@@ -258,10 +266,10 @@ type ContextCompactionSkipRecentFunc func(events []event.Event) int
 // ContextCompactionStats reports how much prompt history was compacted during
 // request projection.
 type ContextCompactionStats struct {
-	ToolResultsCompacted     int
-	EstimatedTokensSaved     int
+	ToolResultsCompacted      int
+	EstimatedTokensSaved      int
 	OversizedResultsTruncated int
-	OversizedTokensSaved     int
+	OversizedTokensSaved      int
 }
 
 type toolResultCompactionRules struct {
@@ -644,6 +652,7 @@ func applyCurrentRequestToolResultPass(
 			ctx,
 			events[idx],
 			cfg.ToolResultMaxTokens,
+			cfg.SessionLoadRecoveryEnabled,
 			func(ctx context.Context, msg model.Message, maxTokens int, ref toolResultRecoveryRef) (model.Message, bool, int) {
 				if cfg.keepToolResult(msg) {
 					return msg, false, 0
@@ -1010,9 +1019,21 @@ func cleanToolResultMessageWithCounter(
 	if err != nil {
 		originalTokens = 0
 	}
+	compactedContent := policyToolResultPlaceholder
+	if msg.ToolID != "" {
+		ref := toolResultRecoveryRef{
+			ToolCallID: msg.ToolID,
+			ToolName:   msg.ToolName,
+			Reason:     "policy_force_clean",
+		}
+		var b strings.Builder
+		b.WriteString(policyToolResultPlaceholder)
+		writeRecoveryRefLines(&b, ref)
+		compactedContent = b.String()
+	}
 	compacted := model.Message{
 		Role:     msg.Role,
-		Content:  policyToolResultPlaceholder,
+		Content:  compactedContent,
 		ToolID:   msg.ToolID,
 		ToolName: msg.ToolName,
 	}
