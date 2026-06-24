@@ -48,6 +48,7 @@ agent:
       
   # system_prompt_dir: "./prompts/system"
   #max_history_runs: 50
+  enable_context_budget: true
   preload_memory: 10
   enable_token_counter_calibration: false
   enable_detailed_context_metrics: true
@@ -73,6 +74,7 @@ model:
   token_tailoring:
     enabled: true
     strategy: "middle_out"
+    include_output_schema_in_description: false
   generation_config:
     max_tokens: 12000
     temperature: 0.1
@@ -81,8 +83,12 @@ model:
     reasoning_effort: "high"
 
 knowledges:
+  # enable_agentic_filter: true   # default true; set false to disable LLM-driven filter
   providers:
     - name: "qianqiziliao"
+      type: "builtin"
+      description: "项目知识库"
+      max_results: 30      
       config:
         embedder:
           type: "openai"
@@ -91,19 +97,73 @@ knowledges:
           api_key: "${EMBEDDER_API_KEY}"
           dimensions: 1024
         vector_store:
-          type: "inmemory"
-
+          type: "sqlitevec"
+          dsn: "file:data/knowledge.db?_busy_timeout=5000"
+          max_results: 10
+        reranker:
+          type: "infinity"
+          model: "bge-reranker-v2-m3"
+          url: "http://testai.jxbw.com/v1/rerank"
+          api_key: "${RERANKER_API_KEY}"
+          top_n: 5
+        # Agentic Filter: metadata field definitions for LLM-driven filtering
+        # agentic_filter_info:
+        #   metadata.category:
+        #     - "documentation"
+        #     - "report"
+        #   metadata.topic:
+        #     - "power_engineering"
+        #     - "programming"
+        # Query Enhancer: rewrite queries for better vector retrieval
+        # query_enhancer:
+        #   type: "llm"
+        #   model: "deepseek-v4-flash"
+        #   base_url: "${OPENAI_BASE_URL}"
+        #   api_key: "${OPENAI_API_KEY}"
+        #   system_prompt: |
+        #     根据对话历史改写用户问题为适合向量检索的独立查询。
+        sources:
+          - type: "url"
+            name: "知识卡片数据"
+            urls:
+              - "http://10.1.6.20:5180/api/knowledge-card/export-md"
+            metadata:
+              source_type: "api"
+              category: "knowledge_card"
+          # - name: "references"
+          #   type: "dir"
+          #   paths:
+          #     - "D:/GoProjects/trpc-agent-go/bowei-openclaw/知识库/references"
+          #   recursive: true
+          #   file_extensions:
+          #     - ".md"
+          # - name: "entities"
+          #   type: "dir"
+          #   paths:
+          #     - "D:/GoProjects/trpc-agent-go/bowei-openclaw/知识库/entities"
+          #   recursive: true
+          #   file_extensions:
+          #     - ".md"
+          # - name: "其他资料"
+          #   type: "dir"
+          #   paths:
+          #     - "D:/GoProjects/trpc-agent-go/bowei-openclaw/知识库"
+          #   recursive: false
+          #   file_extensions:
+          #     - ".md"
+          #     - ".json"
+              
 session:
   backend: "sqlite"
   summary:
     enabled: true
-    mode: "auto"
+    mode: "manual"
     policy: "any"
     max_words: 1000
     # 触发条件（任一满足即触发）
-    context_threshold_ratio: 0.5
+    context_threshold_ratio: 0.6
     #event_threshold: 40           # 自上次摘要后新增 40 个事件后触发
-    #token_threshold: 32768         # 自上次摘要后新增 32768 个 token 后触发
+    token_threshold: 12288         # 自上次摘要后新增 12288 个 token 后触发
     #idle_threshold: "10m"
 
   config:
@@ -162,6 +222,9 @@ tools:
   enable_openclaw_tools: true
   #enable_execute_tools: false
   enable_parallel_tools: true
+  subagent:
+    enable_subagent_tools: false
+    enable_session_alias: false
   # tool_call_retry_policy:
   #   max_attempts: 3
   #   initial_interval_ms: 200
@@ -198,11 +261,12 @@ tools:
         enable_read: true
         enable_read_multiple: true
         enable_list: true
-        enable_move: true
-        enable_copy: true
-        enable_delete: true
         enable_search_file: true
         enable_search_content: true
+        enable_file_manage: true
+        enable_file_manage_move: true
+        enable_file_manage_copy: true
+        enable_file_manage_delete: true
         max_file_size: 61440
 
     - type: "lua"
@@ -210,11 +274,33 @@ tools:
         default_timeout: 600
         allow_io_lib: true
         allow_os_lib: true
+        allow_fs_lib: true
         denied_modules: []
         denied_tools: []
         add_skill_script_dirs: true
-        # allowed_script_dirs:
-        #   - ./skills
+        enable_debug: true
+        allowed_script_dirs:
+          - ./.openclaw-state
+          - ./
+    # 启用 agent_tool（纯 toolset 配置）
+    - type: "agent_tool"
+      name: "agent_tool"
+      config:
+        enabled: true
+        history_scope: "parent_branch"
+        stream_inner: true
+        expose_tool_selection: false
+        expose_instruction: false
+        exclude_tools:
+          - "exec_command"
+          - "subagents_spawn"
+          - "subagents_get"
+          - "subagents_list"
+          - "subagents_cancel"
+          - "subagents_wait"
+          - "agent_tool"
+          - "message"
+          - "cron"
 
 
 channels:
