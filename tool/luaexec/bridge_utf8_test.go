@@ -754,3 +754,117 @@ func TestUTF8_LuaPattern_RealWorld_ChineseFullScenario(t *testing.T) {
 	assert.Equal(t, "success", resp["status"])
 	assert.Equal(t, "第1章 总则（工程概况）|设计依据|1|true|目  录", resp["result"])
 }
+
+// ============================================================
+// utf8.format tests
+// ============================================================
+
+func TestUTF8_Format_Basic(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.format("%04x", 255)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "00ff", resp["result"])
+}
+
+func TestUTF8_Format_Multiple(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.format("%d-%02d-%02d", 2026, 6, 24)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "2026-06-24", resp["result"])
+}
+
+func TestUTF8_Format_Float(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.format("%.1f", 3.14159)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "3.1", resp["result"])
+}
+
+func TestUTF8_Format_String(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.format("hello %s", "world")`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "hello world", resp["result"])
+}
+
+func TestUTF8_Format_NoArgs(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.format("hello")`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "hello", resp["result"])
+}
+
+// ============================================================
+// utf8.truncate_bytes tests
+// ============================================================
+
+func TestUTF8_TruncateBytes_ASCII(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.truncate_bytes("hello world", 5)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "hello", resp["result"])
+}
+
+func TestUTF8_TruncateBytes_Chinese(t *testing.T) {
+	// Build a 12-byte Chinese string using utf8.char (3 bytes per char × 4 chars)
+	// utf8.char(0x4F60) = "你", utf8.char(0x597D) = "好", utf8.char(0x4E16) = "世", utf8.char(0x754C) = "界"
+	// Truncate to 6 bytes → should get "你好" (6 bytes)
+	resp := runLuaScript(t, `
+local s = utf8.char(0x4F60) .. utf8.char(0x597D) .. utf8.char(0x4E16) .. utf8.char(0x754C)
+local r = utf8.truncate_bytes(s, 6)
+return utf8.len(r) .. "|" .. #r
+`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "2|6", resp["result"])
+}
+
+func TestUTF8_TruncateBytes_ChineseBoundary(t *testing.T) {
+	// Same 12-byte string, truncate to 7 bytes → should not cut 3rd char → still 6 bytes (2 chars)
+	resp := runLuaScript(t, `
+local s = utf8.char(0x4F60) .. utf8.char(0x597D) .. utf8.char(0x4E16) .. utf8.char(0x754C)
+local r = utf8.truncate_bytes(s, 7)
+return utf8.len(r) .. "|" .. #r
+`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "2|6", resp["result"])
+}
+
+func TestUTF8_TruncateBytes_Shorter(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.truncate_bytes("hello", 100)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "hello", resp["result"])
+}
+
+func TestUTF8_TruncateBytes_Zero(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.truncate_bytes("hello", 0)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "", resp["result"])
+}
+
+func TestUTF8_TruncateBytes_Empty(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.truncate_bytes("", 10)`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "", resp["result"])
+}
+
+// ============================================================
+// utf8.sanitize tests
+// ============================================================
+
+func TestUTF8_Sanitize_Valid(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.sanitize("你好")`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "你好", resp["result"])
+}
+
+func TestUTF8_Sanitize_Invalid(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.sanitize(string.char(0xFF, 0xFE))`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "\uFFFD\uFFFD", resp["result"])
+}
+
+func TestUTF8_Sanitize_Mixed(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.sanitize("a" .. string.char(0xFF) .. "b")`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "a\uFFFDb", resp["result"])
+}
+
+func TestUTF8_Sanitize_Empty(t *testing.T) {
+	resp := runLuaScript(t, `return utf8.sanitize("")`)
+	assert.Equal(t, "success", resp["status"])
+	assert.Equal(t, "", resp["result"])
+}

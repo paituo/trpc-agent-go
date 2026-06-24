@@ -11,6 +11,7 @@ package conversationscope
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -375,67 +376,45 @@ func (s *sessionService) Close() error {
 	return s.next.Close()
 }
 
-func (s *windowSessionService) GetEventWindow(
+// GetEventWindow implements session.WindowService by delegating to the
+// underlying session service when it supports window-based loading.
+func (s *sessionService) GetEventWindow(
 	ctx context.Context,
 	req session.EventWindowRequest,
 ) (*session.EventWindow, error) {
-	return s.getEventWindow(ctx, s.window, req)
+	ws, ok := s.next.(session.WindowService)
+	if !ok {
+		return nil, errors.New("session service does not support GetEventWindow")
+	}
+	return ws.GetEventWindow(ctx, req)
 }
 
-func (s *searchWindowSessionService) GetEventWindow(
-	ctx context.Context,
-	req session.EventWindowRequest,
-) (*session.EventWindow, error) {
-	return s.getEventWindow(ctx, s.window, req)
-}
-
-func (s *searchableSessionService) SearchEvents(
+// SearchEvents implements session.SearchableService by delegating to the
+// underlying session service when it supports event search.
+func (s *sessionService) SearchEvents(
 	ctx context.Context,
 	req session.EventSearchRequest,
 ) ([]session.EventSearchResult, error) {
-	return s.searchEvents(ctx, s.searchable, req)
+	ss, ok := s.next.(session.SearchableService)
+	if !ok {
+		return nil, errors.New("session service does not support SearchEvents")
+	}
+	return ss.SearchEvents(ctx, req)
 }
 
-func (s *searchWindowSessionService) SearchEvents(
+// AppendTrackEvent implements session.TrackService by delegating to the
+// underlying session service when it supports track events.
+func (s *sessionService) AppendTrackEvent(
 	ctx context.Context,
-	req session.EventSearchRequest,
-) ([]session.EventSearchResult, error) {
-	return s.searchEvents(ctx, s.searchable, req)
-}
-
-func (s *sessionService) getEventWindow(
-	ctx context.Context,
-	window session.WindowService,
-	req session.EventWindowRequest,
-) (*session.EventWindow, error) {
-	requestUserID := req.Key.UserID
-	req.Key = rewriteKeyForStorage(ctx, req.Key)
-	got, err := window.GetEventWindow(ctx, req)
-	if err != nil || got == nil {
-		return got, err
+	sess *session.Session,
+	event *session.TrackEvent,
+	opts ...session.Option,
+) error {
+	ts, ok := s.next.(session.TrackService)
+	if !ok {
+		return errors.New("session service does not support AppendTrackEvent")
 	}
-	rewritten := *got
-	rewritten.SessionKey.UserID = requestUserID
-	return &rewritten, nil
-}
-
-func (s *sessionService) searchEvents(
-	ctx context.Context,
-	searchable session.SearchableService,
-	req session.EventSearchRequest,
-) ([]session.EventSearchResult, error) {
-	requestUserID := req.UserKey.UserID
-	req.UserKey.UserID = StorageUserIDFromContext(ctx, req.UserKey.UserID)
-	results, err := searchable.SearchEvents(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	rewritten := make([]session.EventSearchResult, len(results))
-	copy(rewritten, results)
-	for i := range rewritten {
-		rewritten[i].SessionKey.UserID = requestUserID
-	}
-	return rewritten, nil
+	return ts.AppendTrackEvent(ctx, sess, event, opts...)
 }
 
 func rewriteKeyForStorage(
