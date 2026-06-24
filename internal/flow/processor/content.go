@@ -483,7 +483,7 @@ const (
 	// must not set this flag, because downstream processors use it as a
 	// same-turn signal.
 	contentHasCompactedToolResultsStateKey = "processor:content:has_compacted_tool_results"
-	compactedToolResultPlaceholder         = "Tool result omitted from raw history; details are captured in the session summary above."
+	compactedToolResultPlaceholder         = "Tool result omitted by session summary; details are captured in the session summary above."
 )
 
 const (
@@ -1054,6 +1054,13 @@ func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
 		events = p.insertInvocationMessage(events, inv)
 	}
 
+	// Apply KeepRecentToolResults protection to current-invocation tool
+	// results that were deferred from compactCurrentInvocationEvent.
+	// This runs before rearrange so the event order is stable.
+	events, _ = p.compactCurrentInvocationToolResults(
+		events, inv, eventCutoff, filter,
+	)
+
 	resultEvents := p.rearrangeLatestFuncResp(events)
 	resultEvents = p.rearrangeAsyncFuncRespHist(resultEvents)
 	// Apply compaction to the already timeline-filtered projection. Tool-result
@@ -1266,6 +1273,50 @@ func (p *ContentRequestProcessor) compactCurrentInvocationEvent(
 	}
 
 	cfg := normalizeContextCompactionConfig(p.ContextCompactionConfig)
+
+	// When KeepRecentToolResults is configured, defer tool-result compaction
+	// to compactCurrentInvocationToolResults which has a global view of all
+	// tool result events and can correctly identify which ones fall within
+	// the protection window. Only compact assistant tool-call messages here.
+	if cfg.KeepRecentToolResults > 0 {
+		var compactedChoices []model.Choice
+		for _, choice := range evt.Choices {
+			msg, ok := compactedCurrentInvocationMessage(
+				choice.Message,
+				evt,
+				cfg,
+			)
+			if !ok {
+				continue
+			}
+			// Only keep assistant tool-call messages; defer tool result
+			// compaction to the post-processing pass.
+			if msg.Role == model.RoleTool && msg.ToolID != "" {
+				// Keep the original message intact; the post-processing
+				// pass will decide whether to compact it.
+				compactedChoices = append(compactedChoices, model.Choice{
+					Index:   choice.Index,
+					Message: choice.Message,
+				})
+				continue
+			}
+			compactedChoices = append(compactedChoices, model.Choice{
+				Index:   choice.Index,
+				Message: msg,
+			})
+		}
+		if len(compactedChoices) == 0 {
+			return event.Event{}, false
+		}
+		compacted := evt
+		compacted.Response = &model.Response{
+			Done:    evt.Response.Done,
+			Object:  evt.Response.Object,
+			Choices: compactedChoices,
+		}
+		return compacted, true
+	}
+
 	var compactedChoices []model.Choice
 	for _, choice := range evt.Choices {
 		msg, ok := compactedCurrentInvocationMessage(
@@ -1292,6 +1343,114 @@ func (p *ContentRequestProcessor) compactCurrentInvocationEvent(
 		Choices: compactedChoices,
 	}
 	return compacted, true
+}
+
+// collectCurrentInvocationToolResultIndices collects the indices of events
+// within the current invocation that contain tool result messages. Used by
+// compactCurrentInvocationToolResults to determine which tool results fall
+// within the KeepRecentToolResults protection window.
+func (p *ContentRequestProcessor) collectCurrentInvocationToolResultIndices(
+	events []event.Event,
+	inv *agent.Invocation,
+) []int {
+	var indices []int
+	for i, evt := range events {
+		if evt.RequestID != inv.RunOptions.RequestID ||
+			evt.InvocationID != inv.InvocationID {
+			continue
+		}
+		if evt.Response == nil || len(evt.Response.Choices) == 0 {
+			continue
+		}
+		hasToolResult := false
+		for _, choice := range evt.Response.Choices {
+			if choice.Message.Role == model.RoleTool && choice.Message.ToolID != "" {
+				hasToolResult = true
+				break
+			}
+		}
+		if hasToolResult {
+			indices = append(indices, i)
+		}
+	}
+	return indices
+}
+
+// compactCurrentInvocationToolResults compacts tool results within the current
+// invocation that fall outside the KeepRecentToolResults protection window.
+// This is the summary-cutoff counterpart of applyCurrentRequestToolResultPass
+// (Pass 1.5) which operates on the already-projected event list. Unlike Pass
+// 1.5, this function runs during event filtering and respects the same
+// KeepRecentToolResults configuration so that recent tool results are preserved
+// even when a session summary has absorbed earlier invocation history.
+func (p *ContentRequestProcessor) compactCurrentInvocationToolResults(
+	events []event.Event,
+	inv *agent.Invocation,
+	cutoff eventHistoryCutoff,
+	filter string,
+) ([]event.Event, bool) {
+	cfg := normalizeContextCompactionConfig(p.ContextCompactionConfig)
+	if cutoff.IsZero() || inv == nil || cfg.KeepRecentToolResults <= 0 {
+		return events, false
+	}
+
+	// Collect current-invocation tool result event indices.
+	toolResultIndices := p.collectCurrentInvocationToolResultIndices(events, inv)
+	if len(toolResultIndices) <= cfg.KeepRecentToolResults {
+		// All current-invocation tool results fit within the protection window.
+		return events, false
+	}
+
+	// Build set of protected event indices (the last KeepRecentToolResults).
+	protectedIndices := make(map[int]struct{}, cfg.KeepRecentToolResults)
+	protectedCount := 0
+	for i := len(toolResultIndices) - 1; i >= 0 && protectedCount < cfg.KeepRecentToolResults; i-- {
+		protectedIndices[toolResultIndices[i]] = struct{}{}
+		protectedCount++
+	}
+
+	changed := false
+	for _, idx := range toolResultIndices {
+		if _, protected := protectedIndices[idx]; protected {
+			continue
+		}
+		evt := events[idx]
+		if !cutoff.excludesEvent(idx, evt) {
+			continue
+		}
+		if !p.passBranchFilter(evt, filter) {
+			continue
+		}
+
+		var compactedChoices []model.Choice
+		for _, choice := range evt.Choices {
+			msg, ok := compactedCurrentInvocationMessage(
+				choice.Message,
+				evt,
+				cfg,
+			)
+			if !ok {
+				continue
+			}
+			compactedChoices = append(compactedChoices, model.Choice{
+				Index:   choice.Index,
+				Message: msg,
+			})
+		}
+		if len(compactedChoices) == 0 {
+			continue
+		}
+
+		compacted := evt
+		compacted.Response = &model.Response{
+			Done:    evt.Response.Done,
+			Object:  evt.Response.Object,
+			Choices: compactedChoices,
+		}
+		events[idx] = compacted
+		changed = true
+	}
+	return events, changed
 }
 
 func compactedCurrentInvocationMessage(
