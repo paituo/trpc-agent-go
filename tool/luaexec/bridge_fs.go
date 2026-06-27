@@ -14,14 +14,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 )
 
 // registerFSBridge registers the fs module in the Lua VM.
-// The fs module provides controlled filesystem operations restricted to
-// allowed_script_dirs when configured.
+// The fs module provides controlled filesystem operations.
 func registerFSBridge(L *lua.LState, cfg *Config) {
 	mod := L.NewTable()
 	L.SetField(mod, "read_file", L.NewFunction(bridgeFSReadFile))
@@ -35,13 +33,6 @@ func registerFSBridge(L *lua.LState, cfg *Config) {
 	L.SetField(mod, "move", L.NewFunction(bridgeFSMove))
 	L.SetField(mod, "stat", L.NewFunction(bridgeFSStat))
 
-	// Store allowed dirs for path validation.
-	dirTbl := L.NewTable()
-	for i, dir := range cfg.AllowedScriptDirs {
-		dirTbl.RawSetInt(i+1, lua.LString(dir))
-	}
-	L.SetField(mod, "__allowed_dirs", dirTbl)
-
 	L.SetGlobal("fs", mod)
 }
 
@@ -49,7 +40,7 @@ func registerFSBridge(L *lua.LState, cfg *Config) {
 func bridgeFSReadFile(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -70,7 +61,7 @@ func bridgeFSWriteFile(L *lua.LState) int {
 	path := L.CheckString(1)
 	content := L.CheckString(2)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -89,7 +80,7 @@ func bridgeFSWriteFile(L *lua.LState) int {
 func bridgeFSListDir(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -113,7 +104,7 @@ func bridgeFSListDir(L *lua.LState) int {
 func bridgeFSFileExists(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		L.Push(lua.LFalse)
 		return 1
@@ -128,7 +119,7 @@ func bridgeFSFileExists(L *lua.LState) int {
 func bridgeFSIsDir(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		L.Push(lua.LFalse)
 		return 1
@@ -153,7 +144,7 @@ func bridgeFSMkdir(L *lua.LState) int {
 		mode = os.FileMode(L.CheckInt(2))
 	}
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -172,7 +163,7 @@ func bridgeFSMkdir(L *lua.LState) int {
 func bridgeFSRemove(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -192,13 +183,13 @@ func bridgeFSCopy(L *lua.LState) int {
 	src := L.CheckString(1)
 	dst := L.CheckString(2)
 
-	absSrc, err := resolveFSPath(src, L)
+	absSrc, err := resolveFSPath(src)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
 	}
 
-	absDst, err := resolveFSPath(dst, L)
+	absDst, err := resolveFSPath(dst)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -218,13 +209,13 @@ func bridgeFSMove(L *lua.LState) int {
 	src := L.CheckString(1)
 	dst := L.CheckString(2)
 
-	absSrc, err := resolveFSPath(src, L)
+	absSrc, err := resolveFSPath(src)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
 	}
 
-	absDst, err := resolveFSPath(dst, L)
+	absDst, err := resolveFSPath(dst)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -250,7 +241,7 @@ func bridgeFSMove(L *lua.LState) int {
 func bridgeFSStat(L *lua.LState) int {
 	path := L.CheckString(1)
 
-	absPath, err := resolveFSPath(path, L)
+	absPath, err := resolveFSPath(path)
 	if err != nil {
 		pushFSError(L, err.Error())
 		return 2
@@ -271,41 +262,13 @@ func bridgeFSStat(L *lua.LState) int {
 	return 1
 }
 
-// resolveFSPath resolves and validates a filesystem path:
+// resolveFSPath resolves a filesystem path:
 //   - Relative paths are resolved against CWD.
-//   - When allowed_script_dirs are configured, the resolved absolute path
-//     must be under one of the allowed directories.
-func resolveFSPath(path string, L *lua.LState) (string, error) {
+func resolveFSPath(path string) (string, error) {
 	absPath, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return "", fmt.Errorf("路径解析失败: %w", err)
 	}
-
-	dirsTbl := L.GetField(L.GetGlobal("fs"), "__allowed_dirs")
-	if dirTbl, ok := dirsTbl.(*lua.LTable); ok && dirTbl.Len() > 0 {
-		allowed := false
-		dirTbl.ForEach(func(_ lua.LValue, val lua.LValue) {
-			if dirStr, ok := val.(lua.LString); ok {
-				absDir, err := filepath.Abs(filepath.Clean(string(dirStr)))
-				if err != nil {
-					return
-				}
-				prefix := absDir
-				if !strings.HasSuffix(prefix, string(filepath.Separator)) {
-					prefix += string(filepath.Separator)
-				}
-				if strings.HasPrefix(absPath, prefix) || absPath == absDir {
-					allowed = true
-				}
-			}
-		})
-
-		if !allowed {
-			return "", fmt.Errorf("路径不在允许的脚本目录中: %s", path)
-		}
-		return absPath, nil
-	}
-
 	return absPath, nil
 }
 

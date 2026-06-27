@@ -80,6 +80,15 @@ func anyToYAMLNode(v any) (*yaml.Node, error) {
 			return n, nil
 		}
 		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", node)}, nil
+	case *orderedTable:
+		node, err := val.MarshalYAML()
+		if err != nil {
+			return nil, err
+		}
+		if n, ok := node.(*yaml.Node); ok {
+			return n, nil
+		}
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: fmtS("%v", node)}, nil
 	case []any:
 		var content []*yaml.Node
 		for _, elem := range val {
@@ -196,11 +205,15 @@ func pushGoValue(L *lua.LState, v any) {
 		}
 		L.Push(tbl)
 	case *orderedMap:
-		tbl := L.NewTable()
+		// 将 orderedMap 转为 ordered_table userdata，保持字段顺序
+		ot := &orderedTable{}
 		for _, item := range val.items {
-			L.SetField(tbl, item.Key, toLValue(L, item.Value))
+			ot.items = append(ot.items, orderedMapItem{Key: item.Key, Value: item.Value})
 		}
-		L.Push(tbl)
+		ud := L.NewUserData()
+		ud.Metatable = L.GetTypeMetatable(orderedTableMetaKey)
+		ud.Value = ot
+		L.Push(ud)
 	default:
 		// 通过 JSON 中转将任意 Go 值转为 map[string]any。
 		// 使用 marshalStructFull 绕过自定义 MarshalJSON()，
@@ -248,11 +261,15 @@ func toLValue(L *lua.LState, v any) lua.LValue {
 		}
 		return tbl
 	case *orderedMap:
-		tbl := L.NewTable()
+		// 将 orderedMap 转为 ordered_table userdata，保持字段顺序
+		ot := &orderedTable{}
 		for _, item := range val.items {
-			L.SetField(tbl, item.Key, toLValue(L, item.Value))
+			ot.items = append(ot.items, orderedMapItem{Key: item.Key, Value: item.Value})
 		}
-		return tbl
+		ud := L.NewUserData()
+		ud.Metatable = L.GetTypeMetatable(orderedTableMetaKey)
+		ud.Value = ot
+		return ud
 	default:
 		jsonBytes, err := marshalStructFull(v)
 		if err != nil {
@@ -276,41 +293,18 @@ func luaTableToMap(tbl *lua.LTable) map[string]any {
 	return result
 }
 
-// yamlFieldOrder defines the preferred field order for YAML output.
-// Fields not in this list are sorted alphabetically after the listed fields.
-// Note: Go map deduplicates keys; if a field appears in multiple contexts,
-// use the same priority to ensure consistent ordering.
-var yamlFieldOrder = map[string]int{
-	// skeleton_index.yaml top-level
-	"skeleton_version": 1, "project_name": 2, "generated_date": 3, "description": 4,
-	"source_documents": 5, "node_tree": 6,
-	// node_tree elements (description shared with top-level, priority 4)
-	"node": 10, "status": 12, "sources": 13, "children": 14,
-	// sources elements (also used in fragment)
-	"document": 20, "document_path": 21, "chapter": 22, "fragment_id": 23,
-	"level": 24, "start_line": 25, "end_line": 26,
-	// fragment fields
-	"title": 30, "heading_level": 31, "heading_path": 32,
-	"preview": 36, "preview1": 37,
-	"tables": 38, "images": 39,
-	// source_documents elements
-	"name": 50, "path": 51, "type": 52, "total_lines": 53,
-	// table fields
-	"headers": 60, "rows": 61, "row_count": 63, "col_count": 64,
-	"merge_hints": 65, "nested_tables": 66, "has_error": 67, "error_message": 68,
-}
-
-// yamlFieldPriority returns a sort priority for a field name.
-// Known fields get their defined priority; unknown fields get 1000 + alphabetical order.
-func yamlFieldPriority(key string) int {
-	if p, ok := yamlFieldOrder[key]; ok {
-		return p
-	}
-	return 1000
-}
-
 // luaTableToOrderedMap converts a Lua table to *orderedMap,
-// sorting keys by predefined field priority for consistent YAML output.
+// preserving field order for consistent YAML output.
+//
+// Ordering strategy:
+//  1. If the table has a "_field_order" array field, use it to determine
+//     the output order. Fields not in _field_order are appended at the end
+//     in alphabetical order. The _field_order field itself is excluded from output.
+//  2. Otherwise, sort keys alphabetically for deterministic output.
+//
+// _field_order is a Lua array of field names (strings) that defines the
+// desired YAML key order. This allows Lua scripts to control output order
+// without hardcoding business logic in Go code.
 func luaTableToOrderedMap(tbl *lua.LTable) *orderedMap {
 	// Collect all key-value pairs first
 	type kv struct {
@@ -318,20 +312,51 @@ func luaTableToOrderedMap(tbl *lua.LTable) *orderedMap {
 		value lua.LValue
 	}
 	var entries []kv
+	var fieldOrder []string
+
 	tbl.ForEach(func(k, v lua.LValue) {
 		key := luaValueToString(k)
+		if key == "_field_order" {
+			// Extract field order from array
+			if tbl2, ok := v.(*lua.LTable); ok {
+				tbl2.ForEach(func(ik, iv lua.LValue) {
+					if s, ok2 := iv.(lua.LString); ok2 {
+						fieldOrder = append(fieldOrder, string(s))
+					}
+				})
+			}
+			return // skip _field_order itself
+		}
 		entries = append(entries, kv{key: key, value: v})
 	})
 
-	// Sort by predefined field priority
-	sort.SliceStable(entries, func(i, j int) bool {
-		pi := yamlFieldPriority(entries[i].key)
-		pj := yamlFieldPriority(entries[j].key)
-		if pi != pj {
-			return pi < pj
+	if len(fieldOrder) > 0 {
+		// Strategy 1: Use _field_order to determine output order
+		orderMap := make(map[string]int, len(fieldOrder))
+		for i, name := range fieldOrder {
+			orderMap[name] = i
 		}
-		return entries[i].key < entries[j].key
-	})
+
+		sort.SliceStable(entries, func(i, j int) bool {
+			pi, hasI := orderMap[entries[i].key]
+			pj, hasJ := orderMap[entries[j].key]
+			switch {
+			case hasI && hasJ:
+				return pi < pj
+			case hasI:
+				return true // known fields before unknown
+			case hasJ:
+				return false
+			default:
+				return entries[i].key < entries[j].key
+			}
+		})
+	} else {
+		// Strategy 2: Sort alphabetically for deterministic output
+		sort.SliceStable(entries, func(i, j int) bool {
+			return entries[i].key < entries[j].key
+		})
+	}
 
 	// Build orderedMap with sorted entries
 	result := &orderedMap{}
@@ -356,6 +381,12 @@ func lValueToGoOrdered(v lua.LValue) any {
 			return lTableToSliceOrdered(val)
 		}
 		return luaTableToOrderedMap(val)
+	case *lua.LUserData:
+		// 如果是 ordered_table userdata，直接返回其内部 *orderedTable
+		if ot, ok := val.Value.(*orderedTable); ok {
+			return ot
+		}
+		return v.String()
 	case *lua.LNilType:
 		return nil
 	default:
@@ -426,6 +457,202 @@ func lTableToSliceOrdered(tbl *lua.LTable) []any {
 		result[i-1] = lValueToGoOrdered(tbl.RawGetInt(i))
 	}
 	return result
+}
+
+// ============================================================
+// orderedTable — Lua userdata 类型，保持字段插入顺序
+// ============================================================
+
+// orderedTableMetaKey 是 ordered_table userdata 的元表名称。
+const orderedTableMetaKey = "ordered_table"
+
+// orderedTable 是一个保持插入顺序的 LUA userdata。
+// 内部使用 []orderedMapItem 按插入顺序存储键值对。
+// 实现 yaml.Marshaler 接口，确保 YAML 序列化时按插入顺序输出。
+type orderedTable struct {
+	items []orderedMapItem
+}
+
+// MarshalYAML 实现 yaml.Marshaler 接口，按插入顺序输出 YAML。
+func (ot *orderedTable) MarshalYAML() (any, error) {
+	var content []*yaml.Node
+	for _, item := range ot.items {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: item.Key}
+		valNode, err := anyToYAMLNode(item.Value)
+		if err != nil {
+			return nil, err
+		}
+		content = append(content, keyNode, valNode)
+	}
+	return &yaml.Node{
+		Kind:    yaml.MappingNode,
+		Content: content,
+	}, nil
+}
+
+// registerOrderedTableType 注册 ordered_table 类型到 LUA VM。
+// 注册后 Lua 脚本可以通过 ordered_table.new() 创建有序表，
+// 通过 ordered_table.pairs(t) 遍历，通过 ordered_table.len(t) 获取长度。
+func registerOrderedTableType(L *lua.LState) {
+	mt := L.NewTypeMetatable(orderedTableMetaKey)
+
+	// 构造函数
+	L.SetField(mt, "new", L.NewFunction(orderedTableNew))
+
+	// 元方法
+	L.SetField(mt, "__index", L.NewFunction(orderedTableIndex))
+	L.SetField(mt, "__newindex", L.NewFunction(orderedTableNewIndex))
+	L.SetField(mt, "__len", L.NewFunction(orderedTableLen))
+	L.SetField(mt, "__tostring", L.NewFunction(orderedTableToString))
+
+	// 工具函数
+	L.SetField(mt, "pairs", L.NewFunction(orderedTablePairs))
+	L.SetField(mt, "len", L.NewFunction(orderedTableLen))
+	L.SetField(mt, "unwrap", L.NewFunction(orderedTableUnwrap))
+	L.SetField(mt, "wrap", L.NewFunction(orderedTableWrap))
+
+	// 注册到全局
+	L.SetGlobal("ordered_table", mt)
+}
+
+// orderedTableNew 创建新的有序表：ordered_table.new()
+func orderedTableNew(L *lua.LState) int {
+	ot := &orderedTable{}
+	ud := L.NewUserData()
+	ud.Metatable = L.GetTypeMetatable(orderedTableMetaKey)
+	ud.Value = ot
+	L.Push(ud)
+	return 1
+}
+
+// orderedTableIndex 读取字段：t["key"] 或 t.key
+func orderedTableIndex(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	key := L.CheckString(2)
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+	for _, item := range ot.items {
+		if item.Key == key {
+			pushGoValue(L, item.Value)
+			return 1
+		}
+	}
+	L.Push(lua.LNil)
+	return 1
+}
+
+// orderedTableNewIndex 设置字段：t["key"] = value 或 t.key = value
+// 如果 key 已存在，更新值但不改变顺序；新 key 追加到末尾。
+func orderedTableNewIndex(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	key := L.CheckString(2)
+	val := lValueToGoOrdered(L.Get(3))
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		return 0
+	}
+	// 如果 key 已存在，更新值但不改变顺序
+	for i, item := range ot.items {
+		if item.Key == key {
+			ot.items[i].Value = val
+			return 0
+		}
+	}
+	// 新 key，追加到末尾
+	ot.items = append(ot.items, orderedMapItem{Key: key, Value: val})
+	return 0
+}
+
+// orderedTableLen 获取字段数量：#t 或 ordered_table.len(t)
+func orderedTableLen(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		L.Push(lua.LNumber(0))
+		return 1
+	}
+	L.Push(lua.LNumber(len(ot.items)))
+	return 1
+}
+
+// orderedTableToString 转换为字符串：tostring(t)
+func orderedTableToString(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		L.Push(lua.LString("ordered_table: invalid"))
+		return 1
+	}
+	L.Push(lua.LString("ordered_table: {" + fmtS("%d", len(ot.items)) + " fields}"))
+	return 1
+}
+
+// orderedTablePairs 按插入顺序遍历：ordered_table.pairs(t)
+// 返回迭代器函数、状态、初始索引，供 for k, v in ordered_table.pairs(t) do ... end 使用。
+func orderedTablePairs(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+
+	idx := 0
+	iter := L.NewFunction(func(L2 *lua.LState) int {
+		if idx >= len(ot.items) {
+			L2.Push(lua.LNil)
+			return 1
+		}
+		item := ot.items[idx]
+		idx++
+		L2.Push(lua.LString(item.Key))
+		pushGoValue(L2, item.Value)
+		return 2
+	})
+	L.Push(iter)
+	L.Push(lua.LNil)       // 无状态
+	L.Push(lua.LNumber(0)) // 初始索引
+	return 3
+}
+
+// orderedTableUnwrap 将 ordered_table 转换为普通 Lua table：ordered_table.unwrap(t)
+// 转换后的 table 字段按字母序排列（与普通 table 行为一致）。
+func orderedTableUnwrap(L *lua.LState) int {
+	ud := L.CheckUserData(1)
+	ot, ok := ud.Value.(*orderedTable)
+	if !ok {
+		L.Push(lua.LNil)
+		return 1
+	}
+	tbl := L.NewTable()
+	for _, item := range ot.items {
+		L.SetField(tbl, item.Key, toLValue(L, item.Value))
+	}
+	L.Push(tbl)
+	return 1
+}
+
+// orderedTableWrap 将普通 Lua table 包装为 ordered_table：ordered_table.wrap(t)
+// 字段按字母序排列（因为普通 table 的遍历顺序不确定）。
+func orderedTableWrap(L *lua.LState) int {
+	tbl := L.CheckTable(1)
+	ot := &orderedTable{}
+	// 收集所有键值对
+	tbl.ForEach(func(k, v lua.LValue) {
+		key := luaValueToString(k)
+		ot.items = append(ot.items, orderedMapItem{
+			Key:   key,
+			Value: lValueToGoOrdered(v),
+		})
+	})
+	ud := L.NewUserData()
+	ud.Metatable = L.GetTypeMetatable(orderedTableMetaKey)
+	ud.Value = ot
+	L.Push(ud)
+	return 1
 }
 
 // luaValueToString converts an LValue to a string key.
