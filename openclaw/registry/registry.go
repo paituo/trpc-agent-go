@@ -188,12 +188,21 @@ type ToolProviderFactory func(
 	spec PluginSpec,
 ) ([]tool.Tool, error)
 
+// KBEmbedderConfig holds the embedder configuration for the KB module.
+type KBEmbedderConfig struct {
+	BaseURL    string
+	Model      string
+	APIKey     string
+	Dimensions int
+}
+
 // ToolSetProviderDeps are dependencies passed to tool set factories.
 type ToolSetProviderDeps struct {
 	Model       model.Model
 	StateDir    string
 	AppName     string
 	SkillsRoots []string
+	KBEmbedder  *KBEmbedderConfig // embedder config for Lua kb module, nil if not configured
 }
 
 // ToolSetProviderFactory creates a ToolSet (a dynamic tool collection).
