@@ -462,17 +462,22 @@ func sliceTextByLines(
 
 // readFileTool returns a callable tool for reading file.
 func (f *fileToolSet) readFileTool() tool.CallableTool {
+	maxCharsKB := f.maxToolResultChars / 1024
+	maxFileSizeMB := f.maxFileSize / (1024 * 1024)
+	desc := fmt.Sprintf(
+		"Read a text file under base_directory. "+
+			"Prefer relative paths (e.g. \"dir/file.txt\") over absolute paths. "+
+			"Supports workspace:// and artifact:// refs. "+
+			"Optional start_line and num_lines select line ranges. "+
+			"Optional max_chars limits the number of characters returned. "+
+			"NOTE: Default max_chars is %dKB (%d chars). "+
+			"Files larger than %dMB cannot be read. "+
+			"When truncated, use start_line to read the rest.",
+		maxCharsKB, f.maxToolResultChars, maxFileSizeMB,
+	)
 	return function.NewFunctionTool(
 		f.readFile,
 		function.WithName("read_file"),
-		function.WithDescription(
-			"Read a text file under base_directory. Supports "+
-			"workspace:// refs, artifact:// refs, and "+
-			"absolute paths under base_directory or configured "+
-			"read-only roots. "+
-			"Optional start_line and num_lines select line "+
-			"ranges. Optional max_chars limits the number of "+
-			"characters returned (useful for large files).",
-		),
+	function.WithDescription(desc),
 	)
 }
