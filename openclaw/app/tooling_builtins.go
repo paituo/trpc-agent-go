@@ -942,6 +942,16 @@ func newLuaToolSet(
 	// where the full tool list is not yet available at ToolSet creation time.
 	opts = append(opts, luaexec.WithToolsProvider(toolsFromInvocationContext))
 
+	// Pass KB embedder config to luaexec for kb module initialization.
+	if deps.KBEmbedder != nil {
+		opts = append(opts, luaexec.WithKBConfig(luaexec.KBModuleConfig{
+			EmbedderBaseURL: deps.KBEmbedder.BaseURL,
+			EmbedderModel:   deps.KBEmbedder.Model,
+			EmbedderAPIKey:  deps.KBEmbedder.APIKey,
+			Dimensions:      deps.KBEmbedder.Dimensions,
+		}))
+	}
+
 	return luaexec.NewToolSet(opts...)
 }
 

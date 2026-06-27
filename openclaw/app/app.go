@@ -1288,12 +1288,14 @@ func NewRuntimeWithOptions(
 			SkillsManagedRoot:        opts.SkillsManagedRoot,
 			StateDir:                 resolvedStateDir,
 		})
+		kbEmbedder := extractKBEmbedderConfig(opts.KnowledgesConfig)
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
 			opts.ToolSets,
 			skillRoots,
+			kbEmbedder,
 		)
 		if err != nil {
 			return nil, &exitError{
@@ -2117,12 +2119,14 @@ func run(
 			SkillsManagedRoot:        opts.SkillsManagedRoot,
 			StateDir:                 resolvedStateDir,
 		})
+		kbEmbedder := extractKBEmbedderConfig(opts.KnowledgesConfig)
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
 			opts.ToolSets,
 			skillRoots,
+			kbEmbedder,
 		)
 		if err != nil {
 			return &exitError{
@@ -3660,6 +3664,7 @@ func toolSetsFromProviders(
 	stateDir string,
 	specs []pluginSpec,
 	skillsRoots []string,
+	kbEmbedder *registry.KBEmbedderConfig,
 ) ([]tool.ToolSet, error) {
 	if len(specs) == 0 {
 		return nil, nil
@@ -3670,6 +3675,7 @@ func toolSetsFromProviders(
 		StateDir:    stateDir,
 		AppName:     appName,
 		SkillsRoots: skillsRoots,
+		KBEmbedder:  kbEmbedder,
 	}
 
 	out := make([]tool.ToolSet, 0, len(specs))
