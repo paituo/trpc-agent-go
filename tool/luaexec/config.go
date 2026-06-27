@@ -104,6 +104,16 @@ type Config struct {
 	// MaxLogEntries is the maximum number of log entries collected per execution.
 	// Defaults to 500. Excess entries are silently dropped.
 	MaxLogEntries int
+
+	// KBModule is the knowledge base module injected into Lua VMs.
+	// When non-nil, the kb global table is registered in each Lua state.
+	// Mutually exclusive with KBConfig; KBModule takes precedence.
+	KBModule *KBModule
+
+	// KBConfig is the knowledge base module configuration.
+	// When non-nil and KBModule is nil, NewToolSet creates a KBModule
+	// instance from this config as a global singleton shared by all Lua VMs.
+	KBConfig *KBModuleConfig
 }
 
 func defaultConfig() Config {

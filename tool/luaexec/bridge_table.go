@@ -77,6 +77,26 @@ func parseTableNode(tableNode *html.Node) map[string]any {
 	if len(theadRows) == 0 && len(tbodyRows) > 0 {
 		theadRows = []*html.Node{tbodyRows[0]}
 		tbodyRows = tbodyRows[1:]
+
+		// Detect rowspan in the first header row and include sub-header rows.
+		// When a cell has rowspan > 1, the subsequent (rowspan-1) rows are
+		// sub-headers that provide column labels for merged cells (e.g.,
+		// "数量" and "单位" under "数量统计(colspan=2)"). These rows must be
+		// included in theadRows so that flattenHeaders correctly joins them
+		// with ">" (e.g., "数量统计>数量").
+		maxRowspan := 1
+		firstTR := theadRows[0]
+		for c := firstTR.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode && (c.Data == "td" || c.Data == "th") {
+				if rs := getAttrInt(c, "rowspan"); rs > maxRowspan {
+					maxRowspan = rs
+				}
+			}
+		}
+		for i := 1; i < maxRowspan && len(tbodyRows) > 0; i++ {
+			theadRows = append(theadRows, tbodyRows[0])
+			tbodyRows = tbodyRows[1:]
+		}
 	}
 
 	// Build the grid from all rows (thead + tbody).
