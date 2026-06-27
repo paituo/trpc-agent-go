@@ -113,6 +113,17 @@ func newState(cfg *Config, callerCtx context.Context) (*lua.LState, context.Canc
 		L.PreloadModule("fs", preloadGlobal(L, "fs"))
 	}
 
+	// Register kb (knowledge base) module if configured.
+	if !denied["kb"] && cfg.KBModule != nil {
+		cfg.KBModule.Register(L)
+		L.PreloadModule("kb", preloadGlobal(L, "kb"))
+	}
+
+	// Register ordered_table type (always enabled).
+	if !denied["ordered_table"] {
+		registerOrderedTableType(L)
+	}
+
 	// Register log bridge module (always enabled, debug level gated by EnableDebug).
 	if !denied["log"] {
 		lc := newLogCollector(cfg.MaxLogEntries, cfg.EnableDebug)

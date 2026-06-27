@@ -105,6 +105,12 @@ func WithMaxLogEntries(n int) Option {
 	return func(c *Config) { c.MaxLogEntries = n }
 }
 
+// WithKBConfig sets the knowledge base module configuration.
+// When set, NewToolSet creates a KBModule global singleton from this config.
+func WithKBConfig(cfg KBModuleConfig) Option {
+	return func(c *Config) { c.KBConfig = &cfg }
+}
+
 // NewToolSet creates a Lua script execution tool set.
 func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	cfg := defaultConfig()
@@ -118,6 +124,15 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	hasToolSource := len(cfg.Tools) > 0 || cfg.ToolsProvider != nil
 	if !hasToolSource && !containsString(cfg.DeniedModules, "tool") {
 		return nil, fmt.Errorf("tool module enabled but no tool source provided (use WithTools, WithToolsProvider, or WithDeniedModules(\"tool\"))")
+	}
+
+	// Create KBModule global singleton from config if KBModule not already set.
+	if cfg.KBModule == nil && cfg.KBConfig != nil {
+		km, err := NewKBModule(cfg.KBConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create KBModule: %w", err)
+		}
+		cfg.KBModule = km
 	}
 
 	return &toolSet{cfg: cfg}, nil

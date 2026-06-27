@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"unicode/utf8"
 
 	lua "github.com/yuin/gopher-lua"
@@ -28,6 +29,7 @@ func registerYAMLBridge(L *lua.LState, allowIO bool) {
 	L.SetField(mod, "encode", L.NewFunction(bridgeYamlEncode))
 	if allowIO {
 		L.SetField(mod, "read_file", L.NewFunction(bridgeYamlReadFile))
+		L.SetField(mod, "read_file_ordered", L.NewFunction(bridgeYamlReadFileOrdered))
 		L.SetField(mod, "read_file_auto", L.NewFunction(bridgeYamlReadFileAuto))
 		L.SetField(mod, "read_text_file", L.NewFunction(bridgeYamlReadTextFile))
 		L.SetField(mod, "write_file", L.NewFunction(bridgeYamlWriteFile))
@@ -50,10 +52,25 @@ func bridgeYamlDecode(L *lua.LState) int {
 	return 1
 }
 
-// bridgeYamlEncode implements yaml.encode(table).
+// bridgeYamlEncode implements yaml.encode(table_or_ordered).
+// 支持普通 Lua table 和 ordered_table userdata。
 func bridgeYamlEncode(L *lua.LState) int {
-	tbl := L.CheckTable(1)
-	goVal := lValueToGoOrdered(tbl)
+	v := L.Get(1)
+	var goVal any
+	switch val := v.(type) {
+	case *lua.LTable:
+		goVal = lValueToGoOrdered(val)
+	case *lua.LUserData:
+		if ot, ok := val.Value.(*orderedTable); ok {
+			goVal = ot
+		} else {
+			pushBridgeError(L, "yaml.encode: unsupported userdata type")
+			return 2
+		}
+	default:
+		pushBridgeError(L, fmt.Sprintf("yaml.encode: expected table or ordered_table, got %s", v.Type()))
+		return 2
+	}
 
 	// Use anyToYAMLNode to build a complete yaml.Node tree,
 	// which correctly handles *orderedMap in nested structures.
@@ -98,11 +115,98 @@ func bridgeYamlReadFile(L *lua.LState) int {
 	return 1
 }
 
-// bridgeYamlWriteFile implements yaml.write_file(path, table).
+// bridgeYamlReadFileOrdered implements yaml.read_file_ordered(path [, encoding]).
+// 与 yaml.read_file 功能相同，但返回 ordered_table userdata 而非普通 table。
+// 返回的 ordered_table 保持 YAML 文件中字段的字母序（确定性输出）。
+// 注意：由于 Go yaml.Unmarshal 到 map[string]any 时已丢失原始顺序，
+// 返回的 ordered_table 按字母序排列，但至少保证确定性输出。
+func bridgeYamlReadFileOrdered(L *lua.LState) int {
+	path := L.CheckString(1)
+	encoding := L.OptString(2, "utf-8")
+
+	content, err := readFileWithEncoding(path, encoding)
+	if err != nil {
+		pushEncodingError(L, path, encoding, err)
+		return 2
+	}
+
+	var data any
+	if err := yaml.Unmarshal([]byte(content), &data); err != nil {
+		pushBridgeError(L, fmt.Sprintf("yaml.decode(%s) failed: %v", path, err))
+		return 2
+	}
+
+	pushGoValueOrdered(L, data)
+	return 1
+}
+
+// pushGoValueOrdered 将 Go 值转为 Lua 值，map[string]any 转为 ordered_table userdata。
+// 递归处理嵌套结构，确保所有 map 都转为 ordered_table。
+func pushGoValueOrdered(L *lua.LState, v any) {
+	if v == nil {
+		L.Push(lua.LNil)
+		return
+	}
+	switch val := v.(type) {
+	case bool:
+		L.Push(lua.LBool(val))
+	case int:
+		L.Push(lua.LNumber(val))
+	case int64:
+		L.Push(lua.LNumber(val))
+	case float64:
+		L.Push(lua.LNumber(val))
+	case string:
+		L.Push(lua.LString(val))
+	case map[string]any:
+		// 按字母序插入，保证确定性输出
+		keys := make([]string, 0, len(val))
+		for k := range val {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		ot := &orderedTable{}
+		for _, k := range keys {
+			ot.items = append(ot.items, orderedMapItem{
+				Key:   k,
+				Value: lValueToGoOrdered(toLValue(L, val[k])),
+			})
+		}
+		ud := L.NewUserData()
+		ud.Metatable = L.GetTypeMetatable(orderedTableMetaKey)
+		ud.Value = ot
+		L.Push(ud)
+	case []any:
+		tbl := L.NewTable()
+		for i, elem := range val {
+			L.RawSetInt(tbl, i+1, toLValue(L, elem))
+		}
+		L.Push(tbl)
+	default:
+		pushGoValue(L, v)
+	}
+}
+
+// bridgeYamlWriteFile implements yaml.write_file(path, table_or_ordered).
+// 支持普通 Lua table 和 ordered_table userdata。
 func bridgeYamlWriteFile(L *lua.LState) int {
 	path := L.CheckString(1)
-	tbl := L.CheckTable(2)
-	goVal := lValueToGoOrdered(tbl)
+	v := L.Get(2)
+	var goVal any
+	switch val := v.(type) {
+	case *lua.LTable:
+		goVal = lValueToGoOrdered(val)
+	case *lua.LUserData:
+		if ot, ok := val.Value.(*orderedTable); ok {
+			goVal = ot
+		} else {
+			pushBridgeError(L, "yaml.write_file: unsupported userdata type")
+			return 2
+		}
+	default:
+		pushBridgeError(L, fmt.Sprintf("yaml.write_file: expected table or ordered_table, got %s", v.Type()))
+		return 2
+	}
 
 	// Use anyToYAMLNode to build a complete yaml.Node tree,
 	// which correctly handles *orderedMap in nested structures.
