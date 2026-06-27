@@ -955,3 +955,45 @@ func sanitizeKnowledgeToolSegment(name string) string {
 	}
 	return out
 }
+
+// extractKBEmbedderConfig extracts the embedder configuration from the first
+// knowledge provider's config for use by the Lua kb module.
+// Only a single knowledge provider is supported; multiple providers are rejected.
+func extractKBEmbedderConfig(entries []knowledgeEntry) *registry.KBEmbedderConfig {
+	if len(entries) == 0 {
+		return nil
+	}
+	if len(entries) > 1 {
+		return nil
+	}
+
+	entry := entries[0]
+	if entry.Config == nil {
+		return nil
+	}
+
+	var cfg builtinKnowledgeConfig
+	if err := entry.Config.Decode(&cfg); err != nil {
+		return nil
+	}
+	if cfg.Embedder == nil || cfg.Embedder.Node == nil {
+		return nil
+	}
+
+	var embCfg openAIKnowledgeEmbedderConfig
+	if err := cfg.Embedder.Node.Decode(&embCfg); err != nil {
+		return nil
+	}
+
+	dimensions := 1024
+	if embCfg.Dimensions != nil && *embCfg.Dimensions > 0 {
+		dimensions = *embCfg.Dimensions
+	}
+
+	return &registry.KBEmbedderConfig{
+		BaseURL:    embCfg.BaseURL,
+		Model:      embCfg.Model,
+		APIKey:     embCfg.APIKey,
+		Dimensions: dimensions,
+	}
+}
