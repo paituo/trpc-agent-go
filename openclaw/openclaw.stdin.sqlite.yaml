@@ -68,9 +68,10 @@ agent:
   # system_prompt_dir: "./prompts/system"
   #max_history_runs: 50
   enable_context_budget: true
+  max_context_budget_window: 260000
   preload_memory: 10
   enable_token_counter_calibration: false
-  enable_detailed_context_metrics: true
+  
   add_session_summary: true
   session_summary_injection_mode: "system"
   #sync_summary_intra_run: true
@@ -196,8 +197,6 @@ memory:
 #     path: "./data/memory.sqlite"
 #     skip_db_init: false
 #     index_dimension: 1024
-    index_dimension: 1024
-    max_results: 5
 #     embedder:
 #       type: "openai"
 #       model: "bge-m3"
