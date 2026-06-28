@@ -1,4 +1,4 @@
-﻿//
+//
 // Tencent is pleased to support the open source community by making
 // trpc-agent-go available.
 //
@@ -15,6 +15,8 @@ import (
 	"time"
 
 	lua "github.com/yuin/gopher-lua"
+
+	"trpc.group/trpc-go/trpc-agent-go/log"
 )
 
 const logCollectorKey = "luaexec_log_collector"
@@ -113,7 +115,10 @@ func registerLogBridge(L *lua.LState, lc *LogCollector) {
 				parts = append(parts, L.ToStringMeta(L.Get(i)).String())
 			}
 			msg := fmt.Sprint(partsToInterface(parts...)...)
+			// Collect log entry for diagnostics.
 			lc.add(lv.level, msg)
+			// Also output to trpc-agent-go project log system.
+			outputToProjectLog(lv.level, msg)
 			return 0
 		}))
 	}
@@ -128,4 +133,21 @@ func partsToInterface(parts ...string) []any {
 		result[i] = p
 	}
 	return result
+}
+
+// outputToProjectLog outputs a log message to the trpc-agent-go project log system.
+// It maps Lua log levels to the corresponding project log functions.
+func outputToProjectLog(level, message string) {
+	switch level {
+	case "debug":
+		log.Debug("[luaexec] ", message)
+	case "info":
+		log.Info("[luaexec] ", message)
+	case "warn":
+		log.Warn("[luaexec] ", message)
+	case "error":
+		log.Error("[luaexec] ", message)
+	default:
+		log.Info("[luaexec] ", message)
+	}
 }

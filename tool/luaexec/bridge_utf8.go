@@ -75,9 +75,11 @@ func bridgeUTF8Len(L *lua.LState) int {
 }
 
 // bridgeUTF8Sub implements utf8.sub(s, i, j) → substring by character index.
-// utf8SubByChar returns the substring of s from character index i to the end.
-func utf8SubByChar(s string, i int, j int) string {
-	n := utf8.RuneCountInString(s)
+// utf8SubByChar implements utf8.sub(s, i, j) → substring by character positions.
+// i and j follow Lua string.sub semantics (1-based, negative allowed).
+func utf8SubByChar(s string, i, j int) string {
+	runes := []rune(s)
+	n := len(runes)
 	if j == 0 {
 		j = n
 	}
@@ -96,17 +98,7 @@ func utf8SubByChar(s string, i int, j int) string {
 	if i > j {
 		return ""
 	}
-	startByte := 0
-	for k := 1; k < i; k++ {
-		_, size := utf8.DecodeRuneInString(s[startByte:])
-		startByte += size
-	}
-	endByte := startByte
-	for k := i; k <= j; k++ {
-		_, size := utf8.DecodeRuneInString(s[endByte:])
-		endByte += size
-	}
-	return s[startByte:endByte]
+	return string(runes[i-1 : j])
 }
 
 func bridgeUTF8Sub(L *lua.LState) int {

@@ -45,22 +45,24 @@ func registerTableBridge(L *lua.LState) {
 // bridgeTableParseHTML implements htmltable.parse_html(html_string) -> table.
 // Parses an HTML string and returns structured table data including headers,
 // rows, merge hints, nested tables, and a preview string.
+//
+// 错误时返回 nil, error_message（标准 Lua 约定）。
 func bridgeTableParseHTML(L *lua.LState) int {
 	input := L.CheckString(1)
 
 	doc, err := html.Parse(strings.NewReader(input))
 	if err != nil {
-		result := makeErrorResult(fmt.Sprintf("HTML解析失败: %v", err))
-		pushGoValue(L, result)
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("HTML解析失败: %v", err)))
+		return 2
 	}
 
 	// Find the first <table> node.
 	tableNode := findFirstNode(doc, "table")
 	if tableNode == nil {
-		result := makeErrorResult("未找到<table>标签")
-		pushGoValue(L, result)
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("未找到<table>标签"))
+		return 2
 	}
 
 	result := parseTableNode(tableNode)
@@ -123,11 +125,14 @@ func parseTableNode(tableNode *html.Node) map[string]any {
 	// Generate preview.
 	preview := generatePreview(headers, dataRows)
 
+	// row_count 返回表格的总占用行数（表头 + 数据行），使所占行数与表格实际行数相等。
+	// 新增 data_row_count 字段保留仅数据行的计数，供需要区分表头与数据的消费者使用。
 	result := map[string]any{
 		"headers":        headers,
 		"rows":           dataRows,
 		"preview":        preview,
-		"row_count":      len(dataRows),
+		"row_count":      len(grid),
+		"data_row_count": len(dataRows),
 		"col_count":      colCount,
 		"merge_hints":    mergeHints,
 		"nested_tables":  nestedTables,
@@ -442,14 +447,15 @@ func findFirstNode(n *html.Node, tag string) *html.Node {
 // makeErrorResult creates a result map indicating a parse error.
 func makeErrorResult(msg string) map[string]any {
 	return map[string]any{
-		"headers":       []string{},
-		"rows":          [][]string{},
-		"preview":       "",
-		"row_count":     0,
-		"col_count":     0,
-		"merge_hints":   []map[string]any{},
-		"nested_tables": []map[string]any{},
-		"has_error":     true,
-		"error_message": msg,
+		"headers":        []string{},
+		"rows":           [][]string{},
+		"preview":        "",
+		"row_count":      0,
+		"data_row_count": 0,
+		"col_count":      0,
+		"merge_hints":    []map[string]any{},
+		"nested_tables":  []map[string]any{},
+		"has_error":      true,
+		"error_message":  msg,
 	}
 }
