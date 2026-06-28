@@ -1174,9 +1174,13 @@ func NewRuntimeWithOptions(
 		runner.WithAwaitUserReplyRouting(true),
 	}
 	if opts.EnableContextBudget {
+		plugin := conversation.ContextBudgetPlugin{}
+		if opts.MaxContextBudgetWindow != -1 {
+			plugin.MaxContextWindow = opts.MaxContextBudgetWindow
+		}
 		runnerOpts = append(
 			runnerOpts,
-			runner.WithPlugins(conversation.ContextBudgetPlugin{}),
+			runner.WithPlugins(plugin),
 		)
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
@@ -1743,9 +1747,13 @@ func run(
 		runner.WithAwaitUserReplyRouting(true),
 	}
 	if opts.EnableContextBudget {
+		plugin := conversation.ContextBudgetPlugin{}
+		if opts.MaxContextBudgetWindow != -1 {
+			plugin.MaxContextWindow = opts.MaxContextBudgetWindow
+		}
 		runnerOpts = append(
 			runnerOpts,
-			runner.WithPlugins(conversation.ContextBudgetPlugin{}),
+			runner.WithPlugins(plugin),
 		)
 	}
 	runnerOpts = appendMemoryServiceRunnerOption(runnerOpts, memSvc)
