@@ -12,8 +12,11 @@ package log
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -137,21 +140,39 @@ var fileEncoderConfig = zapcore.EncoderConfig{
 
 // AddFileOutput adds a file-based log output alongside the existing
 // stdout output. Logs are written in JSON format to the specified
-// directory. The file is named "openclaw.log" and is truncated on
-// each call so that every startup begins with a fresh log file.
-// This function is idempotent: calling it more than once has no
-// effect.
+// directory. The log file is created under a date-based subdirectory
+// (YYYY/MM/DD) with a timestamp-based filename to preserve history
+// across restarts. This function is idempotent: calling it more than
+// once has no effect.
 func AddFileOutput(dir string) error {
 	if fileCoreAdded {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+
+	now := time.Now()
+
+	// Create date-based subdirectory: {dir}/YYYY/MM/DD
+	dateDir := filepath.Join(dir,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", now.Month()),
+		fmt.Sprintf("%02d", now.Day()),
+	)
+	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		return err
 	}
 
-	logPath := filepath.Join(dir, "openclaw.log")
+	// Generate a unique filename: openclaw_YYYYMMDD_HHmmss_XXXXX.log
+	// The random suffix prevents collisions when multiple processes
+	// start within the same second.
+	randSuffix := fmt.Sprintf("%05d", rand.Intn(100000))
+	logFilename := fmt.Sprintf("openclaw_%s_%s_%s.log",
+		now.Format("20060102"),
+		now.Format("150405"),
+		randSuffix,
+	)
+	logPath := filepath.Join(dateDir, logFilename)
 	file, err := os.OpenFile(logPath,
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err
 	}
