@@ -51,6 +51,15 @@ func newSQLiteSessionBackend(
 		return nil, errors.New(sqliteSessionConfigErrMissingPath)
 	}
 
+	// Ensure busy_timeout is set to avoid SQLITE_BUSY errors under concurrent access.
+	if dsn != ":memory:" && !strings.Contains(dsn, "_busy_timeout") {
+		if strings.Contains(dsn, "?") {
+			dsn += "&_busy_timeout=5000"
+		} else {
+			dsn += "?_busy_timeout=5000"
+		}
+	}
+
 	if err := ensureSQLiteDir(path); err != nil {
 		return nil, err
 	}
