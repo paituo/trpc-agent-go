@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	"trpc.group/trpc-go/trpc-agent-go/plugin"
@@ -32,30 +34,37 @@ const contextBudgetPluginName = "openclaw_context_budget"
 //     messages when context usage exceeds 50%/70%/85%.
 //
 // Users do not need to add any context-management prompts to their config.
-type ContextBudgetPlugin struct{}
+//
+// MaxContextWindow caps the effective context window. Default (-1) means
+// using the model's reported context window. When >= 0 and smaller than
+// the model's context window, it overrides as the maximum.
+type ContextBudgetPlugin struct {
+	MaxContextWindow int
+}
 
 // Name implements plugin.Plugin.
-func (ContextBudgetPlugin) Name() string { return contextBudgetPluginName }
+func (p ContextBudgetPlugin) Name() string { return contextBudgetPluginName }
 
 // Register implements plugin.Plugin.
-func (ContextBudgetPlugin) Register(r *plugin.Registry) {
+func (p ContextBudgetPlugin) Register(r *plugin.Registry) {
 	if r == nil {
 		return
 	}
-	r.BeforeModel(injectContextBudgetContent)
+	r.BeforeModel(p.injectContextBudgetContent)
 }
 
 // contextBudgetGuidance is a static system-level prompt injected once at
 // the beginning of the conversation. It primes the LLM to plan tasks with
 // context window limits in mind, without requiring user-side configuration.
 const contextBudgetGuidance = `<context_budget_guidance>
-在规划任务和执行操作时，请注意上下文窗口（Context Window）的占用情况，避免单次操作消耗过多上下文导致溢出。
+系统已启用上下文压缩（context compaction）和会话摘要（session summary），自动管理上下文窗口占用。
+预算提醒仅在占比超过 50% 时注入，仅为参考信息。请继续执行任务，无需主动调整策略来节省上下文。
 
-请遵循以下原则：
-1. 优先精确操作：优先使用 search_content、grep 等精确搜索，避免批量读取大文件或执行全量列表操作。
-2. 善用子任务拆分：对于复杂任务，优先使用 task_run 拆分为独立子任务，隔离上下文占用。
-3. 控制操作粒度：单次工具调用应尽量精确，避免一次性请求过多数据。
-4. 结果压缩：已  完成的操作结果在后续轮次中可能被压缩，不要依赖历史工具结果中的完整数据。
+操作原则：
+1. 优先精确操作：使用 search_content、grep 等精确搜索，避免批量读取大文件。
+2. 善用子任务拆分：复杂任务使用 task_run 拆分为独立子任务，隔离上下文占用。
+3. 控制操作粒度：单次工具调用尽量精确，避免一次性请求过多数据。
+4. 结果压缩：已完成的操作结果可能被压缩，勿依赖历史工具结果中的完整数据。
 </context_budget_guidance>`
 
 // threshold defines a context usage threshold and its corresponding reminder text.
@@ -76,15 +85,19 @@ var budgetThresholds = []threshold{
 			"2) 已完成的操作结果可被压缩；3) 优先使用 search_content/grep 而非 fs_read_file。",
 	},
 	{
-		ratio: 0.85,
+		ratio:   0.85,
 		message: "上下文已使用约 %.0f%%，请立即停止批量操作。优先使用 task_run 处理后续任务。",
 	},
 }
 
 // selectReminder picks the highest applicable reminder for the given ratio.
-// Always returns a non-empty message — when below all thresholds it falls
-// back to a simple percentage report.
+// Returns empty string when below 50% to avoid triggering premature
+// self-intervention by the LLM.
 func selectReminder(ratio float64) string {
+	// 低于 50% 不注入提醒，避免 LLM 过早自我干预执行策略
+	if ratio < 0.50 {
+		return ""
+	}
 	pct := ratio * 100
 	var msg string
 	for _, t := range budgetThresholds {
@@ -92,27 +105,30 @@ func selectReminder(ratio float64) string {
 			msg = t.message
 		}
 	}
-	if msg == "" {
-		msg = fmt.Sprintf("当前上下文已使用约 %.0f%%。", pct)
-	} else {
-		msg = fmt.Sprintf(msg, pct)
-	}
+	msg = fmt.Sprintf(msg, pct)
 	return msg
 }
 
 // resolveContextWindow resolves the context window from invocation model info
 // or falls back to the model name registry, then to a default.
-func resolveContextWindow(inv *agent.Invocation) int {
+// When maxWindow >= 0 and smaller than the resolved value, it caps the result.
+func resolveContextWindow(inv *agent.Invocation, maxWindow int) int {
+	var window int
 	if inv != nil && inv.Model != nil {
 		info := inv.Model.Info()
 		if info.ContextWindow > 0 {
-			return info.ContextWindow
-		}
-		if w, ok := model.LookupModelContextWindow(info.Name); ok {
-			return w
+			window = info.ContextWindow
+		} else if w, ok := model.LookupModelContextWindow(info.Name); ok {
+			window = w
 		}
 	}
-	return 128000
+	if window <= 0 {
+		window = 128000
+	}
+	if maxWindow > 0 && maxWindow < window {
+		window = maxWindow
+	}
+	return window
 }
 
 // resolveTokenCounter returns a token counter from the invocation's model or a default.
@@ -128,7 +144,7 @@ func resolveTokenCounter(inv *agent.Invocation) model.TokenCounter {
 // injectContextBudgetContent is the BeforeModel callback that:
 //  1. Injects static context budget guidance as a system message on the first call.
 //  2. Injects dynamic budget reminders when context usage exceeds thresholds.
-func injectContextBudgetContent(
+func (p ContextBudgetPlugin) injectContextBudgetContent(
 	ctx context.Context,
 	args *model.BeforeModelArgs,
 ) (*model.BeforeModelResult, error) {
@@ -178,8 +194,18 @@ func injectContextBudgetContent(
 		return &model.BeforeModelResult{}, nil
 	}
 
-	contextWindow := resolveContextWindow(inv)
+	contextWindow := resolveContextWindow(inv, p.MaxContextWindow)
 	ratio := float64(tokens) / float64(contextWindow)
+
+	// Record context budget metrics on the current OTel span for Langfuse.
+	if span := trace.SpanFromContext(ctx); span.IsRecording() {
+		span.SetAttributes(
+			attribute.Int("context_budget.tokens", tokens),
+			attribute.Int("context_budget.window", contextWindow),
+			attribute.Float64("context_budget.ratio", ratio),
+		)
+	}
+
 	reminder := selectReminder(ratio)
 	if reminder == "" {
 		return &model.BeforeModelResult{}, nil
