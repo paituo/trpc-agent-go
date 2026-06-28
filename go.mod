@@ -1,6 +1,6 @@
 module trpc.group/trpc-go/trpc-agent-go
 
-go 1.23
+go 1.24.0
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.9.1
@@ -40,7 +40,14 @@ require (
 )
 
 require (
-	github.com/DavidBelicza/TextRank/v2 v2.1.3 // indirect
+	github.com/asg017/sqlite-vec-go-bindings v0.1.6 // indirect
+	github.com/ncruces/go-sqlite3 v0.17.1 // indirect
+	github.com/ncruces/julianday v1.0.0 // indirect
+	github.com/tetratelabs/wazero v1.7.3 // indirect
+)
+
+require (
+	github.com/DavidBelicza/TextRank/v2 v2.1.3
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/clbanning/mxj v1.8.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -78,13 +85,16 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/vcaesar/cedar v0.30.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	github.com/yuin/gopher-lua v1.1.2 // indirect
+	github.com/yuin/gopher-lua v1.1.2
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric v0.42.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/crypto v0.32.0 // indirect
-	golang.org/x/net v0.34.0 // indirect
+	golang.org/x/net v0.34.0
 	golang.org/x/oauth2 v0.26.0 // indirect
-	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/sys v0.30.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20240822170219-fc7c04adadcd // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240822170219-fc7c04adadcd // indirect
+	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec v0.0.0
 )
+
+replace trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/sqlitevec v0.0.0 => ./knowledge/vectorstore/sqlitevec
