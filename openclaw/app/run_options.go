@@ -135,8 +135,9 @@ const (
 	flagAgentRalphLoopVerifyTimeout     = "agent-ralph-verify-timeout"
 	flagAgentRalphLoopVerifyEnv         = "agent-ralph-verify-env"
 
-	flagEnableParallelTools   = "enable-parallel-tools"
-	flagEnableContextBudget   = "enable-context-budget"
+	flagEnableParallelTools     = "enable-parallel-tools"
+	flagEnableContextBudget     = "enable-context-budget"
+	flagMaxContextBudgetWindow  = "max-context-budget-window"
 
 	flagSkillsAllowBundled    = "skills-allow-bundled"
 	flagSkillsWatch           = "skills-watch"
@@ -217,6 +218,7 @@ type runOptions struct {
 	AddSessionSummary                             bool
 	EnableContextCompaction                       bool
 	EnableContextBudget                           bool
+	MaxContextBudgetWindow                        int
 	ContextCompactionOversizedToolResultMaxTokens int
 	MaxHistoryRuns                                int
 	MaxLLMCalls                                   int
@@ -424,10 +426,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 
 		MemoryAutoPolicy: summaryPolicyAny,
 
-		ToolCallArgumentsJSONRepair: true,
+	ToolCallArgumentsJSONRepair: true,
 
-		DeferToolSurfaceMode:               deferToolSurfaceModeOff,
-		DeferToolSurfaceDefaultDirectTools: true,
+	DeferToolSurfaceMode:               deferToolSurfaceModeOff,
+	DeferToolSurfaceDefaultDirectTools: true,
+
+	MaxContextBudgetWindow: -1,
 	}
 
 	fs.StringVar(
@@ -529,8 +533,14 @@ func parseRunOptions(args []string) (runOptions, error) {
 	fs.BoolVar(
 		&opts.EnableContextBudget,
 		flagEnableContextBudget,
-		true,
+		false,
 		"Enable context budget plugin that injects usage reminders into prompts",
+	)
+	fs.IntVar(
+		&opts.MaxContextBudgetWindow,
+		flagMaxContextBudgetWindow,
+		-1,
+		"Max context budget window; -1 means use model's reported window",
 	)
 	fs.IntVar(
 		&opts.ContextCompactionOversizedToolResultMaxTokens,
@@ -1449,6 +1459,7 @@ type agentRunConfig struct {
 	SyncSummaryIntraRun                           *bool    `yaml:"sync_summary_intra_run,omitempty"`
 	EnableContextCompaction                       *bool    `yaml:"enable_context_compaction,omitempty"`
 	EnableContextBudget                           *bool    `yaml:"enable_context_budget,omitempty"`
+	MaxContextBudgetWindow                        *int     `yaml:"max_context_budget_window,omitempty"`
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
@@ -2085,6 +2096,10 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.EnableContextBudget != nil &&
 			!flagWasSet(set, flagEnableContextBudget) {
 			opts.EnableContextBudget = *cfg.Agent.EnableContextBudget
+		}
+		if cfg.Agent.MaxContextBudgetWindow != nil &&
+			!flagWasSet(set, flagMaxContextBudgetWindow) {
+			opts.MaxContextBudgetWindow = *cfg.Agent.MaxContextBudgetWindow
 		}
 		if cfg.Agent.ContextCompactionOversizedToolResultMaxTokens != nil &&
 			!flagWasSet(set, flagContextCompactionOversizedToolResultMaxTokens) {
