@@ -22,7 +22,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
-	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 )
 
 // KBModuleConfig configures the knowledge base module for Lua scripts.
@@ -107,19 +106,28 @@ func (m *KBModule) Register(L *lua.LState) {
 	L.SetGlobal("kb", tbl)
 }
 
-// luaCreateStore implements kb.create_store({path, filename}) -> {store_handle, ...}
+// luaCreateStore implements kb.create_store({path, filename, db_path}) -> {store_handle, ...}
 //
 // 路径即名称：path+filename 作为 store 的唯一标识。
 // 如果同名 store 已存在，直接返回已有 handle（复用）。
+// db_path 为必填参数，指定 SQLite 数据库文件路径（如 "file:/path/to/kb.db"），
+// 仅支持 sqlitevec 磁盘持久化方式，不支持内存模式。
 // 检查+创建在同一个写锁临界区内完成，避免 TOCTOU 竞态条件。
 func (m *KBModule) luaCreateStore(L *lua.LState) int {
 	tbl := L.CheckTable(1)
 	path := luaTableGetString(tbl, "path")
 	filename := luaTableGetString(tbl, "filename")
+	dbPath := luaTableGetString(tbl, "db_path")
 
 	if path == "" || filename == "" {
-		pushGoValue(L, map[string]any{"error": "create_store: path and filename are required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("create_store: path and filename are required"))
+		return 2
+	}
+	if dbPath == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("create_store: db_path is required, sqlitevec disk mode only"))
+		return 2
 	}
 
 	storeName := path + "/" + filename
@@ -131,17 +139,22 @@ func (m *KBModule) luaCreateStore(L *lua.LState) int {
 	if _, ok := m.namedStores[storeName]; ok {
 		result := map[string]any{
 			"store_handle": storeName,
-			"store_type":   "inmemory",
+			"store_type":   "sqlite",
 			"dimension":    m.config.Dimensions,
-			"has_fts":      false,
+			"has_fts":      true,
 			"reused":       true,
 		}
 		pushGoValue(L, result)
 		return 1
 	}
 
-	// Create in-memory vector store.
-	vs := inmemory.New()
+	// 创建 sqlitevec vector store（仅支持磁盘持久化方式）
+	vs, storeType, hasFTS, err := newSQLiteVecStore(dbPath, m.config.Dimensions)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("create_store: failed to create vector store: %v", err)))
+		return 2
+	}
 
 	// Create BuiltinKnowledge.
 	bk := knowledge.New(
@@ -152,12 +165,11 @@ func (m *KBModule) luaCreateStore(L *lua.LState) int {
 	entry := &kbStore{kb: bk, vs: vs, name: storeName}
 	m.stores[storeName] = entry
 	m.namedStores[storeName] = entry
-
 	result := map[string]any{
 		"store_handle": storeName,
-		"store_type":   "inmemory",
+		"store_type":   storeType,
 		"dimension":    m.config.Dimensions,
-		"has_fts":      false,
+		"has_fts":      hasFTS,
 		"reused":       false,
 	}
 	pushGoValue(L, result)
@@ -170,8 +182,9 @@ func (m *KBModule) luaEmbed(L *lua.LState) int {
 	textsRaw := luaTableGetArray(tbl, "texts")
 
 	if len(textsRaw) == 0 {
-		pushGoValue(L, map[string]any{"error": "embed: texts array is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("embed: texts array is required"))
+		return 2
 	}
 
 	ctx := L.Context()
@@ -185,13 +198,15 @@ func (m *KBModule) luaEmbed(L *lua.LState) int {
 	for _, text := range textsRaw {
 		textStr, ok := text.(string)
 		if !ok {
-			pushGoValue(L, map[string]any{"error": "embed: each text must be a string"})
-			return 1
+			L.Push(lua.LNil)
+			L.Push(lua.LString("embed: each text must be a string"))
+			return 2
 		}
 		emb, err := m.embedder.GetEmbedding(ctx, textStr)
 		if err != nil {
-			pushGoValue(L, map[string]any{"error": fmt.Sprintf("embed: failed to get embedding: %v", err)})
-			return 1
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("embed: failed to get embedding: %v", err)))
+			return 2
 		}
 		embeddings = append(embeddings, emb)
 		apiCalls++
@@ -213,20 +228,23 @@ func (m *KBModule) luaAddDocs(L *lua.LState) int {
 	docsRaw := luaTableGetArray(tbl, "documents")
 
 	if storeHandle == "" {
-		pushGoValue(L, map[string]any{"error": "add_docs: store_handle is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_docs: store_handle is required"))
+		return 2
 	}
 	if len(docsRaw) == 0 {
-		pushGoValue(L, map[string]any{"error": "add_docs: documents array is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_docs: documents array is required"))
+		return 2
 	}
 
 	m.mu.RLock()
 	entry, ok := m.stores[storeHandle]
 	m.mu.RUnlock()
 	if !ok {
-		pushGoValue(L, map[string]any{"error": fmt.Sprintf("add_docs: store %q not found", storeHandle)})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("add_docs: store %q not found", storeHandle)))
+		return 2
 	}
 
 	entry.mu.Lock()
@@ -241,8 +259,9 @@ func (m *KBModule) luaAddDocs(L *lua.LState) int {
 	for _, docRaw := range docsRaw {
 		docMap, ok := docRaw.(map[string]any)
 		if !ok {
-			pushGoValue(L, map[string]any{"error": "add_docs: each document must be an object"})
-			return 1
+			L.Push(lua.LNil)
+			L.Push(lua.LString("add_docs: each document must be an object"))
+			return 2
 		}
 
 		content, _ := docMap["content"].(string)
@@ -250,10 +269,12 @@ func (m *KBModule) luaAddDocs(L *lua.LState) int {
 			continue
 		}
 
+		id, _ := docMap["id"].(string)
 		name, _ := docMap["name"].(string)
 		meta, _ := docMap["metadata"].(map[string]any)
 
 		doc := &document.Document{
+			ID:       id,
 			Name:     name,
 			Content:  content,
 			Metadata: meta,
@@ -262,14 +283,19 @@ func (m *KBModule) luaAddDocs(L *lua.LState) int {
 		// Generate embedding.
 		embedding, err := m.embedder.GetEmbedding(ctx, content)
 		if err != nil {
-			pushGoValue(L, map[string]any{"error": fmt.Sprintf("add_docs: failed to get embedding: %v", err)})
-			return 1
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("add_docs: failed to get embedding: %v", err)))
+			return 2
 		}
 
 		// Add to vector store directly.
+		// 如果 Add 失败（如 sqlitevec 的 UNIQUE 约束），尝试 Update。
 		if err := entry.vs.Add(ctx, doc, embedding); err != nil {
-			pushGoValue(L, map[string]any{"error": fmt.Sprintf("add_docs: failed to add document: %v", err)})
-			return 1
+			if updateErr := entry.vs.Update(ctx, doc, embedding); updateErr != nil {
+				L.Push(lua.LNil)
+				L.Push(lua.LString(fmt.Sprintf("add_docs: failed to add document (add: %v, update: %v)", err, updateErr)))
+				return 2
+			}
 		}
 		added++
 	}
@@ -290,20 +316,23 @@ func (m *KBModule) luaSearch(L *lua.LState) int {
 	metadataFilter := luaTableGetMap(tbl, "metadata_filter")
 
 	if storeHandle == "" {
-		pushGoValue(L, map[string]any{"error": "search: store_handle is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("search: store_handle is required"))
+		return 2
 	}
 	if queryText == "" {
-		pushGoValue(L, map[string]any{"error": "search: query_text is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("search: query_text is required"))
+		return 2
 	}
 
 	m.mu.RLock()
 	entry, ok := m.stores[storeHandle]
 	m.mu.RUnlock()
 	if !ok {
-		pushGoValue(L, map[string]any{"error": fmt.Sprintf("search: store %q not found", storeHandle)})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("search: store %q not found", storeHandle)))
+		return 2
 	}
 
 	entry.mu.RLock()
@@ -317,8 +346,9 @@ func (m *KBModule) luaSearch(L *lua.LState) int {
 	// Get embedding for query text.
 	embedding, err := m.embedder.GetEmbedding(ctx, queryText)
 	if err != nil {
-		pushGoValue(L, map[string]any{"error": fmt.Sprintf("search: failed to get embedding: %v", err)})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("search: failed to get embedding: %v", err)))
+		return 2
 	}
 
 	// Parse search mode string to SearchMode int.
@@ -344,8 +374,9 @@ func (m *KBModule) luaSearch(L *lua.LState) int {
 
 	result, err := entry.vs.Search(ctx, searchQuery)
 	if err != nil {
-		pushGoValue(L, map[string]any{"error": fmt.Sprintf("search: search failed: %v", err)})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("search: search failed: %v", err)))
+		return 2
 	}
 
 	// Convert results to Lua-friendly format.
@@ -377,8 +408,9 @@ func (m *KBModule) luaCloseStore(L *lua.LState) int {
 	storeHandle := luaTableGetString(tbl, "store_handle")
 
 	if storeHandle == "" {
-		pushGoValue(L, map[string]any{"error": "close_store: store_handle is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("close_store: store_handle is required"))
+		return 2
 	}
 
 	m.mu.Lock()
@@ -400,16 +432,18 @@ func (m *KBModule) luaStoreInfo(L *lua.LState) int {
 	storeHandle := luaTableGetString(tbl, "store_handle")
 
 	if storeHandle == "" {
-		pushGoValue(L, map[string]any{"error": "store_info: store_handle is required"})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString("store_info: store_handle is required"))
+		return 2
 	}
 
 	m.mu.RLock()
 	entry, ok := m.stores[storeHandle]
 	m.mu.RUnlock()
 	if !ok {
-		pushGoValue(L, map[string]any{"error": fmt.Sprintf("store_info: store %q not found", storeHandle)})
-		return 1
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("store_info: store %q not found", storeHandle)))
+		return 2
 	}
 
 	entry.mu.RLock()
