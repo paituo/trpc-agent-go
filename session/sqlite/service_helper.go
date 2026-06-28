@@ -369,7 +369,12 @@ AND deleted_at IS NULL`,
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 
 	_, err = tx.ExecContext(
 		ctx,
@@ -415,6 +420,7 @@ AND deleted_at IS NULL`,
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
+	committed = true
 	return nil
 }
 
@@ -495,7 +501,12 @@ AND deleted_at IS NULL`,
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
 
 	_, err = tx.ExecContext(
 		ctx,
@@ -543,6 +554,7 @@ AND deleted_at IS NULL`,
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tx: %w", err)
 	}
+	committed = true
 	return nil
 }
 
