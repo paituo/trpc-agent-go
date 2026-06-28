@@ -12,10 +12,12 @@ package log
 // ... existing code ...
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,11 +130,27 @@ func TestAddFileOutput(t *testing.T) {
 	assert.True(t, fileCoreAdded,
 		"fileCoreAdded should be true after AddFileOutput")
 
-	// Verify log file was created.
-	logPath := filepath.Join(dir, "openclaw.log")
-	_, statErr := os.Stat(logPath)
-	assert.NoError(t, statErr,
-		"log file should exist after AddFileOutput")
+	// Verify log file was created under date-based subdirectory.
+	now := time.Now()
+	dateDir := filepath.Join(dir,
+		fmt.Sprintf("%04d", now.Year()),
+		fmt.Sprintf("%02d", now.Month()),
+		fmt.Sprintf("%02d", now.Day()),
+	)
+	entries, readErr := os.ReadDir(dateDir)
+	require.NoError(t, readErr, "date directory should exist")
+	require.NotEmpty(t, entries, "date directory should contain log files")
+
+	// Verify filename pattern: openclaw_YYYYMMDD_HHmmss_XXXXX.log
+	found := false
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "openclaw_") &&
+			strings.HasSuffix(entry.Name(), ".log") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "should find a log file matching openclaw_*.log pattern")
 
 	// Verify idempotency: second call should be a no-op.
 	err = AddFileOutput(dir)
