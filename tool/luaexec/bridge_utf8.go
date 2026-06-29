@@ -568,6 +568,7 @@ func luaPatternToGoRegex(pattern string) string {
 
 	var sb strings.Builder
 	i := 0
+	inCharClass := false
 	for i < len(pattern) {
 		if pattern[i] == '%' && i+1 < len(pattern) {
 			next := pattern[i+1]
@@ -632,15 +633,30 @@ func luaPatternToGoRegex(pattern string) string {
 			continue
 		}
 
+		// Track character class boundaries: '[' opens a char class, ']' closes it.
+		// '%[' is handled above (escaped literal '[') and does NOT open a char class.
+		if pattern[i] == '[' {
+			inCharClass = true
+		} else if pattern[i] == ']' && inCharClass {
+			inCharClass = false
+		}
+
 		// Lua non-greedy quantifier "-" → Go "*?"
 		// Must check context: "-" after a pattern element means non-greedy match.
-		// If preceded by '%', it's an escaped character (e.g. %- means literal '-'),
-		// so we should NOT convert it.
-		if pattern[i] == '-' && i > 0 {
+		// Inside a character class [...], '-' is always a literal hyphen.
+		// After another quantifier (*, +, ?, -), '-' is also a literal hyphen
+		// (e.g. "^\s*-\s*" where '-' follows quantifier '*').
+		if pattern[i] == '-' && i > 0 && !inCharClass {
 			prev := pattern[i-1]
 			// Check if the '-' is preceded by a '%' escape (e.g. %-)
 			if prev == '%' {
 				// This '-' is part of %- (escaped literal '-'), skip conversion
+				sb.WriteByte('-')
+				i++
+				continue
+			}
+			// If preceded by another quantifier, it's a literal '-'
+			if prev == '*' || prev == '+' || prev == '?' || prev == '-' {
 				sb.WriteByte('-')
 				i++
 				continue
