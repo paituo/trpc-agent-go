@@ -12,6 +12,7 @@ package luaexec
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -21,6 +22,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
+	filesource "trpc.group/trpc-go/trpc-agent-go/knowledge/source/file"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 )
 
@@ -101,6 +103,9 @@ func (m *KBModule) Register(L *lua.LState) {
 	L.SetField(tbl, "embed", L.NewFunction(m.luaEmbed))
 	L.SetField(tbl, "add_docs", L.NewFunction(m.luaAddDocs))
 	L.SetField(tbl, "search", L.NewFunction(m.luaSearch))
+	L.SetField(tbl, "add_source", L.NewFunction(m.luaAddSource))
+	L.SetField(tbl, "remove_source", L.NewFunction(m.luaRemoveSource))
+	L.SetField(tbl, "query_docs", L.NewFunction(m.luaQueryDocs))
 	L.SetField(tbl, "close_store", L.NewFunction(m.luaCloseStore))
 	L.SetField(tbl, "store_info", L.NewFunction(m.luaStoreInfo))
 	L.SetGlobal("kb", tbl)
@@ -302,6 +307,269 @@ func (m *KBModule) luaAddDocs(L *lua.LState) int {
 
 	pushGoValue(L, map[string]any{"added": added})
 	return 1
+}
+
+// luaAddSource implements kb.add_source({store_handle, source_name, file_paths, chunk_size?, chunk_overlap?})
+// -> {source_name, file_count, doc_count}
+//
+// 使用知识库自带的 file.Source + Markdown 感知分块，直接将源文件导入知识库。
+// 无需 Lua 侧手动分块和构建 metadata。
+func (m *KBModule) luaAddSource(L *lua.LState) int {
+	tbl := L.CheckTable(1)
+	storeHandle := luaTableGetString(tbl, "store_handle")
+	sourceName := luaTableGetString(tbl, "source_name")
+	filePathsRaw := luaTableGetArray(tbl, "file_paths")
+	chunkSize := luaTableGetInt(tbl, "chunk_size", 0)
+	chunkOverlap := luaTableGetInt(tbl, "chunk_overlap", 0)
+
+	if storeHandle == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_source: store_handle is required"))
+		return 2
+	}
+	if sourceName == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_source: source_name is required"))
+		return 2
+	}
+	if len(filePathsRaw) == 0 {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_source: file_paths array is required"))
+		return 2
+	}
+
+	m.mu.RLock()
+	entry, ok := m.stores[storeHandle]
+	m.mu.RUnlock()
+	if !ok {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("add_source: store %q not found", storeHandle)))
+		return 2
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	ctx := L.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 转换 Lua 字符串数组为 Go string 切片
+	filePaths := make([]string, 0, len(filePathsRaw))
+	for _, fp := range filePathsRaw {
+		if s, ok := fp.(string); ok && s != "" {
+			filePaths = append(filePaths, s)
+		}
+	}
+	if len(filePaths) == 0 {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("add_source: no valid file paths found"))
+		return 2
+	}
+
+	// 构建 file.Source 选项
+	var opts []filesource.Option
+	opts = append(opts, filesource.WithName(sourceName))
+	if chunkSize > 0 {
+		opts = append(opts, filesource.WithChunkSize(chunkSize))
+	}
+	if chunkOverlap > 0 {
+		opts = append(opts, filesource.WithChunkOverlap(chunkOverlap))
+	}
+
+	// 创建 file.Source 并逐个读取文档后串行入库
+	// 避免 AddSource 内部并发写入 SQLite 导致 "database is locked"
+	fileSrc := filesource.New(filePaths, opts...)
+	docs, readErr := fileSrc.ReadDocuments(ctx)
+	if readErr != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("add_source: failed to read documents: %v", readErr)))
+		return 2
+	}
+
+	// 串行添加每个文档（直接使用 vs.Add 避免并发写入问题）
+	for _, doc := range docs {
+		embedding, embErr := m.embedder.GetEmbedding(ctx, doc.Content)
+		if embErr != nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("add_source: failed to embed document %q: %v", doc.Name, embErr)))
+			return 2
+		}
+		if err := entry.vs.Add(ctx, doc, embedding); err != nil {
+			L.Push(lua.LNil)
+			L.Push(lua.LString(fmt.Sprintf("add_source: failed to add document %q: %v", doc.Name, err)))
+			return 2
+		}
+	}
+
+	// 获取导入后的文档统计
+	var docCount int
+	count, err := entry.vs.Count(ctx)
+	if err == nil {
+		docCount = count
+	}
+
+	result := map[string]any{
+		"source_name": sourceName,
+		"file_count":  len(filePaths),
+		"doc_count":   docCount,
+	}
+	pushGoValue(L, result)
+	return 1
+}
+
+// luaRemoveSource implements kb.remove_source({store_handle, source_name}) -> {ok}
+func (m *KBModule) luaRemoveSource(L *lua.LState) int {
+	tbl := L.CheckTable(1)
+	storeHandle := luaTableGetString(tbl, "store_handle")
+	sourceName := luaTableGetString(tbl, "source_name")
+
+	if storeHandle == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("remove_source: store_handle is required"))
+		return 2
+	}
+	if sourceName == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("remove_source: source_name is required"))
+		return 2
+	}
+
+	m.mu.RLock()
+	entry, ok := m.stores[storeHandle]
+	m.mu.RUnlock()
+	if !ok {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("remove_source: store %q not found", storeHandle)))
+		return 2
+	}
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	ctx := L.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if err := entry.kb.RemoveSource(ctx, sourceName); err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("remove_source: failed to remove source %q: %v", sourceName, err)))
+		return 2
+	}
+
+	pushGoValue(L, map[string]any{"ok": true})
+	return 1
+}
+
+// luaQueryDocs implements kb.query_docs({store_handle, metadata_filter?, limit?})
+// -> {docs: [{id, name, content, metadata}]}
+//
+// 从知识库中查询文档及其元数据。支持按 metadata 过滤。
+// 用于获取导入后的分片列表，按章节目录组织输出。
+func (m *KBModule) luaQueryDocs(L *lua.LState) int {
+	tbl := L.CheckTable(1)
+	storeHandle := luaTableGetString(tbl, "store_handle")
+	limit := luaTableGetInt(tbl, "limit", 1000)
+
+	if storeHandle == "" {
+		L.Push(lua.LNil)
+		L.Push(lua.LString("query_docs: store_handle is required"))
+		return 2
+	}
+
+	m.mu.RLock()
+	entry, ok := m.stores[storeHandle]
+	m.mu.RUnlock()
+	if !ok {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("query_docs: store %q not found", storeHandle)))
+		return 2
+	}
+
+	entry.mu.RLock()
+	vs := entry.vs
+	entry.mu.RUnlock()
+
+	ctx := L.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// 构建 metadata 过滤条件
+	metadataFilter := luaTableGetMap(tbl, "metadata_filter")
+	var getOpts []vectorstore.GetMetadataOption
+	if len(metadataFilter) > 0 {
+		getOpts = append(getOpts, vectorstore.WithGetMetadataFilter(metadataFilter))
+	}
+	if limit > 0 {
+		getOpts = append(getOpts, vectorstore.WithGetMetadataLimit(limit))
+	}
+
+	// 获取匹配的文档元数据
+	metaMap, err := vs.GetMetadata(ctx, getOpts...)
+	if err != nil {
+		L.Push(lua.LNil)
+		L.Push(lua.LString(fmt.Sprintf("query_docs: GetMetadata failed: %v", err)))
+		return 2
+	}
+
+	// 逐 ID 获取文档完整内容
+	docs := make([]map[string]any, 0, len(metaMap))
+	for id := range metaMap {
+		doc, _, getErr := vs.Get(ctx, id)
+		if getErr != nil {
+			continue
+		}
+		if doc == nil {
+			continue
+		}
+		docs = append(docs, map[string]any{
+			"id":       doc.ID,
+			"name":     doc.Name,
+			"content":  doc.Content,
+			"metadata": doc.Metadata,
+		})
+	}
+
+	// 按 chunk_index 排序
+	sort.Slice(docs, func(i, j int) bool {
+		ci := getChunkIndexFromMeta(docs[i]["metadata"])
+		cj := getChunkIndexFromMeta(docs[j]["metadata"])
+		if ci != cj {
+			return ci < cj
+		}
+		// 同 chunk_index 按 name 排序
+		ni, _ := docs[i]["name"].(string)
+		nj, _ := docs[j]["name"].(string)
+		return ni < nj
+	})
+
+	pushGoValue(L, map[string]any{
+		"docs":  docs,
+		"count": len(docs),
+	})
+	return 1
+}
+
+// getChunkIndexFromMeta 从 metadata 中提取 chunk_index
+func getChunkIndexFromMeta(metaVal any) int {
+	meta, ok := metaVal.(map[string]any)
+	if !ok {
+		return 0
+	}
+	if v, ok := meta["trpc_agent_go_chunk_index"]; ok {
+		switch val := v.(type) {
+		case float64:
+			return int(val)
+		case int:
+			return val
+		case int64:
+			return int(val)
+		}
+	}
+	return 0
 }
 
 // luaSearch implements kb.search({store_handle, query_text, ...}) -> {results}
