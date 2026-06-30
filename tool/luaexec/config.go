@@ -18,7 +18,10 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/tool"
 )
 
-const defaultToolSetName = "luaexec"
+// ToolSetName is the default name for the luaexec tool set.
+const ToolSetName = "luaexec"
+
+const defaultToolSetName = ToolSetName
 
 // ToolsProvider returns the current tool list given a context.
 // The context may carry an Invocation (via agent.InvocationFromContext),
