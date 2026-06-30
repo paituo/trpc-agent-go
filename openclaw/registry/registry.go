@@ -176,9 +176,11 @@ type KnowledgeProviderFactory func(
 
 // ToolProviderDeps are dependencies passed to tool provider factories.
 type ToolProviderDeps struct {
-	Model    model.Model
-	StateDir string
-	AppName  string
+	Model       model.Model
+	StateDir    string
+	AppName     string
+	SkillsRoots []string
+	KBEmbedder  *KBEmbedderConfig
 }
 
 // ToolProviderFactory creates additional tools for an agent.
@@ -197,11 +199,9 @@ type KBEmbedderConfig struct {
 
 // ToolSetProviderDeps are dependencies passed to tool set factories.
 type ToolSetProviderDeps struct {
-	Model       model.Model
-	StateDir    string
-	AppName     string
-	SkillsRoots []string
-	KBEmbedder  *KBEmbedderConfig // embedder config for Lua kb module, nil if not configured
+	Model    model.Model
+	StateDir string
+	AppName  string
 }
 
 // ToolSetProviderFactory creates a ToolSet (a dynamic tool collection).
