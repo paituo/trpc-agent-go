@@ -346,6 +346,9 @@ func (s *Store) searchByHybrid(ctx context.Context, query *vectorstore.SearchQue
 		}
 		sd.Document.Metadata[source.MetadataDenseScore] = r.vectorScore
 		sd.Document.Metadata[source.MetadataSparseScore] = r.textScore
+		if sd.Score < query.MinScore {
+			continue
+		}
 		results = append(results, sd)
 	}
 
@@ -416,13 +419,36 @@ func (s *Store) textRankQuery(ctx context.Context, query *vectorstore.SearchQuer
 		return nil, nil
 	}
 
-	rankSQL := fmt.Sprintf(`SELECT doc_id, ROW_NUMBER() OVER (ORDER BY bm25(%s)) as rank
-		FROM %s
-		WHERE %s MATCH ?
-		LIMIT ?`,
-		s.opts.ftsTableName, s.opts.ftsTableName, s.opts.ftsTableName)
+	var whereParts []string
+	var params []any
 
-	rows, err := s.db.QueryContext(ctx, rankSQL, ftsQuery, limit)
+	whereParts = append(whereParts, fmt.Sprintf("%s MATCH ?", s.opts.ftsTableName))
+	params = append(params, ftsQuery)
+
+	// Apply metadata filter to FTS sub-search.
+	if query.Filter != nil {
+		filterSQL, filterParams, err := s.filterB.buildFTSFilterClauses(
+			query.Filter.IDs,
+			query.Filter.Metadata,
+			query.Filter.FilterCondition,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("text rank query: build filter: %w", err)
+		}
+		if filterSQL != "" {
+			whereParts = append(whereParts, filterSQL)
+			params = append(params, filterParams...)
+		}
+	}
+
+	rankSQL := fmt.Sprintf(`SELECT fts.doc_id, ROW_NUMBER() OVER (ORDER BY bm25(%s)) as rank
+		FROM %s fts
+		WHERE %s
+		LIMIT ?`,
+		s.opts.ftsTableName, s.opts.ftsTableName, strings.Join(whereParts, " AND "))
+
+	params = append(params, limit)
+	rows, err := s.db.QueryContext(ctx, rankSQL, params...)
 	if err != nil {
 		return nil, fmt.Errorf("text rank query: %w", err)
 	}
