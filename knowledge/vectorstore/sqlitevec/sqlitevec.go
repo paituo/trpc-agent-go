@@ -514,6 +514,11 @@ func (s *Store) searchByVector(ctx context.Context, query *vectorstore.SearchQue
 		}
 	}
 
+	// 在 Go 层截断到 limit 条，后续可能接重排，不在 SQL 层面限制
+	if len(results) > limit {
+		results = results[:limit]
+	}
+
 	return &vectorstore.SearchResult{Results: results}, nil
 }
 
