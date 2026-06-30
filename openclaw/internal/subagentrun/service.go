@@ -136,14 +136,102 @@ func (s *Service) Start(ctx context.Context) {
 	s.mu.Unlock()
 }
 
-// Controller returns the underlying taskrun Controller for use by taskrun
-// tools. The returned Controller is the shared core used by both subagent
-// and taskrun tools.
+// Controller returns a taskrun Controller that injects debug trace support.
+// The returned Controller wraps the shared core used by both subagent and
+// taskrun tools, ensuring that runs spawned via the Controller interface
+// (e.g., start_task_run tool) also produce debug trace records.
 func (s *Service) Controller() coretaskrun.Controller {
 	if s == nil {
 		return nil
 	}
-	return s.core
+	return &tracedController{inner: s.core, svc: s}
+}
+
+// tracedController wraps taskruninprocess.Service to inject debug trace
+// support for callers that use the Controller interface directly.
+type tracedController struct {
+	inner *taskruninprocess.Service
+	svc   *Service
+}
+
+// Spawn implements taskrun.Controller. It creates a debug trace before
+// delegating to the inner service, so that runs spawned through the
+// Controller interface also produce debug trace records.
+func (c *tracedController) Spawn(
+	ctx context.Context,
+	req coretaskrun.SpawnRequest,
+) (coretaskrun.Run, error) {
+	// Generate a run ID if not provided, so we can create the trace before
+	// delegating to the inner service.
+	runID := strings.TrimSpace(req.ID)
+	if runID == "" {
+		runID = newSubagentID()
+		req.ID = runID
+	}
+
+	// Create debug trace for this run.
+	trace, _ := c.svc.startDebugTrace(
+		ctx,
+		runID,
+		req.OwnerUserID,
+		req.ParentSessionID,
+		"", // channel is unknown at this level
+	)
+
+	// Build RunContext to inject trace and recorder into the child context.
+	if trace != nil || c.svc.recorder != nil {
+		existing := req.RunContext
+		rec := c.svc.recorder
+		req.RunContext = func(base context.Context) context.Context {
+			if existing != nil {
+				if enriched := existing(base); enriched != nil {
+					base = enriched
+				}
+			}
+			if rec != nil {
+				base = debugrecorder.WithRecorder(base, rec)
+			}
+			if trace != nil {
+				base = debugrecorder.WithTrace(base, trace)
+			}
+			return base
+		}
+	}
+
+	run, err := c.inner.Spawn(ctx, req)
+	if err != nil {
+		c.svc.closeDebugTrace(runID, coretaskrun.StatusFailed, err.Error())
+		return coretaskrun.Run{}, err
+	}
+	return run, nil
+}
+
+func (c *tracedController) List(
+	ctx context.Context,
+	filter coretaskrun.ListFilter,
+) ([]coretaskrun.Run, error) {
+	return c.inner.List(ctx, filter)
+}
+
+func (c *tracedController) Get(
+	ctx context.Context,
+	runID string,
+) (*coretaskrun.Run, error) {
+	return c.inner.Get(ctx, runID)
+}
+
+func (c *tracedController) Cancel(
+	ctx context.Context,
+	runID string,
+) (*coretaskrun.Run, bool, error) {
+	return c.inner.Cancel(ctx, runID)
+}
+
+func (c *tracedController) Wait(
+	ctx context.Context,
+	runID string,
+) (*coretaskrun.Run, error) {
+	return c.inner.Wait(ctx, runID)
 }
 
 func (s *Service) Close() error {
