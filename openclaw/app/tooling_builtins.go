@@ -115,9 +115,9 @@ func init() {
 		toolSetProviderEmail,
 		newEmailToolSet,
 	))
-	must(registry.RegisterToolSetProvider(
+	must(registry.RegisterToolProvider(
 		toolSetProviderLua,
-		newLuaToolSet,
+		newLuaExecToolProvider,
 	))
 	must(registry.RegisterToolSetProvider(
 		toolSetProviderAgentTool,
@@ -875,10 +875,10 @@ type luaToolSetConfig struct {
 	MaxLogEntries      int      `yaml:"max_log_entries,omitempty"`
 }
 
-func newLuaToolSet(
-	deps registry.ToolSetProviderDeps,
+func newLuaExecToolProvider(
+	deps registry.ToolProviderDeps,
 	spec registry.PluginSpec,
-) (tool.ToolSet, error) {
+) ([]tool.Tool, error) {
 	var cfg luaToolSetConfig
 	if err := registry.DecodeStrict(spec.Config, &cfg); err != nil {
 		return nil, err
@@ -952,7 +952,11 @@ func newLuaToolSet(
 		}))
 	}
 
-	return luaexec.NewToolSet(opts...)
+	t, err := luaexec.NewTool(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return []tool.Tool{t}, nil
 }
 
 // toolsFromInvocationContext obtains the tool list from the GopherLua VM's context.

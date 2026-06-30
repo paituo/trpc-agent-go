@@ -1289,13 +1289,40 @@ func NewRuntimeWithOptions(
 			StateDir:                 resolvedStateDir,
 		})
 		kbEmbedder := extractKBEmbedderConfig(opts.KnowledgesConfig)
+		// Separate lua tool provider from tool sets: lua_exec is now registered
+		// as a ToolProvider (not a ToolSet), so it must be resolved via
+		// toolsFromProviders to avoid the NamedToolSet name prefix.
+		var luaSpecs []pluginSpec
+		var nonLuaSpecs []pluginSpec
+		for _, s := range opts.ToolSets {
+			if strings.EqualFold(s.Type, toolSetProviderLua) {
+				luaSpecs = append(luaSpecs, s)
+			} else {
+				nonLuaSpecs = append(nonLuaSpecs, s)
+			}
+		}
+		if len(luaSpecs) > 0 {
+			luaTools, err := toolsFromProviders(
+				mdl, opts.AppName, resolvedStateDir, luaSpecs,
+				registry.ToolProviderDeps{
+					SkillsRoots: skillRoots,
+					KBEmbedder:  kbEmbedder,
+				},
+			)
+			if err != nil {
+				return nil, &exitError{
+					Code: 1,
+					Err:  fmt.Errorf("create lua tool failed: %w", err),
+				}
+			}
+			extraTools = append(extraTools, luaTools...)
+		}
+
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
-			opts.ToolSets,
-			skillRoots,
-			kbEmbedder,
+			nonLuaSpecs,
 		)
 		if err != nil {
 			return nil, &exitError{
@@ -2124,13 +2151,39 @@ func run(
 			StateDir:                 resolvedStateDir,
 		})
 		kbEmbedder := extractKBEmbedderConfig(opts.KnowledgesConfig)
+		// Separate lua tool provider from tool sets: lua_exec is now registered
+		// as a ToolProvider (not a ToolSet),ed to avoid the NamedToolSet name prefix.
+		var luaSpecs []pluginSpec
+		var nonLuaSpecs []pluginSpec
+		for _, s := range opts.ToolSets {
+			if strings.EqualFold(s.Type, toolSetProviderLua) {
+				luaSpecs = append(luaSpecs, s)
+			} else {
+				nonLuaSpecs = append(nonLuaSpecs, s)
+			}
+		}
+		if len(luaSpecs) > 0 {
+			luaTools, err := toolsFromProviders(
+				mdl, opts.AppName, resolvedStateDir, luaSpecs,
+				registry.ToolProviderDeps{
+					SkillsRoots: skillRoots,
+					KBEmbedder:  kbEmbedder,
+				},
+			)
+			if err != nil {
+				return &exitError{
+					Code: 1,
+					Err:  fmt.Errorf("create lua tool failed: %w", err),
+				}
+			}
+			extraTools = append(extraTools, luaTools...)
+		}
+
 		toolSets, err = toolSetsFromProviders(
 			mdl,
 			opts.AppName,
 			resolvedStateDir,
-			opts.ToolSets,
-			skillRoots,
-			kbEmbedder,
+			nonLuaSpecs,
 		)
 		if err != nil {
 			return &exitError{
@@ -3622,11 +3675,16 @@ func toolsFromProviders(
 	appName string,
 	stateDir string,
 	specs []pluginSpec,
+	extraDeps ...registry.ToolProviderDeps,
 ) ([]tool.Tool, error) {
 	deps := registry.ToolProviderDeps{
 		Model:    mdl,
 		StateDir: stateDir,
 		AppName:  appName,
+	}
+	if len(extraDeps) > 0 {
+		deps.SkillsRoots = extraDeps[0].SkillsRoots
+		deps.KBEmbedder = extraDeps[0].KBEmbedder
 	}
 
 	out := make([]tool.Tool, 0, len(specs))
@@ -3671,19 +3729,15 @@ func toolSetsFromProviders(
 	appName string,
 	stateDir string,
 	specs []pluginSpec,
-	skillsRoots []string,
-	kbEmbedder *registry.KBEmbedderConfig,
 ) ([]tool.ToolSet, error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
 
 	deps := registry.ToolSetProviderDeps{
-		Model:       mdl,
-		StateDir:    stateDir,
-		AppName:     appName,
-		SkillsRoots: skillsRoots,
-		KBEmbedder:  kbEmbedder,
+		Model:    mdl,
+		StateDir: stateDir,
+		AppName:  appName,
 	}
 
 	out := make([]tool.ToolSet, 0, len(specs))
