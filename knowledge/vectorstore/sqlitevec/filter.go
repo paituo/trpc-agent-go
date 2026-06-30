@@ -104,18 +104,68 @@ func (fb *filterBuilder) buildEqualityFilter(key string, value any) sqlFragment 
 
 	// Metadata key — use EXISTS subquery on the metadata index table.
 	metaKey := stripMetadataPrefix(key)
-	return fb.metadataExistsEq(metaKey, value)
+	return fb.metadataExistsEq(metaKey, value, "v.id")
 }
 
 // metadataExistsEq builds an EXISTS subquery checking a metadata key equals
 // the given value using the appropriate typed column.
-func (fb *filterBuilder) metadataExistsEq(key string, value any) sqlFragment {
+// docIDRef is the SQL expression for the document ID (e.g. "v.id" for vec0 table, "fts.doc_id" for FTS table).
+func (fb *filterBuilder) metadataExistsEq(key string, value any, docIDRef string) sqlFragment {
 	col, param := typedMetadataColumn(value)
 	sql := fmt.Sprintf(
-		`EXISTS (SELECT 1 FROM %s m WHERE m.doc_id = v.id AND m.key = ? AND m.%s = ?)`,
-		fb.metaTable, col,
+		`EXISTS (SELECT 1 FROM %s m WHERE m.doc_id = %s AND m.key = ? AND m.%s = ?)`,
+		fb.metaTable, docIDRef, col,
 	)
 	return sqlFragment{sql: sql, params: []any{key, param}}
+}
+
+// buildFTSFilterClauses converts a SearchFilter into SQL WHERE clauses
+// suitable for the FTS5 table (using fts.doc_id instead of v.id).
+func (fb *filterBuilder) buildFTSFilterClauses(
+	ids []string,
+	metadata map[string]any,
+	cond *searchfilter.UniversalFilterCondition,
+) (string, []any, error) {
+	var parts []string
+	var params []any
+
+	// ID filter.
+	if len(ids) > 0 {
+		placeholders := make([]string, len(ids))
+		for i, id := range ids {
+			placeholders[i] = "?"
+			params = append(params, id)
+		}
+		parts = append(parts, fmt.Sprintf("fts.doc_id IN (%s)", strings.Join(placeholders, ",")))
+	}
+
+	// Simple metadata filter (equality match) — FTS table has no promoted columns,
+	// all filters go through the metadata EXISTS subquery.
+	for key, value := range metadata {
+		metaKey := stripMetadataPrefix(key)
+		frag := fb.metadataExistsEq(metaKey, value, "fts.doc_id")
+		parts = append(parts, frag.sql)
+		params = append(params, frag.params...)
+	}
+
+	// Universal filter condition.
+	if cond != nil {
+		frag, err := fb.convertCondition(cond)
+		if err != nil {
+			return "", nil, err
+		}
+		if frag.sql != "" {
+			// Replace "v.id" with "fts.doc_id" in the generated SQL.
+			fragSQL := strings.ReplaceAll(frag.sql, "v.id", "fts.doc_id")
+			parts = append(parts, fragSQL)
+			params = append(params, frag.params...)
+		}
+	}
+
+	if len(parts) == 0 {
+		return "", nil, nil
+	}
+	return strings.Join(parts, " AND "), params, nil
 }
 
 // convertCondition recursively converts a UniversalFilterCondition into SQL.
