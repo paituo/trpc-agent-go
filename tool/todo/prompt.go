@@ -63,6 +63,10 @@ Rules:
 - Each item's ID must be a globally-unique UUID. The ID must be unique
   not only within the current list but across ALL future todo lists —
   never reuse an ID from a previous session or list for a different task.
+- For sub-tasks, create a SEPARATE todo list (a new todo_write call with
+  a fresh list) and link it to the parent via the parentId field on each
+  item. Do NOT mix parent and child tasks in the same list — that would
+  violate the single-in_progress rule.
 
 ### Example
 
