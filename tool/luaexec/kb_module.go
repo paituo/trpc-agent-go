@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	lua "github.com/yuin/gopher-lua"
 
@@ -40,10 +41,11 @@ type KBModuleConfig struct {
 // kbStore holds a BuiltinKnowledge, its associated VectorStore, and a per-store
 // RWMutex for concurrent access control.
 type kbStore struct {
-	kb   *knowledge.BuiltinKnowledge
-	vs   vectorstore.VectorStore
-	mu   sync.RWMutex // per-store 读写锁
-	name string       // path/filename 唯一标识
+	kb       *knowledge.BuiltinKnowledge
+	vs       vectorstore.VectorStore
+	mu       sync.RWMutex // per-store 读写锁
+	name     string       // path/filename 唯一标识
+	refCount int32        // 引用计数，用于安全关闭
 }
 
 // KBModule provides knowledge base operations to Lua scripts.
@@ -114,10 +116,13 @@ func (m *KBModule) Register(L *lua.LState) {
 // luaCreateStore implements kb.create_store({path, filename, db_path}) -> {store_handle, ...}
 //
 // 路径即名称：path+filename 作为 store 的唯一标识。
-// 如果同名 store 已存在，直接返回已有 handle（复用）。
+// 如果同名 store 已存在，直接返回已有 handle（复用）并递增引用计数。
 // db_path 为必填参数，指定 SQLite 数据库文件路径（如 "file:/path/to/kb.db"），
 // 仅支持 sqlitevec 磁盘持久化方式，不支持内存模式。
 // 检查+创建在同一个写锁临界区内完成，避免 TOCTOU 竞态条件。
+//
+// 路径去重：如果 path 已以 filename 结尾，则不再重复拼接 filename，
+// 避免出现 "knowledge.db/knowledge.db" 这样的重复路径。
 func (m *KBModule) luaCreateStore(L *lua.LState) int {
 	tbl := L.CheckTable(1)
 	path := luaTableGetString(tbl, "path")
@@ -135,13 +140,18 @@ func (m *KBModule) luaCreateStore(L *lua.LState) int {
 		return 2
 	}
 
+	// 路径去重：如果 path 已以 filename 结尾，直接使用 path 作为 storeName
 	storeName := path + "/" + filename
+	if strings.HasSuffix(path, filename) {
+		storeName = path
+	}
 
 	// 检查+创建在同一个写锁临界区内
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.namedStores[storeName]; ok {
+	if entry, ok := m.namedStores[storeName]; ok {
+		atomic.AddInt32(&entry.refCount, 1)
 		result := map[string]any{
 			"store_handle": storeName,
 			"store_type":   "sqlite",
@@ -167,7 +177,7 @@ func (m *KBModule) luaCreateStore(L *lua.LState) int {
 		knowledge.WithVectorStore(vs),
 	)
 
-	entry := &kbStore{kb: bk, vs: vs, name: storeName}
+	entry := &kbStore{kb: bk, vs: vs, name: storeName, refCount: 1}
 	m.stores[storeName] = entry
 	m.namedStores[storeName] = entry
 	result := map[string]any{
@@ -670,7 +680,11 @@ func (m *KBModule) luaSearch(L *lua.LState) int {
 }
 
 // luaCloseStore implements kb.close_store({store_handle})
-// 从 stores 和 namedStores 中同时移除。
+//
+// 使用引用计数机制：每次调用递减引用计数，只有最后一个引用者
+// （refCount 减到 0）才真正关闭底层数据库连接并从全局 map 中移除。
+// 这解决了多个 Lua VM 并发访问同一 store 时，一个调用者关闭
+// 导致其他调用者拿到 "database is closed" 错误的问题。
 func (m *KBModule) luaCloseStore(L *lua.LState) int {
 	tbl := L.CheckTable(1)
 	storeHandle := luaTableGetString(tbl, "store_handle")
@@ -684,9 +698,12 @@ func (m *KBModule) luaCloseStore(L *lua.LState) int {
 	m.mu.Lock()
 	entry, ok := m.stores[storeHandle]
 	if ok {
-		_ = entry.kb.Close()
-		delete(m.stores, storeHandle)
-		delete(m.namedStores, entry.name)
+		newRefCount := atomic.AddInt32(&entry.refCount, -1)
+		if newRefCount <= 0 {
+			_ = entry.kb.Close()
+			delete(m.stores, storeHandle)
+			delete(m.namedStores, entry.name)
+		}
 	}
 	m.mu.Unlock()
 
