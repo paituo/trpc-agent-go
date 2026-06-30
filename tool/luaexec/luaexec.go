@@ -111,6 +111,21 @@ func WithKBConfig(cfg KBModuleConfig) Option {
 	return func(c *Config) { c.KBConfig = &cfg }
 }
 
+// NewTool creates a single lua_exec tool directly, bypassing ToolSet wrapping.
+// This is the preferred way to create the tool when it will be registered via
+// WithTools rather than WithToolSets, avoiding the NamedToolSet name prefix.
+func NewTool(opts ...Option) (tool.Tool, error) {
+	ts, err := NewToolSet(opts...)
+	if err != nil {
+		return nil, err
+	}
+	tools := ts.Tools(context.Background())
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("luaexec: NewToolSet returned no tools")
+	}
+	return tools[0], nil
+}
+
 // NewToolSet creates a Lua script execution tool set.
 func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	cfg := defaultConfig()
