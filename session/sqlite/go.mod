@@ -1,6 +1,6 @@
 module trpc.group/trpc-go/trpc-agent-go/session/sqlite
 
-go 1.23
+go 1.24.0
 
 replace trpc.group/trpc-go/trpc-agent-go => ../../
 
