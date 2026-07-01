@@ -60,6 +60,7 @@ const (
 	OperationVectorSearch         = "vector_search"
 	OperationRerank               = "rerank"
 	OperationVectorAdd            = "vector_add"
+	OperationSummarize            = "summarize"
 )
 
 // NewChatSpanName creates a new chat span name.
@@ -994,4 +995,29 @@ func truncatePreviewString(s string, maxBytes int) string {
 		end--
 	}
 	return string(b[:end]) + marker
+}
+
+// parentTraceIDContextKey is the context key for storing parent trace ID.
+type parentTraceIDContextKey struct{}
+
+// WithParentTraceID stores the parent trace ID in the context.
+func WithParentTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, parentTraceIDContextKey{}, traceID)
+}
+
+// ParentTraceIDFromContext retrieves the parent trace ID from the context.
+func ParentTraceIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(parentTraceIDContextKey{}).(string)
+	return v, ok
+}
+
+// GetParentTraceID attempts to get the parent trace ID from OTel span context first,
+// then falls back to the context value.
+func GetParentTraceID(ctx context.Context) (string, bool) {
+	// First try OTel span context
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		return span.SpanContext().TraceID().String(), true
+	}
+	// Fall back to context value
+	return ParentTraceIDFromContext(ctx)
 }
