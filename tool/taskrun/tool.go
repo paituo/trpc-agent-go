@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	taskrunruntime "trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -36,8 +37,10 @@ const (
 
 	argAgentName      = "agent_name"
 	argID             = "id"
+	argIDs            = "ids"
 	argLimit          = "limit"
 	argMode           = "mode"
+	argStrategy       = "strategy"
 	argTask           = "task"
 	argTimeoutSeconds = "timeout_seconds"
 	argWaitSeconds    = "wait_timeout_seconds"
@@ -45,9 +48,13 @@ const (
 	spawnModeAsync = "async"
 	spawnModeSync  = "sync"
 
+	strategyAll = "all"
+	strategyAny = "any"
+
 	defaultTranscriptEventLimit = 40
 	maxTranscriptEventLimit     = 200
 
+	schemaTypeArray   = "array"
 	schemaTypeInteger = "integer"
 	schemaTypeObject  = "object"
 	schemaTypeString  = "string"
@@ -224,6 +231,31 @@ type spawnInput struct {
 type runIDInput struct {
 	ID             string `json:"id"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+type waitInput struct {
+	IDs            []string `json:"ids"`
+	Strategy       string   `json:"strategy"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+}
+
+type waitResult struct {
+	Strategy string          `json:"strategy"`
+	Runs     []waitRunResult `json:"runs"`
+}
+
+type waitRunResult struct {
+	ID     string                `json:"id"`
+	Status taskrunruntime.Status `json:"status"`
+	Run    *taskrunruntime.Run   `json:"run,omitempty"`
+	Error  string                `json:"error,omitempty"`
+}
+
+// waitResultItem 是批量等待内部使用的中间结果类型。
+type waitResultItem struct {
+	id  string
+	run *taskrunruntime.Run
+	err error
 }
 
 type transcriptInput struct {
@@ -467,8 +499,10 @@ func (t *cancelTool) Call(
 func (t *waitTool) Declaration() *tool.Declaration {
 	return &tool.Declaration{
 		Name: toolWait,
-		Description: "Wait until one background task run " +
-			"reaches a terminal status.",
+		Description: "Wait until one or more background task runs " +
+			"reach a terminal status. Use strategy=all (default) to " +
+			"wait for all runs, or strategy=any to return as soon " +
+			"as any run finishes.",
 		InputSchema: waitSchema(),
 	}
 }
@@ -485,20 +519,128 @@ func (t *waitTool) Call(
 	if err != nil {
 		return nil, err
 	}
-	run, err := state.controller.Get(ctx, in.ID)
-	if err != nil {
-		return nil, err
+
+	// 去重
+	runIDs := uniqueStrings(in.IDs)
+
+	// 预校验：所有 run 必须存在且属于当前用户
+	for _, id := range runIDs {
+		run, err := state.controller.Get(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("taskrun: run %q not found", id)
+		}
+		if !sameOwner(run, userID) {
+			return nil, fmt.Errorf("taskrun: run %q not found", id)
+		}
 	}
-	if !sameOwner(run, userID) {
-		return nil, taskrunruntime.ErrRunNotFound
-	}
+
+	// 设置超时
 	waitCtx := ctx
 	var cancel context.CancelFunc
 	if in.TimeoutSeconds > 0 {
 		waitCtx, cancel = waitContext(ctx, in.TimeoutSeconds)
 		defer cancel()
 	}
-	return state.controller.Wait(waitCtx, in.ID)
+
+	switch in.Strategy {
+	case strategyAny:
+		return t.waitAny(waitCtx, state, runIDs)
+	default:
+		return t.waitAll(waitCtx, state, runIDs)
+	}
+}
+
+// waitAll 等待所有 run 达到终态。
+func (t *waitTool) waitAll(
+	ctx context.Context,
+	state *toolState,
+	runIDs []string,
+) (any, error) {
+	var g errgroup.Group
+	results := make([]waitResultItem, len(runIDs))
+	for i, id := range runIDs {
+		i, id := i, id
+		g.Go(func() error {
+			run, err := state.controller.Wait(ctx, id)
+			results[i] = waitResultItem{id: id, run: run, err: err}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	return buildWaitResult(strategyAll, runIDs, results), nil
+}
+
+// waitAny 等待任意一个 run 达到终态后立即返回。
+func (t *waitTool) waitAny(
+	ctx context.Context,
+	state *toolState,
+	runIDs []string,
+) (any, error) {
+	// 用带取消的 context 实现"任意一个完成即返回"
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type firstResult struct {
+		id  string
+		run *taskrunruntime.Run
+		err error
+	}
+
+	resultCh := make(chan firstResult, len(runIDs))
+	for _, id := range runIDs {
+		id := id
+		go func() {
+			run, err := state.controller.Wait(waitCtx, id)
+			select {
+			case resultCh <- firstResult{id: id, run: run, err: err}:
+			default:
+			}
+		}()
+	}
+
+	// 等待第一个结果
+	first := <-resultCh
+	cancel() // 通知其他 goroutine 停止等待
+
+	// 收集所有 run 的当前状态
+	results := make([]waitResultItem, len(runIDs))
+	for i, id := range runIDs {
+		if id == first.id {
+			results[i] = waitResultItem{id: id, run: first.run, err: first.err}
+		} else {
+			run, err := state.controller.Get(ctx, id)
+			if err != nil {
+				results[i] = waitResultItem{id: id, err: err}
+			} else {
+				results[i] = waitResultItem{id: id, run: run}
+			}
+		}
+	}
+
+	return buildWaitResult(strategyAny, runIDs, results), nil
+}
+
+func buildWaitResult(
+	strategy string,
+	runIDs []string,
+	results []waitResultItem,
+) waitResult {
+	out := make([]waitRunResult, len(runIDs))
+	for i, r := range results {
+		wr := waitRunResult{ID: r.id}
+		if r.err != nil {
+			wr.Error = r.err.Error()
+		} else if r.run != nil {
+			wr.Status = r.run.Status
+			wr.Run = r.run
+		}
+		out[i] = wr
+	}
+	return waitResult{
+		Strategy: strategy,
+		Runs:     out,
+	}
 }
 
 func (t *transcriptTool) Declaration() *tool.Declaration {
@@ -624,12 +766,29 @@ func runIDSchema() *tool.Schema {
 }
 
 func waitSchema() *tool.Schema {
-	schema := runIDSchema()
-	schema.Properties[argTimeoutSeconds] = &tool.Schema{
-		Type:        schemaTypeInteger,
-		Description: "Optional wait timeout in seconds.",
+	return &tool.Schema{
+		Type:     schemaTypeObject,
+		Required: []string{argIDs},
+		Properties: map[string]*tool.Schema{
+			argIDs: {
+				Type:        schemaTypeArray,
+				Description: "Task run ids to wait for.",
+				Items: &tool.Schema{
+					Type: schemaTypeString,
+				},
+			},
+			argStrategy: {
+				Type: schemaTypeString,
+				Description: "Wait strategy: " +
+					`"all" waits for all runs to finish (default), ` +
+					`"any" returns as soon as any run finishes.`,
+			},
+			argTimeoutSeconds: {
+				Type:        schemaTypeInteger,
+				Description: "Optional wait timeout in seconds.",
+			},
+		},
 	}
-	return schema
 }
 
 func requireTools(state *toolState) (*toolState, error) {
@@ -670,18 +829,31 @@ func decodeRunIDArgs(
 func decodeWaitArgs(
 	ctx context.Context,
 	args []byte,
-) (runIDInput, string, error) {
-	var in runIDInput
+) (waitInput, string, error) {
+	var in waitInput
 	if err := json.Unmarshal(args, &in); err != nil {
-		return runIDInput{}, "", err
+		return waitInput{}, "", err
 	}
 	userID, _, err := currentContext(ctx)
 	if err != nil {
-		return runIDInput{}, "", err
+		return waitInput{}, "", err
 	}
-	in.ID = strings.TrimSpace(in.ID)
-	if in.ID == "" {
-		return runIDInput{}, "", fmt.Errorf("taskrun: empty run id")
+	if len(in.IDs) == 0 {
+		return waitInput{}, "", fmt.Errorf("taskrun: empty run ids")
+	}
+	for i := range in.IDs {
+		in.IDs[i] = strings.TrimSpace(in.IDs[i])
+	}
+	in.Strategy = strings.TrimSpace(in.Strategy)
+	if in.Strategy == "" {
+		in.Strategy = strategyAll
+	}
+	switch in.Strategy {
+	case strategyAll, strategyAny:
+	default:
+		return waitInput{}, "", fmt.Errorf(
+			"taskrun: unsupported strategy %q", in.Strategy,
+		)
 	}
 	return in, userID, nil
 }
@@ -899,4 +1071,24 @@ func mergeTranscriptMessage(out *transcriptEvent, msg model.Message) {
 		}
 		out.ToolCalls = append(out.ToolCalls, name)
 	}
+}
+
+// uniqueStrings 返回去重后的字符串切片，保持首次出现的顺序。
+func uniqueStrings(s []string) []string {
+	if len(s) == 0 {
+		return s
+	}
+	seen := make(map[string]struct{}, len(s))
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
