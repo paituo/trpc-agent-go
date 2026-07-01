@@ -12,11 +12,13 @@
 package telemetry
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
@@ -58,6 +60,7 @@ const (
 	OperationVectorSearch         = "vector_search"
 	OperationRerank               = "rerank"
 	OperationVectorAdd            = "vector_add"
+	OperationSummarize            = "summarize"
 )
 
 // NewChatSpanName creates a new chat span name.
@@ -922,4 +925,92 @@ func NewGRPCConn(endpoint string) (*grpc.ClientConn, error) {
 	}
 
 	return conn, err
+}
+
+const (
+	// langfuseTraceInputKey is the baggage/span attribute key for trace-level
+	// input preview in Langfuse. Propagating it via baggage ensures child spans
+	// carry the attribute, making the input visible in the Langfuse trace list
+	// even before the root span is exported.
+	langfuseTraceInputKey = "langfuse.trace.input"
+	// langfuseTraceInputPreviewMaxBytes is the maximum byte length for the
+	// trace-level input preview propagated via baggage.
+	langfuseTraceInputPreviewMaxBytes = 256
+)
+
+// withLangfuseTraceInputBaggage sets langfuse.trace.input in the context
+// baggage with a truncated text preview extracted from the message.
+func withLangfuseTraceInputBaggage(ctx context.Context, msg model.Message) context.Context {
+	preview := extractMessageTextPreview(msg)
+	if preview == "" {
+		return ctx
+	}
+	member, err := baggage.NewMemberRaw(langfuseTraceInputKey, preview)
+	if err != nil {
+		return ctx
+	}
+	bag := baggage.FromContext(ctx)
+	bag, err = bag.SetMember(member)
+	if err != nil {
+		return ctx
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
+}
+
+// extractMessageTextPreview extracts a short text preview from a model.Message
+// for use as the Langfuse trace-level input.
+func extractMessageTextPreview(msg model.Message) string {
+	if msg.Content != "" {
+		return truncatePreviewString(msg.Content, langfuseTraceInputPreviewMaxBytes)
+	}
+	for _, part := range msg.ContentParts {
+		if part.Text != nil && *part.Text != "" {
+			return truncatePreviewString(*part.Text, langfuseTraceInputPreviewMaxBytes)
+		}
+	}
+	return ""
+}
+
+// truncatePreviewString truncates s to at most maxBytes, respecting UTF-8
+// boundaries, and appends an ellipsis marker when truncated.
+func truncatePreviewString(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	const marker = "…"
+	b := []byte(s)
+	end := maxBytes - len(marker)
+	if end <= 0 {
+		return marker
+	}
+	// Back up to a UTF-8 boundary.
+	for end > 0 && (b[end]&0xC0) == 0x80 {
+		end--
+	}
+	return string(b[:end]) + marker
+}
+
+// parentTraceIDContextKey is the context key for storing parent trace ID.
+type parentTraceIDContextKey struct{}
+
+// WithParentTraceID stores the parent trace ID in the context.
+func WithParentTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, parentTraceIDContextKey{}, traceID)
+}
+
+// ParentTraceIDFromContext retrieves the parent trace ID from the context.
+func ParentTraceIDFromContext(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(parentTraceIDContextKey{}).(string)
+	return v, ok
+}
+
+// GetParentTraceID attempts to get the parent trace ID from OTel span context first,
+// then falls back to the context value.
+func GetParentTraceID(ctx context.Context) (string, bool) {
+	// First try OTel span context
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		return span.SpanContext().TraceID().String(), true
+	}
+	// Fall back to context value
+	return ParentTraceIDFromContext(ctx)
 }
