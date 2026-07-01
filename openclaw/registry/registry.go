@@ -190,12 +190,19 @@ type ToolProviderFactory func(
 	spec PluginSpec,
 ) ([]tool.Tool, error)
 
-// KBEmbedderConfig holds the embedder configuration for the KB module.
+// KBEmbedderConfig holds the embedder and reranker configuration for the KB module.
 type KBEmbedderConfig struct {
 	BaseURL    string
 	Model      string
 	APIKey     string
 	Dimensions int
+
+	// Reranker 配置（可选），传递给 luaexec 的 KBModuleConfig
+	RerankerType   string
+	RerankerModel  string
+	RerankerURL    string
+	RerankerAPIKey string
+	RerankerTopN   int
 }
 
 // ToolSetProviderDeps are dependencies passed to tool set factories.
