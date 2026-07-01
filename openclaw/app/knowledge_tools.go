@@ -956,8 +956,8 @@ func sanitizeKnowledgeToolSegment(name string) string {
 	return out
 }
 
-// extractKBEmbedderConfig extracts the embedder configuration from the first
-// knowledge provider's config for use by the Lua kb module.
+// extractKBEmbedderConfig extracts the embedder and reranker configuration from
+// the first knowledge provider's config for use by the Lua kb module.
 // Only a single knowledge provider is supported; multiple providers are rejected.
 func extractKBEmbedderConfig(entries []knowledgeEntry) *registry.KBEmbedderConfig {
 	if len(entries) == 0 {
@@ -990,10 +990,30 @@ func extractKBEmbedderConfig(entries []knowledgeEntry) *registry.KBEmbedderConfi
 		dimensions = *embCfg.Dimensions
 	}
 
-	return &registry.KBEmbedderConfig{
+	result := &registry.KBEmbedderConfig{
 		BaseURL:    embCfg.BaseURL,
 		Model:      embCfg.Model,
 		APIKey:     embCfg.APIKey,
 		Dimensions: dimensions,
 	}
+
+	// 提取 reranker 配置
+	if cfg.Reranker != nil && cfg.Reranker.Node != nil {
+		var rerankCfg knowledgeRerankerConfig
+		if err := cfg.Reranker.Node.Decode(&rerankCfg); err == nil {
+			result.RerankerType = rerankCfg.Type
+			result.RerankerModel = rerankCfg.Model
+			result.RerankerAPIKey = rerankCfg.APIKey
+			if rerankCfg.Endpoint != "" {
+				result.RerankerURL = rerankCfg.Endpoint
+			} else {
+				result.RerankerURL = rerankCfg.URL
+			}
+			if rerankCfg.TopN != nil && *rerankCfg.TopN > 0 {
+				result.RerankerTopN = *rerankCfg.TopN
+			}
+		}
+	}
+
+	return result
 }
