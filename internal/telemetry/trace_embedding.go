@@ -27,6 +27,7 @@ type EmbeddingAttributes struct {
 	Response              *string
 	ServerAddress         *string
 	ServerPort            *int
+	ParentTraceID         *string
 }
 
 // TraceEmbedding traces the invocation of an embedding call.
@@ -63,6 +64,9 @@ func buildEmbeddingAttributes(embeddingAttributes *EmbeddingAttributes) []attrib
 	}
 	if embeddingAttributes.ServerPort != nil {
 		attrs = append(attrs, attribute.Int(semconvtrace.KeyServerPort, *embeddingAttributes.ServerPort))
+	}
+	if embeddingAttributes.ParentTraceID != nil {
+		attrs = append(attrs, attribute.String("langfuse.trace.metadata.embedding_parent_trace_id", *embeddingAttributes.ParentTraceID))
 	}
 	return attrs
 }
