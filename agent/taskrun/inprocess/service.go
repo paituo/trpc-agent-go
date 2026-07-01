@@ -20,6 +20,9 @@ import (
 
 	"github.com/google/uuid"
 
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/trace"
+
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/agent/taskrun"
 	"trpc.group/trpc-go/trpc-agent-go/event"
@@ -242,10 +245,15 @@ func (s *Service) Spawn(
 	s.notify(ctx, view)
 	spawn := cloneSpawnRequest(req)
 	s.wg.Add(1)
+	// Merge the caller's observability context (baggage + span context) into
+	// the base context so that child goroutines inherit the parent request's
+	// Langfuse trace correlation (session ID, user ID, trace ID, etc.).
+	// s.baseCtx is retained as the root for lifecycle management (Close()).
+	childCtx := mergeObservabilityContext(s.baseCtx, ctx)
 	go func(parent context.Context, runID string, spawn SpawnRequest) {
 		defer s.wg.Done()
 		s.execute(parent, runID, spawn)
-	}(s.baseCtx, view.ID, spawn)
+	}(childCtx, view.ID, spawn)
 	return view, nil
 }
 
@@ -546,6 +554,25 @@ func runtimeStateForRun(
 		state[keys.ParentSessionID] = run.ParentSessionID
 	}
 	return state
+}
+
+// mergeObservabilityContext merges observability context (baggage + OTel span
+// context) from src into base. This allows child goroutines to inherit the
+// parent request's Langfuse trace correlation (session ID, user ID, trace ID)
+// while retaining base for lifecycle management (cancellation, deadlines).
+//
+// This follows the same pattern as DetachContext in session/internal/summary/.
+func mergeObservabilityContext(base, src context.Context) context.Context {
+	if src == nil {
+		return base
+	}
+	if bag := baggage.FromContext(src); len(bag.Members()) > 0 {
+		base = baggage.ContextWithBaggage(base, bag)
+	}
+	if span := trace.SpanFromContext(src); span.SpanContext().IsValid() {
+		base = trace.ContextWithSpan(base, span)
+	}
+	return base
 }
 
 func normalizeRuntimeStateKeys(keys RuntimeStateKeys) RuntimeStateKeys {
