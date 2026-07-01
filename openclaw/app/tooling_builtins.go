@@ -786,13 +786,18 @@ func newLuaExecToolProvider(
 	// where the full tool list is not yet available at ToolSet creation time.
 	opts = append(opts, luaexec.WithToolsProvider(toolsFromInvocationContext))
 
-	// Pass KB embedder config to luaexec for kb module initialization.
+	// Pass KB embedder and reranker config to luaexec for kb module initialization.
 	if deps.KBEmbedder != nil {
 		opts = append(opts, luaexec.WithKBConfig(luaexec.KBModuleConfig{
 			EmbedderBaseURL: deps.KBEmbedder.BaseURL,
 			EmbedderModel:   deps.KBEmbedder.Model,
 			EmbedderAPIKey:  deps.KBEmbedder.APIKey,
 			Dimensions:      deps.KBEmbedder.Dimensions,
+			RerankerType:    deps.KBEmbedder.RerankerType,
+			RerankerModel:   deps.KBEmbedder.RerankerModel,
+			RerankerURL:     deps.KBEmbedder.RerankerURL,
+			RerankerAPIKey:  deps.KBEmbedder.RerankerAPIKey,
+			RerankerTopN:    deps.KBEmbedder.RerankerTopN,
 		}))
 	}
 
