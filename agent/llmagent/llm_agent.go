@@ -1531,6 +1531,13 @@ func (a *LLMAgent) Run(ctx context.Context, invocation *agent.Invocation) (e <-c
 			promptText,
 			&effectiveGenConfig,
 		)
+		// Store the parent trace ID in context so that async operations
+		// (e.g. embedding indexing, session summarization) can correlate
+		// their Langfuse traces back to this invocation even when the
+		// parent span has already ended.
+		if span.SpanContext().IsValid() {
+			ctx = itelemetry.WithParentTraceID(ctx, span.SpanContext().TraceID().String())
+		}
 	}
 	tracker := itelemetry.NewInvokeAgentTracker(
 		ctx,
