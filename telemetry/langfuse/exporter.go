@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
@@ -103,6 +104,12 @@ func transformSpan(span *tracepb.Span) {
 				break
 			}
 		}
+	}
+
+	// Prefix match for summarize spans (operation name is "summarize <name>")
+	if strings.HasPrefix(operationName, itelemetry.OperationSummarize) {
+		transformSummarize(span)
+		return
 	}
 
 	switch operationName {
@@ -1142,6 +1149,41 @@ func extractTracePreview(messagesJSON string) string {
 	}
 	// Fallback: truncate the raw JSON
 	return truncateStringBytes(messagesJSON, tracePreviewMaxBytes)
+}
+
+// transformSummarize transforms summarize spans for Langfuse.
+// Summarize spans are wrapper spans around LLM calls that generate session summaries.
+// They are created as independent traces (parent span may have ended), so we set
+// the observation type to "chain" for better visibility in the Langfuse UI.
+func transformSummarize(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	// Set observation type to chain (summarize is a workflow-like operation)
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeChain},
+		},
+	})
+
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case semconvtrace.KeyGenAIInputMessages,
+			semconvtrace.KeyGenAIInputMessagesOTel,
+			semconvtrace.KeyGenAIOutputMessages,
+			semconvtrace.KeyGenAIOutputMessagesOTel,
+			semconvtrace.KeyGenAIUsageInputTokens,
+			semconvtrace.KeyGenAIUsageOutputTokens,
+			semconvtrace.KeyGenAIUsageInputTokensCached,
+			semconvtrace.KeyGenAIUsageInputTokensCacheRead,
+			semconvtrace.KeyGenAIUsageInputTokensCacheCreation:
+			// Skip LLM-specific attributes on the summarize wrapper span
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+
+	span.Attributes = newAttributes
 }
 
 // MarshalLog is the marshaling function used by the logging system to represent this exporter.
