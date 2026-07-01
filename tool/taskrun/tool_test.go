@@ -202,13 +202,14 @@ func TestToolsSpawnListGetCancelWait(t *testing.T) {
 	require.Equal(t, spawned.ID, got.ID)
 
 	waitArgs := []byte(fmt.Sprintf(
-		`{"id":%q,"timeout_seconds":1}`,
+		`{"ids":[%q],"timeout_seconds":1}`,
 		spawned.ID,
 	))
 	waitedAny, err := tools.wait.Call(ctx, waitArgs)
 	require.NoError(t, err)
-	waited := waitedAny.(*taskrunruntime.Run)
-	require.Equal(t, taskrunruntime.StatusCompleted, waited.Status)
+	waited := waitedAny.(waitResult)
+	require.Len(t, waited.Runs, 1)
+	require.Equal(t, taskrunruntime.StatusCompleted, waited.Runs[0].Status)
 
 	canceledAny, err := tools.cancel.Call(ctx, getArgs)
 	require.NoError(t, err)
@@ -374,6 +375,16 @@ func TestToolDeclarations(t *testing.T) {
 		tools.get.Declaration().InputSchema.Required)
 	require.Equal(t, toolCancel, tools.cancel.Declaration().Name)
 	require.Equal(t, toolWait, tools.wait.Declaration().Name)
+	require.Equal(t, []string{argIDs},
+		tools.wait.Declaration().InputSchema.Required)
+	require.Contains(t,
+		tools.wait.Declaration().InputSchema.Properties,
+		argIDs,
+	)
+	require.Contains(t,
+		tools.wait.Declaration().InputSchema.Properties,
+		argStrategy,
+	)
 	require.Contains(t,
 		tools.wait.Declaration().InputSchema.Properties,
 		argTimeoutSeconds,
@@ -856,8 +867,112 @@ func TestToolsRejectCrossOwnerAccess(t *testing.T) {
 	_, err = tools.cancel.Call(otherCtx, args)
 	require.ErrorIs(t, err, taskrunruntime.ErrRunNotFound)
 
-	_, err = tools.wait.Call(otherCtx, args)
-	require.ErrorIs(t, err, taskrunruntime.ErrRunNotFound)
+	_, err = tools.wait.Call(otherCtx, []byte(fmt.Sprintf(`{"ids":[%q]}`, spawned.ID)))
+	require.ErrorContains(t, err, "not found")
+}
+
+func TestWaitToolMultipleIDsAllStrategy(t *testing.T) {
+	t.Parallel()
+
+	controller := newFakeController()
+	tools := NewTools(controller)
+	ctx := newInvocationContext("user-a", "session-a", nil)
+
+	spawned1, err := tools.spawn.Call(ctx, []byte(`{"task":"task-1"}`))
+	require.NoError(t, err)
+	spawned2, err := tools.spawn.Call(ctx, []byte(`{"task":"task-2"}`))
+	require.NoError(t, err)
+
+	run1 := spawned1.(taskrunruntime.Run)
+	run2 := spawned2.(taskrunruntime.Run)
+
+	waitedAny, err := tools.wait.Call(ctx, []byte(fmt.Sprintf(
+		`{"ids":[%q,%q],"timeout_seconds":1}`,
+		run1.ID, run2.ID,
+	)))
+	require.NoError(t, err)
+	waited := waitedAny.(waitResult)
+	require.Equal(t, strategyAll, waited.Strategy)
+	require.Len(t, waited.Runs, 2)
+	require.Equal(t, taskrunruntime.StatusCompleted, waited.Runs[0].Status)
+	require.Equal(t, taskrunruntime.StatusCompleted, waited.Runs[1].Status)
+}
+
+func TestWaitToolMultipleIDsAnyStrategy(t *testing.T) {
+	t.Parallel()
+
+	controller := newFakeController()
+	tools := NewTools(controller)
+	ctx := newInvocationContext("user-a", "session-a", nil)
+
+	spawned1, err := tools.spawn.Call(ctx, []byte(`{"task":"task-1"}`))
+	require.NoError(t, err)
+	spawned2, err := tools.spawn.Call(ctx, []byte(`{"task":"task-2"}`))
+	require.NoError(t, err)
+
+	run1 := spawned1.(taskrunruntime.Run)
+	run2 := spawned2.(taskrunruntime.Run)
+
+	waitedAny, err := tools.wait.Call(ctx, []byte(fmt.Sprintf(
+		`{"ids":[%q,%q],"strategy":"any","timeout_seconds":1}`,
+		run1.ID, run2.ID,
+	)))
+	require.NoError(t, err)
+	waited := waitedAny.(waitResult)
+	require.Equal(t, strategyAny, waited.Strategy)
+	require.Len(t, waited.Runs, 2)
+	// At least one run should be completed (the first one that finished)
+	completed := 0
+	for _, r := range waited.Runs {
+		if r.Status == taskrunruntime.StatusCompleted {
+			completed++
+		}
+	}
+	require.GreaterOrEqual(t, completed, 1)
+}
+
+func TestWaitToolEmptyIDs(t *testing.T) {
+	t.Parallel()
+
+	controller := newFakeController()
+	tools := NewTools(controller)
+	ctx := newInvocationContext("user-a", "session-a", nil)
+
+	_, err := tools.wait.Call(ctx, []byte(`{"ids":[]}`))
+	require.ErrorContains(t, err, "empty run ids")
+}
+
+func TestWaitToolInvalidStrategy(t *testing.T) {
+	t.Parallel()
+
+	controller := newFakeController()
+	tools := NewTools(controller)
+	ctx := newInvocationContext("user-a", "session-a", nil)
+
+	_, err := tools.wait.Call(ctx, []byte(`{"ids":["run-1"],"strategy":"invalid"}`))
+	require.ErrorContains(t, err, "unsupported strategy")
+}
+
+func TestWaitToolDeduplicatesIDs(t *testing.T) {
+	t.Parallel()
+
+	controller := newFakeController()
+	tools := NewTools(controller)
+	ctx := newInvocationContext("user-a", "session-a", nil)
+
+	spawnedAny, err := tools.spawn.Call(ctx, []byte(`{"task":"task-1"}`))
+	require.NoError(t, err)
+	run := spawnedAny.(taskrunruntime.Run)
+
+	// Same ID twice should be deduplicated
+	waitedAny, err := tools.wait.Call(ctx, []byte(fmt.Sprintf(
+		`{"ids":[%q,%q],"timeout_seconds":1}`,
+		run.ID, run.ID,
+	)))
+	require.NoError(t, err)
+	waited := waitedAny.(waitResult)
+	require.Len(t, waited.Runs, 1)
+	require.Equal(t, taskrunruntime.StatusCompleted, waited.Runs[0].Status)
 }
 
 func TestCurrentContextRequiresUserAndSession(t *testing.T) {
