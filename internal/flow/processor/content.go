@@ -794,7 +794,7 @@ func (p *ContentRequestProcessor) appendSessionMessages(
 		}
 	} else {
 		var compactionStats ContextCompactionStats
-		messages, compactionStats = p.getIncrementMessagesWithCutoff(invocation, summaryCutoff)
+		messages, compactionStats = p.getIncrementMessagesWithCutoff(invocation, req, summaryCutoff)
 		if p.hasCompactedCurrentInvocationToolResults(invocation, summaryCutoff.at) {
 			invocation.SetState(contentHasCompactedToolResultsStateKey, true)
 		}
@@ -931,7 +931,7 @@ func (p *ContentRequestProcessor) sessionMessagesAfterCutoff(
 		}
 		return nil
 	}
-	messages := p.getIncrementMessagesAfterCutoff(
+	messages, _ := p.getIncrementMessagesWithCutoff(
 		invocation,
 		req,
 		summaryCutoff,
@@ -1261,7 +1261,7 @@ func (p *ContentRequestProcessor) formatSummary(summary string) string {
 // getHistoryMessages gets history messages for the current filter, potentially truncated by MaxHistoryRuns.
 // This method is used when AddSessionSummary is false to get recent history messages.
 func (p *ContentRequestProcessor) getIncrementMessages(inv *agent.Invocation, since time.Time) ([]model.Message, ContextCompactionStats) {
-	return p.getIncrementMessagesWithCutoff(inv, summaryHistoryCutoffFromTime(since))
+	return p.getIncrementMessagesWithCutoff(inv, nil, summaryHistoryCutoffFromTime(since))
 }
 
 func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
@@ -1334,7 +1334,6 @@ func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
 		events = p.insertInvocationMessage(events, inv)
 	}
 
-<<<<<<< HEAD
 	resultEvents := p.applyToolTranscriptMode(events, inv)
 	// Apply KeepRecentToolResults protection to current-invocation tool
 	// results that were deferred from compactCurrentInvocationEvent.

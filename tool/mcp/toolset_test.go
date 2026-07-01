@@ -11,7 +11,7 @@ package mcp
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -568,7 +568,7 @@ func TestShouldAttemptSessionReconnect(t *testing.T) {
 			}
 			var err error
 			if tt.errorMsg != "" {
-				err = fmt.Errorf(tt.errorMsg)
+				err = errors.New(tt.errorMsg)
 			}
 			result := mgr.shouldAttemptSessionReconnect(err)
 			if result != tt.shouldRetry {

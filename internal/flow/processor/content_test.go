@@ -4343,7 +4343,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepAllByDefault(t *testing.T
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor().getIncrementMessages(inv, time.Time{})
+	messages, _ := NewContentRequestProcessor().getIncrementMessages(inv, time.Time{})
 
 	require.Len(t, messages, 2)
 	require.Equal(t, model.RoleAssistant, messages[0].Role)
@@ -4378,7 +4378,7 @@ func TestContentRequestProcessor_ToolTranscriptModeOmitPreviousCompleted(t *test
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4414,7 +4414,7 @@ func TestContentRequestProcessor_ToolTranscriptModeOmitsPreviousRequestInSameInv
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4444,7 +4444,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsCurrentRequest(t *testin
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4469,7 +4469,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsIncompletePreviousCall(t
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4520,7 +4520,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsPartiallyCompletedPrevio
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4551,7 +4551,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsPreviousCallWithCurrentR
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4610,7 +4610,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsMultiToolCallWithCurrent
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
@@ -4645,7 +4645,7 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsAssistantText(t *testing
 	)
 	inv.AgentName = "test-agent"
 
-	messages := NewContentRequestProcessor(
+	messages, _ := NewContentRequestProcessor(
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 

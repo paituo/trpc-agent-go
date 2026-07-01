@@ -213,6 +213,10 @@ func (c rangeErrorTokenCounter) CountTokens(_ context.Context, _ model.Message) 
 	return c.tokens, nil
 }
 
+func (c rangeErrorTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
+	return 0, nil
+}
+
 func (c rangeErrorTokenCounter) CountTokensRange(
 	_ context.Context,
 	_ []model.Message,

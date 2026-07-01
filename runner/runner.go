@@ -33,13 +33,13 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/evolution"
 	"trpc.group/trpc-go/trpc-agent-go/graph"
 	"trpc.group/trpc-go/trpc-agent-go/internal/session/summaryrestore"
-	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/appender"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/barrier"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/flush"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/livesession"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/sessionroute"
 	"trpc.group/trpc-go/trpc-agent-go/internal/state/steer"
+	itrace "trpc.group/trpc-go/trpc-agent-go/internal/trace"
 	"trpc.group/trpc-go/trpc-agent-go/log"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	"trpc.group/trpc-go/trpc-agent-go/model"
@@ -47,8 +47,6 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/session"
 	"trpc.group/trpc-go/trpc-agent-go/session/inmemory"
 	"trpc.group/trpc-go/trpc-agent-go/telemetry/appid"
-
-	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // Author types for events.
@@ -586,7 +584,7 @@ func (r *runner) Run(
 		ro,
 		runnerLatencySpanAwaitRoute,
 	)
-	ro, awaitUserReplyRootName, awaitUserReplyLookupPath, err := r.applyAwaitUserReplyRoute(
+	ro, awaitUserReplyRootName, _, err := r.applyAwaitUserReplyRoute(
 		awaitCtx,
 		sessionKey,
 		sess,
@@ -663,10 +661,10 @@ func (r *runner) Run(
 	}
 	if rootLookupName := r.selectedRootLookupName(
 		ro,
-		effectiveAppName,
 		awaitUserReplyRootName,
-		awaitUserReplyLookupPath,
-	)
+	); rootLookupName != "" {
+		agent.SetAwaitUserReplyRootLookupName(invocation, rootLookupName)
+	}
 	currentTurnSession, err := sessionroute.ResolveCurrentTurnSession(
 		execCtx,
 		r.sessionService,

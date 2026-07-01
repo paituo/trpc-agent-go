@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-agent-go/agent"
@@ -906,143 +907,20 @@ func newStreamingResponseProcessor(
 	return processor
 }
 
-	responseSeq(func(response *model.Response) bool {
-		currentInvocation = invocationFromContextOrDefault(
-			ctx,
-			currentInvocation,
+func (p *streamingResponseProcessor) process(response *model.Response) bool {
+	p.recordResponseStats(response)
+	traceDetails := latencyTraceResponseDetails(response)
+	responseCtx := p.ctx
+	var responseSpan oteltrace.Span
+	responseStarted := false
+	if traceDetails {
+		p.detailSpanCount++
+		responseCtx, responseSpan, responseStarted = startLatencySpan(
+			p.ctx,
+			p.invocation,
+			latencySpanProcessResponse,
+			latencyResponseAttrs(response)...,
 		)
-		timingInfo = responseUsageTimingInfo(currentInvocation)
-		if tracker != nil {
-			tracker.SetInvocationState(
-				metricsInvocationForCurrent(
-					currentInvocation,
-					observabilityInvocation,
-				),
-				timingInfo,
-			)
-		}
-		trackModelResponseTelemetry(
-			response,
-			tracker,
-		)
-		// Record final usage for context metrics tracker when the response
-		// contains meaningful data. This covers two cases:
-		//   a) Final text response (Done=true, Usage populated)
-		//   b) Tool call response (Done=false, Usage populated) — streaming
-		//      creates a final aggregated response with Done=false when tool
-		//      calls are present, but the API still returns usage data.
-		if response != nil && !response.IsPartial && (response.Done || response.Usage != nil) {
-			if ctxTracker := itelemetry.ContextMetricsTrackerFromContext(ctx); ctxTracker != nil {
-				contextWindow := 0
-				if callModel != nil {
-					if window, ok := modelcontext.ResolveContextWindow(callModel); ok {
-						contextWindow = window
-					}
-				}
-				ctxTracker.RecordFinalUsage(response.Usage, contextWindow)
-			}
-		}
-		callbackTimingAttachment := responseusage.AttachTimingForCallback(
-			response,
-			timingInfo,
-			&partialUsageState,
-		)
-		eventInvocation := invocation
-		if eventInvocation == nil {
-			eventInvocation = currentInvocation
-		}
-		// Handle after model callbacks.
-		updatedCtx, customResp, cbErr := f.handleAfterModelCallbacks(
-			ctx,
-			eventInvocation,
-			currentInvocation,
-			llmRequest,
-			response,
-			eventChan,
-		)
-		if cbErr != nil {
-			err = cbErr
-			return false
-		}
-		ctx = updatedCtx
-		responseReplaced := customResp != nil
-		if responseReplaced {
-			callbackTimingAttachment.Restore()
-			response = customResp
-		}
-		currentInvocation = invocationFromContextOrDefault(
-			ctx,
-			currentInvocation,
-		)
-		timingInfo = responseUsageTimingInfo(currentInvocation)
-		if tracker != nil {
-			tracker.SetInvocationState(
-				metricsInvocationForCurrent(
-					currentInvocation,
-					observabilityInvocation,
-				),
-				timingInfo,
-			)
-		}
-		if !responseReplaced {
-			callbackTimingAttachment.RestoreIfTimingInfoChanged(timingInfo)
-		}
-		responseusage.AttachTiming(response, timingInfo, &partialUsageState)
-		// Repair tool call arguments in place when needed.
-		if currentInvocation != nil &&
-			jsonrepair.IsToolCallArgumentsJSONRepairEnabled(currentInvocation) {
-			jsonrepair.RepairResponseToolCallArgumentsInPlace(ctx, response)
-		}
-		// 4. Create and send LLM response using the clean constructor.
-		llmResponseEvent := f.createLLMResponseEvent(
-			eventInvocation,
-			currentInvocation,
-			response,
-			llmRequest,
-		)
-		agent.EmitEvent(ctx, eventInvocation, eventChan, llmResponseEvent)
-		lastEvent = llmResponseEvent
-		if tracker != nil {
-			tracker.SetLastEvent(lastEvent)
-		}
-		// 5. Check context cancellation.
-		if err = agent.CheckContextCancelled(ctx); err != nil {
-			return false
-		}
-		// 6. Postprocess response.
-		f.postprocess(
-			ctx,
-			eventInvocation,
-			llmRequest,
-			response,
-			eventChan,
-		)
-		if ctxErr := agent.CheckContextCancelled(ctx); ctxErr != nil {
-			err = ctxErr
-			return false
-		}
-		var ttfb time.Duration
-		if tracker != nil {
-			ttfb = tracker.FirstTokenTimeDuration()
-		}
-		if startedSpan {
-			var contextMetrics *itelemetry.TraceChatContextMetrics
-			if ct := itelemetry.ContextMetricsTrackerFromContext(ctx); ct != nil {
-				contextMetrics = ct.ToTraceChatContextMetrics()
-			}
-			itelemetry.TraceChat(span, &itelemetry.TraceChatAttributes{
-				Invocation:       observabilityInvocationForCurrent(eventInvocation, observabilityInvocation),
-				Request:          llmRequest,
-				Response:         response,
-				EventID:          llmResponseEvent.ID,
-				TimeToFirstToken: ttfb,
-				ContextMetrics:   contextMetrics,
-			})
-		}
-		return true
-	})
-	if err != nil {
-		return nil, err
 	}
 	responseErr := error(nil)
 	defer func() {
@@ -1656,13 +1534,14 @@ func (f *Flow) maybeCompactContextBeforeLLM(
 		}
 	}
 
-	if !shouldSyncCompactContext(
+	decision := syncCompactContextDecision(
 		ctx,
 		invocation,
 		req,
 		f.contextCompactionThresholdRatio,
 		rebuildPlan.contentProcessor.ContextCompactionConfig.TokenCounter,
-	) {
+	)
+	if !decision.shouldCompact {
 		if tracker := itelemetry.ContextMetricsTrackerFromContext(ctx); tracker != nil {
 			tracker.RecordPostCompaction(totalTokens, false)
 		}

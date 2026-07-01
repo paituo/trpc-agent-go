@@ -646,6 +646,7 @@ func applyCurrentRequestToolResultPass(
 			ctx,
 			events[idx],
 			cfg.ToolResultMaxTokens,
+			false,
 			func(ctx context.Context, msg model.Message, maxTokens int, ref toolResultRecoveryRef) (model.Message, bool, int) {
 				if cfg.keepToolResult(msg) {
 					return msg, false, 0

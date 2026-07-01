@@ -363,7 +363,7 @@ func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
 		}
 		return "", fmt.Errorf(
 			"invalid path - absolute path outside base directory "+
-				"(base: %s): %s",
+				"(base: %s): %s. %s",
 			f.baseDir,
 			relativePath,
 			relativePathGuidance,

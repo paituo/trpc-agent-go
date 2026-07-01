@@ -764,6 +764,10 @@ func (c testFixedTokenCounter) CountTokens(_ context.Context, _ model.Message) (
 	return c.tokens, nil
 }
 
+func (c testFixedTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
+	return 0, nil
+}
+
 func (c testFixedTokenCounter) CountTokensRange(
 	_ context.Context,
 	_ []model.Message,
@@ -785,6 +789,10 @@ func (c *testCaptureTokenCounter) CountTokens(_ context.Context, message model.M
 	if strings.TrimSpace(message.ReasoningContent) != "" {
 		return 1000, nil
 	}
+	return 0, nil
+}
+
+func (c *testCaptureTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
 	return 0, nil
 }
 
@@ -821,6 +829,10 @@ func (c *testContextTokenCounter) CountTokens(ctx context.Context, _ model.Messa
 		return 1000, nil
 	}
 	c.miss++
+	return 0, nil
+}
+
+func (c *testContextTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
 	return 0, nil
 }
 
