@@ -23,6 +23,9 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
+	infinityreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/infinity"
+	topkreranker "trpc.group/trpc-go/trpc-agent-go/knowledge/reranker/topk"
 	filesource "trpc.group/trpc-go/trpc-agent-go/knowledge/source/file"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 )
@@ -36,6 +39,15 @@ type KBModuleConfig struct {
 	Dimensions      int    // 默认 1024
 	MaxChunkSize    int    // 默认 2000
 	ChunkOverlap    int    // 默认 200
+
+	// Reranker 配置（可选），与 openclaw knowledge_tools 中的配置格式一致。
+	// 当配置了 RerankerType 时，kb.search 将通过 BuiltinKnowledge.Search
+	// 走完整 RAG 流水线（含 reranker 重排），与 Agent 级 knowledge_search 工具行为一致。
+	RerankerType   string // "infinity" | "topk" | ""（空=topk）
+	RerankerModel  string // 模型名，如 "bge-reranker-v2-m3"
+	RerankerURL    string // infinity 服务地址
+	RerankerAPIKey string // API Key
+	RerankerTopN   int    // 返回 top N 条，默认 -1（全部）
 }
 
 // kbStore holds a BuiltinKnowledge, its associated VectorStore, and a per-store
@@ -55,6 +67,7 @@ type KBModule struct {
 	stores      map[string]*kbStore // handle → store
 	namedStores map[string]*kbStore // "path/filename" → store
 	embedder    embedder.Embedder
+	reranker    reranker.Reranker
 	config      *KBModuleConfig
 }
 
@@ -90,10 +103,42 @@ func NewKBModule(cfg *KBModuleConfig) (*KBModule, error) {
 		openaiembedder.WithDimensions(cfg.Dimensions),
 	)
 
+	// Create reranker based on config.
+	var rerank reranker.Reranker
+	switch strings.ToLower(strings.TrimSpace(cfg.RerankerType)) {
+	case "infinity":
+		var ropts []infinityreranker.Option
+		if cfg.RerankerModel != "" {
+			ropts = append(ropts, infinityreranker.WithModel(cfg.RerankerModel))
+		}
+		if cfg.RerankerURL != "" {
+			ropts = append(ropts, infinityreranker.WithEndpoint(cfg.RerankerURL))
+		}
+		if cfg.RerankerAPIKey != "" {
+			ropts = append(ropts, infinityreranker.WithAPIKey(cfg.RerankerAPIKey))
+		}
+		if cfg.RerankerTopN > 0 {
+			ropts = append(ropts, infinityreranker.WithTopN(cfg.RerankerTopN))
+		}
+		r, err := infinityreranker.New(ropts...)
+		if err != nil {
+			return nil, fmt.Errorf("kb module: failed to create infinity reranker: %w", err)
+		}
+		rerank = r
+	default:
+		// topk 为默认 reranker，与 knowledge.New 默认行为一致
+		var ropts []topkreranker.Option
+		if cfg.RerankerTopN > 0 {
+			ropts = append(ropts, topkreranker.WithK(cfg.RerankerTopN))
+		}
+		rerank = topkreranker.New(ropts...)
+	}
+
 	return &KBModule{
 		stores:      make(map[string]*kbStore),
 		namedStores: make(map[string]*kbStore),
 		embedder:    emb,
+		reranker:    rerank,
 		config:      cfg,
 	}, nil
 }
@@ -171,10 +216,13 @@ func (m *KBModule) luaCreateStore(L *lua.LState) int {
 		return 2
 	}
 
-	// Create BuiltinKnowledge.
+	// Create BuiltinKnowledge with reranker support.
+	// 传入 reranker 使 kb.search 走完整 RAG 流水线（含重排），
+	// 与 Agent 级 knowledge_search 工具行为一致。
 	bk := knowledge.New(
 		knowledge.WithEmbedder(m.embedder),
 		knowledge.WithVectorStore(vs),
+		knowledge.WithReranker(m.reranker),
 	)
 
 	entry := &kbStore{kb: bk, vs: vs, name: storeName, refCount: 1}
@@ -583,6 +631,8 @@ func getChunkIndexFromMeta(metaVal any) int {
 }
 
 // luaSearch implements kb.search({store_handle, query_text, ...}) -> {results}
+// 通过 BuiltinKnowledge.Search 走完整 RAG 流水线（含 reranker 重排），
+// 与 Agent 级 knowledge_search 工具行为一致。
 // 使用 per-store 读锁，多个子任务可同时搜索同一个 store。
 func (m *KBModule) luaSearch(L *lua.LState) int {
 	tbl := L.CheckTable(1)
@@ -621,56 +671,50 @@ func (m *KBModule) luaSearch(L *lua.LState) int {
 		ctx = context.Background()
 	}
 
-	// Get embedding for query text.
-	embedding, err := m.embedder.GetEmbedding(ctx, queryText)
-	if err != nil {
-		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("search: failed to get embedding: %v", err)))
-		return 2
-	}
-
 	// Parse search mode string to SearchMode int.
 	searchMode := parseSearchMode(modeStr)
 
-	// Build search filter from metadata_filter.
-	var searchFilter *vectorstore.SearchFilter
+	// Build search request for BuiltinKnowledge.Search (完整 RAG 流水线，含 reranker).
+	searchReq := &knowledge.SearchRequest{
+		Query:     queryText,
+		MaxResults: limit,
+		MinScore:  minScore,
+		SearchMode: searchMode,
+	}
 	if len(metadataFilter) > 0 {
-		searchFilter = &vectorstore.SearchFilter{
+		searchReq.SearchFilter = &knowledge.SearchFilter{
 			Metadata: metadataFilter,
 		}
 	}
 
-	// Build search query.
-	searchQuery := &vectorstore.SearchQuery{
-		Query:      queryText,
-		Vector:     embedding,
-		Limit:      limit,
-		MinScore:   minScore,
-		Filter:     searchFilter,
-		SearchMode: searchMode,
-	}
-
-	result, err := entry.vs.Search(ctx, searchQuery)
+	result, err := entry.kb.Search(ctx, searchReq)
 	if err != nil {
+		// "no relevant documents found" 时返回空数组，不报错
+		if strings.Contains(err.Error(), "no relevant documents found") ||
+			strings.Contains(err.Error(), "no relevant information found") {
+			pushGoValue(L, map[string]any{"results": []any{}})
+			return 1
+		}
 		L.Push(lua.LNil)
-		L.Push(lua.LString(fmt.Sprintf("search: search failed: %v", err)))
+		L.Push(lua.LString(fmt.Sprintf("search: %v", err)))
 		return 2
 	}
 
 	// Convert results to Lua-friendly format.
+	// 保持与现有 LUA 脚本兼容的格式：{results: [{id, name, content, score, metadata}]}
 	var results []any
-	for _, sd := range result.Results {
-		if sd.Document == nil {
+	for _, doc := range result.Documents {
+		if doc.Document == nil {
 			continue
 		}
 		docMap := map[string]any{
-			"id":      sd.Document.ID,
-			"name":    sd.Document.Name,
-			"content": sd.Document.Content,
-			"score":   sd.Score,
+			"id":      doc.Document.ID,
+			"name":    doc.Document.Name,
+			"content": doc.Document.Content,
+			"score":   doc.Score,
 		}
-		if sd.Document.Metadata != nil {
-			docMap["metadata"] = sd.Document.Metadata
+		if doc.Document.Metadata != nil {
+			docMap["metadata"] = doc.Document.Metadata
 		}
 		results = append(results, docMap)
 	}
