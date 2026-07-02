@@ -291,6 +291,13 @@ func newSessionSummarizer(
 		)
 	}
 
+	if opts.SessionSummaryCacheSafeForking {
+		options = append(
+			options,
+			summary.WithCacheSafeForking(true),
+		)
+	}
+
 	mode := strings.ToLower(strings.TrimSpace(opts.SessionSummaryMode))
 	switch mode {
 	case summaryModeAuto:

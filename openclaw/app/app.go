@@ -4297,6 +4297,7 @@ func newOpenAIModel(spec registry.ModelSpec) (model.Model, error) {
 	opts := []openai.Option{
 		openai.WithVariant(variant),
 		openai.WithOmitFileContentParts(true),
+		openai.WithOptimizeForCache(true),
 	}
 	if spec.OpenAITextOnlyMessageContent {
 		opts = append(opts, openai.WithTextOnlyMessageContent(true))

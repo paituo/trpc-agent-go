@@ -355,6 +355,7 @@ type runOptions struct {
 	SessionSummaryTokenCount                     int
 	SessionSummaryIdleThreshold                  time.Duration
 	SessionSummaryMaxWords                       int
+	SessionSummaryCacheSafeForking               bool
 	SessionSummaryContextThresholdRatio          float64
 	SessionSummaryContextThresholdMinTokens      int
 	SessionSummaryContextThresholdFallbackWindow int
@@ -1881,6 +1882,7 @@ type summaryConfig struct {
 	TokenThreshold                 *int     `yaml:"token_threshold,omitempty"`
 	IdleThreshold                  *string  `yaml:"idle_threshold,omitempty"`
 	MaxWords                       *int     `yaml:"max_words,omitempty"`
+	CacheSafeForking               *bool    `yaml:"cache_safe_forking,omitempty"`
 	ContextThresholdRatio          *float64 `yaml:"context_threshold_ratio,omitempty"`
 	ContextThresholdMinTokens      *int     `yaml:"context_threshold_min_tokens,omitempty"`
 	ContextThresholdFallbackWindow *int     `yaml:"context_threshold_fallback_window,omitempty"`
@@ -3347,6 +3349,10 @@ func applySessionSummary(
 	}
 	if cfg.MaxWords != nil && !flagWasSet(set, "session-summary-max-words") {
 		opts.SessionSummaryMaxWords = *cfg.MaxWords
+	}
+	if cfg.CacheSafeForking != nil &&
+		!flagWasSet(set, "session-summary-cache-safe-forking") {
+		opts.SessionSummaryCacheSafeForking = *cfg.CacheSafeForking
 	}
 	if cfg.ContextThresholdRatio != nil &&
 		!flagWasSet(set, "session-summary-context-threshold-ratio") {
