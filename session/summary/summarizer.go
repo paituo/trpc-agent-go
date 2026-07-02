@@ -458,6 +458,13 @@ func (s *sessionSummarizer) Summarize(ctx context.Context, sess *session.Session
 	ctx = s.ensureReportContext(ctx)
 	previousSummary, _ := isummarycontext.PreviousSummary(ctx)
 	separatePreviousSummary := promptContainsVar(s.prompt, previousSummaryVar)
+
+	// When cacheSafeForking is enabled, clone the session to prevent concurrent
+	// modifications to the original session from affecting the summary output.
+	if s.cacheSafeForking {
+		sess = sess.Clone()
+	}
+
 	if len(sess.Events) == 0 && (!separatePreviousSummary || previousSummary == "") {
 		return "", fmt.Errorf("no events to summarize for session %s (events=0)", sess.ID)
 	}
