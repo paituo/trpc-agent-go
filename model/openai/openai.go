@@ -1017,7 +1017,13 @@ func (m *Model) buildChatRequestWithToolControl(
 		chatRequest.TopLogprobs = openai.Int(int64(*request.TopLogprobs))
 	}
 	if request.ReasoningEffort != nil {
-		chatRequest.ReasoningEffort = shared.ReasoningEffort(*request.ReasoningEffort)
+		// For vLLM variant, only set reasoning_effort when thinking is not
+		// explicitly disabled. Some servers interpret reasoning_effort as an
+		// implicit enable for thinking, which overrides an explicit
+		// thinking=false and causes the model to still output reasoning content.
+		if m.variant != VariantVLLM || request.ThinkingEnabled == nil || *request.ThinkingEnabled {
+			chatRequest.ReasoningEffort = shared.ReasoningEffort(*request.ReasoningEffort)
+		}
 	}
 	opts := m.buildThinkingOption(request)
 	// vLLM requires thinking to be passed via chat_template_kwargs
@@ -1025,7 +1031,9 @@ func (m *Model) buildChatRequestWithToolControl(
 	// and reasoning_effort must be inside the same kwargs object.
 	if m.variant == VariantVLLM && request.ThinkingEnabled != nil {
 		kwargs := map[string]any{"thinking": *request.ThinkingEnabled}
-		if request.ReasoningEffort != nil {
+		// Only include reasoning_effort in chat_template_kwargs when thinking
+		// is explicitly enabled, matching the top-level behavior above.
+		if request.ReasoningEffort != nil && *request.ThinkingEnabled {
 			kwargs["reasoning_effort"] = *request.ReasoningEffort
 		}
 		opts = append(opts, openaiopt.WithJSONSet("chat_template_kwargs", kwargs))
