@@ -815,8 +815,9 @@ type TraceChatContextMetrics struct {
 	CompactionTriggered      bool
 	TailoringTriggered       bool
 	SummaryTriggered         bool
-	ToolCompactionTriggered  bool
-	OversizedTruncTriggered  bool
+	ToolCompactionTriggered      bool
+	ToolCompactionTokensSaved    int
+	OversizedTruncTriggered      bool
 	HistoryTrimTriggered     bool
 	EnableCompaction         bool
 	EnableTokenTailoring     bool
@@ -909,6 +910,9 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 	}
 	if m.ToolCompactionTriggered {
 		attrs = append(attrs, attribute.Bool("context.trigger.tool_compaction", true))
+		if m.ToolCompactionTokensSaved > 0 {
+			attrs = append(attrs, attribute.Int("context.state.tool_compaction_tokens_saved", m.ToolCompactionTokensSaved))
+		}
 	}
 	if m.OversizedTruncTriggered {
 		attrs = append(attrs, attribute.Bool("context.trigger.oversized_truncation", true))
