@@ -468,8 +468,9 @@ func (e *Embedder) response(ctx context.Context, text string) (*openai.CreateEmb
 		return nil, fmt.Errorf("text cannot be empty")
 	}
 	// Upstream moved the embedding trace/span into send(), which now records
-	// the request attributes, provider prompt tokens, and error. The branch
-	// trace added in ece400a69/5ada55196/8cd206ed3 is functionally covered by
+	// the request attributes, provider prompt tokens, error, and the branch's
+	// ParentTraceID correlation (merged into send()). The branch trace added
+	// in ece400a69/5ada55196/8cd206ed3/8bd8e22fc is functionally covered by
 	// send(), so we keep the upstream single-call form here.
 	return e.send(ctx, e.newRequest(openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)}))
 }
@@ -523,11 +524,34 @@ func (e *Embedder) send(
 	ctx context.Context,
 	request openai.EmbeddingNewParams,
 ) (rsp *openai.CreateEmbeddingResponse, err error) {
+	// Capture parent trace ID before creating the embedding span, so we can
+	// record it as metadata for Langfuse correlation when the embedding
+	// becomes an independent trace (e.g. async indexing where the parent
+	// span has already ended).
+	var parentTraceIDBeforeSpan *string
+	if tid, ok := itelemetry.GetParentTraceID(ctx); ok {
+		parentTraceIDBeforeSpan = &tid
+	}
+
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
+
+	// Only set embedding_parent_trace_id when the embedding span is in a
+	// different trace than the parent (i.e. it became an independent trace).
+	// When they share the same trace ID, the embedding is already a child
+	// observation and no correlation metadata is needed.
+	var parentTraceID *string
+	if parentTraceIDBeforeSpan != nil {
+		embeddingTraceID := span.SpanContext().TraceID().String()
+		if embeddingTraceID != *parentTraceIDBeforeSpan {
+			parentTraceID = parentTraceIDBeforeSpan
+		}
+	}
+
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestEncodingFormat: &e.encodingFormat,
 		RequestModel:          e.model,
 		Dimensions:            e.dimensions,
+		ParentTraceID:         parentTraceID,
 	}
 	defer func() {
 		embeddingAttributes.Error = err
