@@ -902,6 +902,9 @@ func buildContextMetricsAttributes(m *TraceChatContextMetrics) []attribute.KeyVa
 	}
 	if m.ToolCompactionTriggered {
 		attrs = append(attrs, attribute.Bool("context.trigger.tool_compaction", true))
+		if m.ToolCompactionTokensSaved > 0 {
+			attrs = append(attrs, attribute.Int("context.state.tool_compaction_tokens_saved", m.ToolCompactionTokensSaved))
+		}
 	}
 	if m.OversizedTruncTriggered {
 		attrs = append(attrs, attribute.Bool("context.trigger.oversized_truncation", true))

@@ -567,6 +567,7 @@ func (t *ContextMetricsTracker) ToTraceChatContextMetrics() *TraceChatContextMet
 		TailoringTriggered:       t.tailoringTriggered,
 		SummaryTriggered:         t.summaryTriggered,
 		ToolCompactionTriggered:  t.toolCompactionTriggered,
+		ToolCompactionTokensSaved: t.toolCompactionTokensSaved,
 		OversizedTruncTriggered:  t.oversizedTruncationTriggered,
 		HistoryTrimTriggered:     t.historyTrimTriggered,
 		EnableCompaction:         t.config.EnableCompaction,
