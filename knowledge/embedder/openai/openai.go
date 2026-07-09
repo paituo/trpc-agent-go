@@ -336,11 +336,35 @@ func (e *Embedder) response(ctx context.Context, text string) (rsp *openai.Creat
 		return nil, fmt.Errorf("text cannot be empty")
 	}
 	log.Debugf("embedding request: model=%s, text_len=%d", e.model, len(text))
+
+	// Capture parent trace ID before creating the embedding span,
+	// so we can record it as metadata for Langfuse correlation when
+	// the embedding becomes an independent trace (e.g. async indexing
+	// where the parent span has already ended).
+	var parentTraceIDBeforeSpan *string
+	if tid, ok := itelemetry.GetParentTraceID(ctx); ok {
+		parentTraceIDBeforeSpan = &tid
+	}
+
 	ctx, span := trace.Tracer.Start(ctx, fmt.Sprintf("%s %s", itelemetry.OperationEmbeddings, e.model))
+
+	// Only set embedding_parent_trace_id when the embedding span is in a
+	// different trace than the parent (i.e. it became an independent trace).
+	// When they share the same trace ID, the embedding is already a child
+	// observation and no correlation metadata is needed.
+	var parentTraceID *string
+	if parentTraceIDBeforeSpan != nil {
+		embeddingTraceID := span.SpanContext().TraceID().String()
+		if embeddingTraceID != *parentTraceIDBeforeSpan {
+			parentTraceID = parentTraceIDBeforeSpan
+		}
+	}
+
 	embeddingAttributes := &itelemetry.EmbeddingAttributes{
 		RequestEncodingFormat: &e.encodingFormat,
 		RequestModel:          e.model,
 		Dimensions:            e.dimensions,
+		ParentTraceID:         parentTraceID,
 	}
 	defer func() {
 		embeddingAttributes.Error = err
