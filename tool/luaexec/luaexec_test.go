@@ -1500,29 +1500,88 @@ func TestResolveScriptPath(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	t.Run("allowed path", func(t *testing.T) {
-		resolved, err := resolveScriptPath(filepath.Join(tmpDir, "test.lua"), []string{tmpDir})
+		cfg := Config{
+			EnableScriptPathWhitelist: true,
+			AllowedScriptDirs:        []string{tmpDir},
+		}
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir, "test.lua"), cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, filepath.Join(tmpDir, "test.lua"), resolved)
 	})
 
 	t.Run("path traversal blocked", func(t *testing.T) {
-		_, err := resolveScriptPath(filepath.Join(tmpDir, "..", "..", "etc", "passwd"), []string{tmpDir})
+		cfg := Config{
+			EnableScriptPathWhitelist: true,
+			AllowedScriptDirs:        []string{tmpDir},
+		}
+		_, err := resolveScriptPath(filepath.Join(tmpDir, "..", "..", "etc", "passwd"), cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not under any allowed_script_dirs")
 	})
 
 	t.Run("no allowed dirs", func(t *testing.T) {
-		_, err := resolveScriptPath("/some/path.lua", nil)
+		cfg := Config{
+			EnableScriptPathWhitelist: true,
+		}
+		_, err := resolveScriptPath("/some/path.lua", cfg)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no allowed_script_dirs configured")
 	})
 
 	t.Run("multiple allowed dirs", func(t *testing.T) {
 		tmpDir2 := t.TempDir()
-		resolved, err := resolveScriptPath(filepath.Join(tmpDir2, "test.lua"), []string{tmpDir, tmpDir2})
+		cfg := Config{
+			EnableScriptPathWhitelist: true,
+			AllowedScriptDirs:        []string{tmpDir, tmpDir2},
+		}
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir2, "test.lua"), cfg)
 		assert.NoError(t, err)
 		assert.Equal(t, filepath.Join(tmpDir2, "test.lua"), resolved)
 	})
+
+	t.Run("whitelist disabled allows any path", func(t *testing.T) {
+		cfg := Config{
+			EnableScriptPathWhitelist: false,
+		}
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir, "any_script.lua"), cfg)
+		assert.NoError(t, err)
+		assert.Contains(t, resolved, "any_script.lua")
+	})
+
+	t.Run("whitelist disabled still cleans path traversal", func(t *testing.T) {
+		cfg := Config{
+			EnableScriptPathWhitelist: false,
+		}
+		resolved, err := resolveScriptPath(filepath.Join(tmpDir, "..", "scripts", "test.lua"), cfg)
+		assert.NoError(t, err)
+		// Path traversal is cleaned but not blocked when whitelist is off;
+		// the path resolves relative to tmpDir's parent.
+		assert.Contains(t, resolved, "scripts")
+		assert.Contains(t, resolved, "test.lua")
+	})
+}
+
+func TestResolveScriptPath_WhitelistDisabled(t *testing.T) {
+	ts, err := NewToolSet(
+		WithTools(&mockTool{name: "test_tool"}),
+		WithEnableScriptPathWhitelist(false),
+	)
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	// Without allowed_script_dirs and with whitelist disabled,
+	// script_path should work (no error about "no allowed_script_dirs configured").
+	// But since the file doesn't exist, we expect a file-not-found error.
+	argsJSON, _ := json.Marshal(map[string]any{
+		"script_path": "/tmp/nonexistent_script.lua",
+	})
+	_, err = ct.Call(context.Background(), argsJSON)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to read script file")
 }
 
 func TestSummarize_TFIDF_Chinese(t *testing.T) {

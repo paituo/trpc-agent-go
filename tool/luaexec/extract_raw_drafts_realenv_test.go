@@ -15,15 +15,19 @@ import (
 func TestExtractRawDraftsRealEnv(t *testing.T) {
 	baseDir := filepath.Join("..", "..", "bowei-openclaw")
 
+	// 检查数据目录是否存在
+	skeletonRelPath := filepath.Join(baseDir, "userData", "源文件", "temp", "skeleton_index.yaml")
+	absSkeletonPath, err := filepath.Abs(skeletonRelPath)
+	require.NoError(t, err)
+	if _, err := os.Stat(absSkeletonPath); os.IsNotExist(err) {
+		t.Skipf("骨架索引文件不存在，跳过测试: %s", absSkeletonPath)
+	}
+
 	scriptsDir := filepath.Join(baseDir, "skills", "single-extractor", "scripts")
 	absScriptsDir, err := filepath.Abs(scriptsDir)
 	require.NoError(t, err)
 	scriptPath := filepath.Join(absScriptsDir, "extract_raw_drafts.lua")
 	_, err = os.Stat(scriptPath)
-	require.NoError(t, err)
-
-	skeletonPath := filepath.Join(baseDir, "userData", "源文件", "temp", "skeleton_index.yaml")
-	absSkeletonPath, err := filepath.Abs(skeletonPath)
 	require.NoError(t, err)
 
 	rulesPath := filepath.Join(baseDir, "skills", "single-extractor", "references", "field_rules", "basic_info.md")

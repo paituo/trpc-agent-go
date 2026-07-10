@@ -128,19 +128,20 @@ func TestFormatSourceLocation(t *testing.T) {
 			resultMap, ok := result.(map[string]any)
 			require.True(t, ok)
 
-			// 实际返回结构: { result: { status: "...", result: {...} }, status: "success" }
+			// WEB API 格式: { code, data, message, errors }
 			inner, ok := resultMap["result"].(map[string]any)
 			require.True(t, ok, "result 应为 map")
-			actualStatus, _ := inner["status"].(string)
 
 			if tt.expectError {
-				assert.Equal(t, "error", actualStatus, "应返回 error")
-				t.Logf("✅ %s: 正确返回 error", tt.name)
+				code, _ := inner["code"].(float64)
+				assert.Equal(t, float64(1), code, "应返回 code=1")
+				t.Logf("✅ %s: 正确返回 error (code=1)", tt.name)
 			} else {
-				assert.Equal(t, "success", actualStatus, "应返回 success")
-				r, ok := inner["result"].(map[string]any)
-				require.True(t, ok, "内层 result 应为 map")
-				location, ok := r["location"].(string)
+				code, _ := inner["code"].(float64)
+				assert.Equal(t, float64(0), code, "应返回 code=0")
+				data, ok := inner["data"].(map[string]any)
+				require.True(t, ok, "data 应为 map")
+				location, ok := data["location"].(string)
 				require.True(t, ok, "location 应为 string")
 				assert.Equal(t, tt.expected, location, "来源位置格式应匹配")
 				t.Logf("✅ %s: %s", tt.name, location)

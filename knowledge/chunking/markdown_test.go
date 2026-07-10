@@ -10,6 +10,7 @@
 package chunking
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/text"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/internal/encoding"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
 )
 
@@ -2132,6 +2134,116 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// TestMarkdownChunking_TableAware_GFM verifies B: a large GFM pipe table whose
+// rows exceed chunkSize is split along complete-row boundaries, never mid-row.
+func TestMarkdownChunking_TableAware_GFM(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("| 序号 | 设备名称 | 规格型号 | 单位 | 数量 | 备注 |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	for i := 1; i <= 40; i++ {
+		b.WriteString(fmt.Sprintf("| %d | 设备%d | 型号-%04d-XYZ | 台 | %d | 备注说明文字内容%d |\n", i, i, i, i, i))
+	}
+	md := "# 设备材料清册\n\n" + b.String()
+
+	doc := &document.Document{ID: "gfm-table", Content: md}
+	mc := NewMarkdownChunking(WithMarkdownChunkSize(200), WithMarkdownOverlap(0))
+
+	chunks, err := mc.Chunk(doc)
+	require.NoError(t, err)
+	require.Greater(t, len(chunks), 1, "Large GFM table should split into multiple chunks")
+
+	for i, c := range chunks {
+		require.True(t, utf8.ValidString(c.Content), "Chunk %d contains invalid UTF-8", i)
+		require.NotEmpty(t, strings.TrimSpace(c.Content), "Chunk %d is empty", i)
+		// Every GFM table row must be complete: a line starting with '|' must
+		// also end with '|' (no mid-row cut).
+		for _, line := range strings.Split(c.Content, "\n") {
+			lt := strings.TrimSpace(line)
+			if strings.HasPrefix(lt, "|") {
+				require.True(t, strings.HasSuffix(lt, "|"),
+					"Chunk %d contains a cut GFM row: %q", i, line)
+			}
+		}
+	}
+}
+
+// TestMarkdownChunking_TableAware_HTML verifies B: a large raw HTML <table>
+// whose rows exceed chunkSize is split along complete <tr> boundaries.
+func TestMarkdownChunking_TableAware_HTML(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<table>\n<thead><tr><th>序号</th><th>名称</th><th>型号</th></tr></thead>\n<tbody>\n")
+	for i := 1; i <= 40; i++ {
+		b.WriteString(fmt.Sprintf("<tr><td>%d</td><td>设备%d</td><td>型号-%04d</td></tr>\n", i, i, i))
+	}
+	b.WriteString("</tbody></table>\n")
+	md := "# 调差文件\n\n" + b.String()
+
+	doc := &document.Document{ID: "html-table", Content: md}
+	mc := NewMarkdownChunking(WithMarkdownChunkSize(200), WithMarkdownOverlap(0))
+
+	chunks, err := mc.Chunk(doc)
+	require.NoError(t, err)
+	require.Greater(t, len(chunks), 1, "Large HTML table should split into multiple chunks")
+
+	expectedRows := strings.Count(md, "<tr")
+	totalRows := 0
+	for i, c := range chunks {
+		require.True(t, utf8.ValidString(c.Content), "Chunk %d contains invalid UTF-8", i)
+		// A <tr> row must not be cut: count of '<tr' must equal count of '</tr>'.
+		open := strings.Count(c.Content, "<tr")
+		close := strings.Count(c.Content, "</tr>")
+		require.Equal(t, open, close, "Chunk %d cuts an HTML row: open=%d close=%d", i, open, close)
+		totalRows += open
+	}
+	require.Equal(t, expectedRows, totalRows, "All HTML rows should be present and intact")
+}
+
+// TestRowAwareOverlap verifies that the overlap prefix never starts in the
+// middle of a table row: when the rune-based cut falls inside a GFM pipe row or
+// an HTML <tr> row, it backs up to the row boundary (mirroring splitTableAware).
+func TestRowAwareOverlap(t *testing.T) {
+	mc := NewMarkdownChunking(WithMarkdownChunkSize(2000), WithMarkdownOverlap(200))
+
+	t.Run("GFM row mid-cut backs up to row start", func(t *testing.T) {
+		var b strings.Builder
+		for i := 0; i < 5; i++ {
+			b.WriteString(fmt.Sprintf("| %d | 普通内容填充句子用来凑够长度避免过短 %d |\n", i, i))
+		}
+		// A long final row (>200 runes) ensures the 200-rune cut lands mid-row.
+		longRow := "| 99 | " + strings.Repeat("内容", 120) + " |\n"
+		prevText := b.String() + longRow
+
+		got := mc.rowAwareOverlap(prevText, 200)
+		firstLine := strings.SplitN(got, "\n", 2)[0]
+		lt := strings.TrimSpace(firstLine)
+		require.True(t, strings.HasPrefix(lt, "|"), "overlap must start at a table row, got %q", firstLine)
+		require.True(t, strings.HasSuffix(lt, "|"), "overlap must start at a complete table row, got %q", firstLine)
+		// It must equal the full final row (a verbatim substring of prevText).
+		require.Equal(t, longRow, got, "overlap should back up to the full final row")
+	})
+
+	t.Run("prose is unaffected", func(t *testing.T) {
+		prevText := strings.Repeat("这是一段普通散文用来填充内容并且足够长以触发重叠截断。", 20)
+		got := mc.rowAwareOverlap(prevText, 200)
+		want := encoding.SafeOverlap(prevText, 200)
+		require.Equal(t, want, got, "prose overlap should match SafeOverlap exactly")
+	})
+
+	t.Run("HTML row mid-cut backs up to <tr>", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString("<table>\n<tbody>\n")
+		for i := 0; i < 3; i++ {
+			b.WriteString(fmt.Sprintf("<tr><td>%d</td><td>短内容%d</td></tr>\n", i, i))
+		}
+		longRow := "<tr><td>99</td><td>" + strings.Repeat("内容", 120) + "</td></tr>\n"
+		prevText := b.String() + longRow
+
+		got := mc.rowAwareOverlap(prevText, 200)
+		require.True(t, strings.Contains(got, "<tr"), "HTML overlap should contain a <tr>, got %q", got)
+		require.True(t, strings.HasPrefix(strings.TrimSpace(got), "<tr"), "HTML overlap must begin on a <tr> boundary, got %q", got)
+	})
 }
 
 // TestMarkdownChunking_RecursiveIDUniqueness tests that all chunk IDs are unique

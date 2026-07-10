@@ -218,6 +218,63 @@ body {
   width: 100%;
 }
 
+/* 顶层工具调佣紧凑显示：类似 step-item-tool 风格 */
+.toolcall__compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--td-text-color-primary, #1f1f1f);
+  align-self: flex-start;
+  white-space: nowrap;
+  max-width: 100%;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.toolcall__compact:hover {
+  border-color: rgba(0, 82, 217, 0.25);
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+.toolcall__compact-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.toolcall__compact-name {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--td-text-color-secondary, #666);
+  margin-right: 1px;
+}
+
+.toolcall__compact-args {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--td-text-color-primary, #1f1f1f);
+}
+
+.toolcall__compact-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--td-success-color, #00a854);
+}
+
 .toolcall {
   border: 1px solid var(--td-border-level-1-color, #e7e7e7);
   border-radius: 10px;
@@ -367,6 +424,139 @@ body {
   justify-content: flex-end;
 }
 
+/* HITL Card Styles */
+.hitl-card {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  border-radius: 12px;
+  background: var(--td-bg-color-container, #fff);
+}
+
+.hitl-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hitl-card__alert {
+  margin-top: 10px;
+}
+
+.hitl-card__body {
+  margin-top: 10px;
+}
+
+.hitl-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary, #1a1a1a);
+  display: flex;
+  align-items: center;
+}
+
+.hitl-card__detail {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--td-text-color-secondary, #4b4b4b);
+  line-height: 1.6;
+}
+
+.hitl-card__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text-color-secondary, #4b4b4b);
+  margin-top: 8px;
+}
+
+.hitl-card__resources {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.hitl-card__options {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hitl-card__free-input {
+  margin-top: 10px;
+}
+
+.hitl-card__scopes {
+  margin-top: 10px;
+}
+
+.hitl-card__scope-item {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.hitl-card__scope-label {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #4b4b4b);
+}
+
+.hitl-card__actions {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.hitl-card__progress {
+  margin-top: 10px;
+}
+
+.hitl-card__status {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hitl-card__eta {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #4b4b4b);
+}
+
+.hitl-card__next-step {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--td-text-color-secondary, #4b4b4b);
+}
+
+.hitl-card__issues {
+  margin-top: 8px;
+}
+
+.hitl-card__instruction {
+  margin-top: 10px;
+}
+
+.hitl-card__advanced {
+  margin-top: 10px;
+}
+
+.hitl-card__advanced-summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #4b4b4b);
+}
+
+.hitl-card__advanced-body {
+  margin-top: 8px;
+}
+
 .chat__empty {
   height: 100%;
   display: grid;
@@ -378,6 +568,20 @@ body {
   padding: 12px 16px;
   border-top: 1px solid var(--td-border-level-1-color, #e7e7e7);
   background: var(--td-bg-color-container, #fff);
+}
+
+.composer__stop-btn {
+  min-width: 80px;
+  animation: composer-stop-pulse 2s ease-in-out infinite;
+}
+
+.composer__stop-btn:hover {
+  animation: none;
+}
+
+@keyframes composer-stop-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
 }
 
 .message {
@@ -538,3 +742,741 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ============================================================
+ * Block Panel (分块面板) —— 参考字节 Doubao + SOLO Code 视觉
+ * ============================================================ */
+
+.block-panel {
+  position: relative;
+  margin: 0;
+  border: 1px solid var(--td-border-level-2-color, #dcdcdc);
+  border-radius: 10px;
+  background: var(--td-bg-color-container, #ffffff);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.block-panel + .block-panel {
+  margin-top: 10px;
+}
+
+/* 左侧状态指示条 */
+.block-panel::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--step-status-color, var(--td-text-color-placeholder, #bbb));
+  border-top-left-radius: 10px;
+  border-bottom-left-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+.block-panel[data-status="pending"]::before {
+  --step-status-color: var(--td-text-color-placeholder, #bbb);
+}
+.block-panel[data-status="pending"] {
+  opacity: 0.75;
+}
+.block-panel[data-status="running"],
+.block-panel[data-status="in_progress"] {
+  border-color: rgba(0, 82, 217, 0.45);
+  box-shadow: 0 1px 4px rgba(0, 82, 217, 0.06);
+}
+.block-panel[data-status="running"]::before,
+.block-panel[data-status="in_progress"]::before {
+  --step-status-color: var(--td-brand-color, #0052d9);
+  animation: block-status-pulse 1.6s ease-in-out infinite;
+}
+.block-panel[data-status="completed"] {
+  border-color: rgba(0, 168, 84, 0.2);
+}
+.block-panel[data-status="completed"]::before {
+  --step-status-color: var(--td-success-color, #00a854);
+}
+.block-panel[data-status="failed"] {
+  border-color: rgba(245, 63, 63, 0.35);
+}
+.block-panel[data-status="failed"]::before {
+  --step-status-color: var(--td-error-color, #f53f3f);
+}
+.block-panel[data-status="skipped"]::before {
+  --step-status-color: var(--td-text-color-placeholder, #bbb);
+}
+
+@keyframes block-status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.block-panel__summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 18px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+  transition: background 0.15s ease;
+}
+
+.block-panel__summary::-webkit-details-marker {
+  display: none;
+}
+
+.block-panel__summary:hover {
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+.block-panel__chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--td-text-color-secondary, #888);
+  transition: transform 0.2s ease;
+  font-size: 11px;
+  line-height: 1;
+  margin-left: -4px;
+}
+
+.block-panel[open] > .block-panel__summary .block-panel__chevron {
+  transform: rotate(90deg);
+}
+
+.block-panel__status-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--td-bg-color-container, #ffffff);
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  color: var(--td-text-color-secondary, #888);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.block-panel__status-icon[data-status="running"],
+.block-panel__status-icon[data-status="in_progress"] {
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--td-brand-color, #0052d9);
+}
+.block-panel__status-icon[data-status="completed"] {
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--td-success-color, #00a854);
+}
+.block-panel__status-icon[data-status="failed"] {
+  border-color: transparent;
+  color: #ffffff;
+  background: var(--td-error-color, #f53f3f);
+}
+
+.block-panel__status-icon--spin {
+  animation: block-icon-spin 1.4s linear infinite;
+}
+
+@keyframes block-icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.block-panel__title-block {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.block-panel__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--td-text-color-primary, #1f1f1f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-panel[data-status="pending"] > .block-panel__summary .block-panel__title {
+  color: var(--td-text-color-placeholder, #aaa);
+  font-weight: 400;
+}
+
+.block-panel__meta {
+  font-size: 11.5px;
+  color: var(--td-text-color-placeholder, #999);
+  font-weight: 400;
+}
+
+/* 分块开始/完成时间：默认隐藏，hover 时显示 */
+.block-panel__time {
+  display: none;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--td-text-color-placeholder, #999);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.block-panel__summary:hover .block-panel__time {
+  display: inline;
+}
+
+.block-panel__status-tag {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.block-panel__status-tag--running {
+  color: var(--td-brand-color, #0052d9);
+  background: rgba(0, 82, 217, 0.08);
+}
+.block-panel__status-tag--success {
+  color: var(--td-success-color, #00a854);
+  background: rgba(0, 168, 84, 0.08);
+}
+.block-panel__status-tag--failed {
+  color: var(--td-error-color, #f53f3f);
+  background: rgba(245, 63, 63, 0.08);
+}
+.block-panel__status-tag--pending {
+  color: var(--td-text-color-placeholder, #999);
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+}
+
+.block-panel__body {
+  padding: 12px 14px 12px 18px;
+  background: var(--td-bg-color-page, #f7f7f7);
+  border-top: 1px solid var(--td-border-level-1-color, #e7e7e7);
+}
+
+.block-panel__children {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 24px;
+}
+
+/* 分块内全宽子项（文本、思考）缩减自身左内边距，避免与容器缩进叠加 */
+.block-panel__children .step-item--text {
+  padding-left: 18px;
+}
+
+.block-panel__children .step-item--thinking .step-item__body {
+  padding-left: 18px;
+}
+
+.block-panel__empty {
+  padding: 14px;
+  font-size: 12.5px;
+  color: var(--td-text-color-placeholder, #999);
+  text-align: center;
+  background: var(--td-bg-color-container, #ffffff);
+  border: 1px dashed var(--td-border-level-1-color, #e7e7e7);
+  border-radius: 6px;
+}
+
+/* 嵌套 block 样式（多层 TODO 树形结构） */
+.block-panel--nested {
+  margin-top: 6px;
+  margin-left: 16px;
+  border-left: 2px solid var(--td-border-level-2-color, #ddd);
+  border-radius: 0 6px 6px 0;
+}
+
+.block-panel--nested > .block-panel__summary {
+  padding-left: 8px;
+}
+
+.block-panel--nested > .block-panel__body {
+  border-top: none;
+}
+
+/* 子代理 block 样式 */
+.block-panel--agent > .block-panel__summary .block-panel__title {
+  color: var(--td-brand-color, #0052d9);
+  font-weight: 500;
+}
+
+/* ============================================================
+ * Step Item —— 步骤中的 thinking / tool-call / text 子项
+ * ============================================================ */
+
+/* 通用 step-item 容器（think/detail + tool/detail） */
+.step-item {
+  position: relative;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--td-bg-color-container, #ffffff);
+  overflow: hidden;
+}
+
+.step-item__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  user-select: none;
+  list-style: none;
+}
+
+.step-item__header::-webkit-details-marker {
+  display: none;
+}
+
+.step-item__chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  color: var(--td-text-color-placeholder, #999);
+  font-size: 9px;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.step-item--thinking[open] > .step-item__header .step-item__chevron,
+.step-item[open] > .step-item__header .step-item__chevron {
+  transform: rotate(90deg);
+}
+
+.step-item__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.step-item__icon--thinking {
+  background: rgba(0, 82, 217, 0.08);
+}
+
+.step-item__icon--tool {
+  background: rgba(0, 82, 217, 0.06);
+}
+
+.step-item__label {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-item__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--td-text-color-primary, #1f1f1f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-item__tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.step-item__tag--success {
+  color: var(--td-success-color, #00a854);
+  background: rgba(0, 168, 84, 0.08);
+}
+
+.step-item__body {
+  padding: 10px 14px 10px 42px;
+  border-top: 1px dashed var(--td-border-level-1-color, #e7e7e7);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--td-text-color-primary, #1f1f1f);
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+}
+
+/* thinking 子项：柔和灰蓝风格，默认折叠 */
+.step-item--thinking {
+  flex: 1 1 100%;
+  background: rgba(0, 82, 217, 0.025);
+  border: 1px solid rgba(0, 82, 217, 0.12);
+}
+
+.step-item--thinking > .step-item__header {
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.step-item--thinking > .step-item__header:hover {
+  background: rgba(0, 82, 217, 0.04);
+}
+
+.step-item--thinking .step-item__label {
+  color: var(--td-brand-color, #0052d9);
+}
+
+.step-item--thinking .step-item__body {
+  background: rgba(0, 82, 217, 0.02);
+}
+
+/* tool-call 子项：紧凑 Tag 风格，不展开，显示为行内标签块 */
+.step-item-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--td-text-color-primary, #1f1f1f);
+  transition: border-color 0.15s ease, background 0.15s ease;
+  align-self: flex-start;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+}
+
+.step-item-tool:hover {
+  border-color: rgba(0, 82, 217, 0.25);
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+/* 已完成工具：绿色边框 + 浅绿底 */
+.step-item-tool--done {
+  border-color: rgba(0, 168, 84, 0.25);
+  background: rgba(0, 168, 84, 0.04);
+}
+
+.step-item-tool--done:hover {
+  border-color: rgba(0, 168, 84, 0.4);
+  background: rgba(0, 168, 84, 0.07);
+}
+
+.step-item-tool__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.step-item-tool__name {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--td-text-color-secondary, #666);
+  margin-right: 1px;
+}
+
+.step-item-tool__args {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--td-text-color-primary, #1f1f1f);
+}
+
+/* 绿色小圆点表示已完成 */
+.step-item-tool__dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--td-success-color, #00a854);
+}
+
+/* text 子项：缩进卡片展示 */
+.step-item--text {
+  flex: 1 1 100%;
+  padding: 10px 14px 10px 42px;
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+  border: 1px dashed var(--td-border-level-1-color, #e7e7e7);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--td-text-color-primary, #1f1f1f);
+}
+
+/* ChatMessage 内容中的自定义块容器 */
+.t-chat-message__content .t-chat-content-custom {
+  margin-top: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* 确保步骤面板放在消息气泡内容中时与其他内容有呼吸感 */
+.chat__list .t-chat-item__bubble .block-panel:first-child {
+  margin-top: 4px;
+}
+
+.chat__list .t-chat-item__bubble .block-panel:last-child {
+  margin-bottom: 4px;
+}
+
+/* ============================================================
+ * Markdown 排版美化 —— ChatMarkdown (Cherry Markdown) 输出样式
+ * 作用于 t-chat-md-content / step-item 内的 markdown 内容
+ * ============================================================ */
+
+/* --- 基础排版 --- */
+.t-chat-md-content,
+.step-item--text,
+.step-item__body {
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--td-text-color-primary, #1f1f1f);
+  word-break: break-word;
+}
+
+.t-chat-md-content > *:first-child,
+.step-item--text > *:first-child,
+.step-item__body > *:first-child {
+  margin-top: 0;
+}
+
+.t-chat-md-content > *:last-child,
+.step-item--text > *:last-child,
+.step-item__body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* --- 标题 --- */
+.t-chat-md-content h1,
+.t-chat-md-content h2,
+.t-chat-md-content h3,
+.t-chat-md-content h4,
+.t-chat-md-content h5,
+.t-chat-md-content h6 {
+  margin: 1.2em 0 0.6em;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--td-text-color-primary, #1f1f1f);
+}
+
+.t-chat-md-content h1 { font-size: 1.5em; }
+.t-chat-md-content h2 { font-size: 1.3em; padding-bottom: 0.3em; border-bottom: 1px solid var(--td-border-level-1-color, #e7e7e7); }
+.t-chat-md-content h3 { font-size: 1.15em; }
+.t-chat-md-content h4 { font-size: 1.05em; }
+.t-chat-md-content h5,
+.t-chat-md-content h6 { font-size: 1em; color: var(--td-text-color-secondary, #666); }
+
+/* --- 段落 --- */
+.t-chat-md-content p {
+  margin: 0.6em 0;
+}
+
+/* --- 列表 --- */
+.t-chat-md-content ul,
+.t-chat-md-content ol {
+  margin: 0.6em 0;
+  padding-left: 1.8em;
+}
+
+.t-chat-md-content li {
+  margin: 0.25em 0;
+}
+
+.t-chat-md-content li > ul,
+.t-chat-md-content li > ol {
+  margin: 0.2em 0;
+}
+
+/* --- 表格 --- */
+.t-chat-md-content table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--td-border-level-2-color, #dcdcdc);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.t-chat-md-content thead {
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+}
+
+.t-chat-md-content thead th {
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--td-text-color-secondary, #4b4b4b);
+  border-bottom: 1px solid var(--td-border-level-2-color, #dcdcdc);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  text-transform: none;
+}
+
+.t-chat-md-content thead th + th {
+  border-left: 1px solid var(--td-border-level-1-color, #e7e7e7);
+}
+
+.t-chat-md-content tbody td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  color: var(--td-text-color-primary, #1f1f1f);
+  vertical-align: top;
+}
+
+.t-chat-md-content tbody td + td {
+  border-left: 1px solid var(--td-border-level-1-color, #e7e7e7);
+}
+
+.t-chat-md-content tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.t-chat-md-content tbody tr:hover {
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+.t-chat-md-content tbody tr:nth-child(even) {
+  background: var(--td-bg-color-secondarycontainer, #fafafa);
+}
+
+.t-chat-md-content tbody tr:nth-child(even):hover {
+  background: var(--td-bg-color-container-hover, #f3f3f3);
+}
+
+/* --- 代码 --- */
+.t-chat-md-content code {
+  font-family: "SF Mono", "Monaco", "Menlo", "Consolas", "Courier New", monospace;
+  font-size: 0.88em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+  color: var(--td-brand-color, #0052d9);
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+}
+
+.t-chat-md-content pre {
+  margin: 0.8em 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.t-chat-md-content pre code {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--td-text-color-primary, #1f1f1f);
+  font-size: inherit;
+}
+
+/* --- 引用 --- */
+.t-chat-md-content blockquote {
+  margin: 0.8em 0;
+  padding: 10px 16px;
+  border-left: 3px solid var(--td-brand-color, #0052d9);
+  border-radius: 0 6px 6px 0;
+  background: var(--td-bg-color-secondarycontainer, #f5f7fa);
+  color: var(--td-text-color-secondary, #666);
+}
+
+.t-chat-md-content blockquote p {
+  margin: 0.3em 0;
+}
+
+/* --- 分割线 --- */
+.t-chat-md-content hr {
+  margin: 1.2em 0;
+  border: none;
+  border-top: 1px solid var(--td-border-level-1-color, #e7e7e7);
+}
+
+/* --- 链接 --- */
+.t-chat-md-content a {
+  color: var(--td-brand-color, #0052d9);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.t-chat-md-content a:hover {
+  border-bottom-color: var(--td-brand-color, #0052d9);
+}
+
+/* --- 图片 --- */
+.t-chat-md-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.6em 0;
+}
+
+/* --- 强调 --- */
+.t-chat-md-content strong {
+  font-weight: 600;
+  color: var(--td-text-color-primary, #1f1f1f);
+}
+
+.t-chat-md-content em {
+  font-style: italic;
+}
+
+/* --- 删除线 --- */
+.t-chat-md-content del {
+  color: var(--td-text-color-placeholder, #999);
+}
+
+/* --- 步骤内 markdown 内容缩进适配 --- */
+.step-item__body .t-chat-md-content,
+.step-item--text .t-chat-md-content {
+  font-size: 13px;
+}
+
+.step-item__body .t-chat-md-content table,
+.step-item--text .t-chat-md-content table {
+  font-size: 12px;
+}
+
+.step-item__body .t-chat-md-content pre,
+.step-item--text .t-chat-md-content pre {
+  font-size: 12px;
+  padding: 10px 12px;
+}
+

@@ -452,6 +452,154 @@ return nil
 	})
 }
 
+// ==================== htmltable.parse_html 多行表头测试 ====================
+
+func TestHTMLTable_ParseMultiRowHeader(t *testing.T) {
+	// 杆塔明细表 HTML — 首行有 rowspan=2 和 colspan=2
+	// 第二行是子表头：数量、单位、总量、单重(kg)
+	htmlInput := `<table><tr><td rowspan="2">序号</td><td rowspan="2">名称</td><td rowspan="2">新铁塔型号</td><td rowspan="2">呼高</td><td rowspan="2">塔全高(m)</td><td rowspan="2">单基重(kg)</td><td colspan="2">数量统计</td><td>重量统计(kg)</td><td></td></tr><tr><td>数量</td><td>单位</td><td>总量</td><td>单重(kg)</td></tr><tr><td>1</td><td>钢杆</td><td>110-DD21GS-J4</td><td>18</td><td>25.60</td><td>17550.00</td><td>1</td><td>基</td><td>17550.00</td><td></td></tr></table>`
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	args, _ := json.Marshal(map[string]any{
+		"script": fmt.Sprintf(`
+local result = htmltable.parse_html(%q)
+-- 验证表头
+local h = result.headers
+-- h[1] = "序号", h[2] = "名称", h[3] = "新铁塔型号", h[4] = "呼高", h[5] = "塔全高(m)", h[6] = "单基重(kg)"
+-- h[7] = "数量统计>数量", h[8] = "数量统计>单位", h[9] = "重量统计(kg)>总量", h[10] = ">单重(kg)" (or "单重(kg)")
+-- h[10] might be ">单重(kg)" because row 0 has empty cell, row 1 has "单重(kg)"
+
+-- 验证数据行
+local rows = result.rows
+-- row_count 为总占用行数（表头+数据），data_row_count 为纯数据行数
+return {headers = h, row_count = result.row_count, data_row_count = result.data_row_count, first_row = rows[1], col_count = result.col_count}
+`, htmlInput),
+	})
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+	resp := result.(map[string]any)
+	require.Equal(t, "success", resp["status"])
+
+	r := resp["result"].(map[string]any)
+	headers, _ := r["headers"].([]any)
+	t.Logf("  headers = %v", headers)
+	rowCount, _ := r["row_count"].(float64)
+	t.Logf("  row_count (total) = %v", rowCount)
+	dataRowCount, _ := r["data_row_count"].(float64)
+	t.Logf("  data_row_count = %v", dataRowCount)
+	firstRow, _ := r["first_row"].([]any)
+	t.Logf("  first_row = %v", firstRow)
+	colCount, _ := r["col_count"].(float64)
+	t.Logf("  col_count = %v", colCount)
+
+	// 验证列数
+	assert.Equal(t, float64(10), colCount, "应有10列")
+
+	// 验证表头包含子表头合并
+	if len(headers) >= 7 {
+		assert.Contains(t, headers[6].(string), ">", "列7应包含 > 符号（子表头合并）")
+		t.Logf("  列7表头: %s", headers[6])
+	}
+	if len(headers) >= 10 {
+		t.Logf("  列10表头: %s", headers[9])
+	}
+
+	// 验证总占用行数：应为3行（2行表头 + 1行数据）
+	assert.Equal(t, float64(3), rowCount, "总占用行数应为3行（表头+数据）")
+	// 验证数据行数：应为1行（子表头行已正确合并到表头）
+	assert.Equal(t, float64(1), dataRowCount, "数据行应为1行（子表头不应出现在数据行中）")
+}
+
+func TestHTMLTable_ParseSimpleTable(t *testing.T) {
+	// 杆塔使用条件一览表 — 简单单行表头
+	htmlInput := `<table><tr><td>塔型</td><td>呼高(m)</td><td>水平档距(m)</td><td>垂直档距(m)</td><td>转角度数(°)</td><td>覆冰(mm)</td><td>导线型号</td><td>地线型号</td></tr><tr><td>110-DD21GS-J4</td><td>18</td><td>150</td><td>200</td><td>0-90</td><td>导5地10</td><td>JL3/G1A-300/25</td><td>OPGW-13-90-2</td></tr></table>`
+
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	args, _ := json.Marshal(map[string]any{
+		"script": fmt.Sprintf(`
+local result = htmltable.parse_html(%q)
+local h = result.headers
+local rows = result.rows
+return {headers = h, row_count = result.row_count, data_row_count = result.data_row_count, col_count = result.col_count}
+`, htmlInput),
+	})
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+	resp := result.(map[string]any)
+	require.Equal(t, "success", resp["status"])
+
+	r := resp["result"].(map[string]any)
+	headers, _ := r["headers"].([]any)
+	t.Logf("  headers = %v", headers)
+	rowCount, _ := r["row_count"].(float64)
+	t.Logf("  row_count (total) = %v", rowCount)
+	dataRowCount, _ := r["data_row_count"].(float64)
+	t.Logf("  data_row_count = %v", dataRowCount)
+
+	// 总占用行数应为2行（1行表头 + 1行数据）
+	assert.Equal(t, float64(2), rowCount, "总占用行数应为2行（表头+数据）")
+	// 数据行应为1行
+	assert.Equal(t, float64(1), dataRowCount, "数据行应为1行")
+	assert.Equal(t, 8, len(headers), "表头应为8列")
+}
+
+func TestHTMLTable_ParseWithExplicitThead(t *testing.T) {
+	// 显式使用 <thead> 的表格
+	htmlInput := `<table><thead><tr><th rowspan="2">A</th><th>B1</th></tr><tr><th>B2</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody></table>`
+
+	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
+	require.NoError(t, err)
+	defer ts.Close()
+
+	ct := ts.Tools(context.Background())[0].(interface {
+		Call(ctx context.Context, jsonArgs []byte) (any, error)
+	})
+
+	args, _ := json.Marshal(map[string]any{
+		"script": fmt.Sprintf(`
+local result = htmltable.parse_html(%q)
+local h = result.headers
+local rows = result.rows
+return {headers = h, row_count = result.row_count, data_row_count = result.data_row_count, col_count = result.col_count}
+`, htmlInput),
+	})
+	result, err := ct.Call(context.Background(), args)
+	require.NoError(t, err)
+	resp := result.(map[string]any)
+	require.Equal(t, "success", resp["status"])
+
+	r := resp["result"].(map[string]any)
+	headers, _ := r["headers"].([]any)
+	t.Logf("  headers = %v", headers)
+	rowCount, _ := r["row_count"].(float64)
+	t.Logf("  row_count (total) = %v", rowCount)
+	dataRowCount, _ := r["data_row_count"].(float64)
+	t.Logf("  data_row_count = %v", dataRowCount)
+
+	// 显式 <thead> 的表格，多行表头应被正确合并
+	if len(headers) >= 2 {
+		assert.Contains(t, headers[1].(string), ">", "列2应包含 > 符号（子表头合并）")
+	}
+
+	// 总占用行数应为3行（2行表头 + 1行数据）
+	assert.Equal(t, float64(3), rowCount, "总占用行数应为3行（表头+数据）")
+	// 数据行应为1行
+	assert.Equal(t, float64(1), dataRowCount, "数据行应为1行")
+}
+
 func TestHTML_FindWithAttrs(t *testing.T) {
 	ts, err := NewToolSet(WithTools(&mockTool{name: "test_tool"}))
 	require.NoError(t, err)

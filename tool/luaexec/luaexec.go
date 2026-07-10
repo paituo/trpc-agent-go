@@ -73,9 +73,17 @@ func WithDeniedTools(tools ...string) Option {
 }
 
 // WithAllowedScriptDirs sets the directories from which script_path can load
-// Lua scripts. If empty (default), script_path is disabled for security.
+// Lua scripts. If empty (default) and EnableScriptPathWhitelist is true,
+// script_path is disabled for security.
 func WithAllowedScriptDirs(dirs ...string) Option {
 	return func(c *Config) { c.AllowedScriptDirs = dirs }
+}
+
+// WithEnableScriptPathWhitelist controls whether script_path must be under one
+// of AllowedScriptDirs. When false, script_path can point to any accessible
+// file. Defaults to true (secure by default).
+func WithEnableScriptPathWhitelist(enable bool) Option {
+	return func(c *Config) { c.EnableScriptPathWhitelist = enable }
 }
 
 // WithToolsProvider sets a dynamic tool provider function.

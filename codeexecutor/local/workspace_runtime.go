@@ -33,6 +33,7 @@ import (
 	atrace "trpc.group/trpc-go/trpc-agent-go/telemetry/trace"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
+	"trpc.group/trpc-go/trpc-agent-go/internal/fsutil"
 )
 
 const (
@@ -1015,7 +1016,7 @@ func makeSymlink(root, toRel, target string) error {
 	}
 	// Remove existing path if present.
 	_ = os.RemoveAll(dst)
-	return os.Symlink(target, dst)
+	return fsutil.CreateSymlink(target, dst)
 }
 
 func copyPath(src, dst string) error {
