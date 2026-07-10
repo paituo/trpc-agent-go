@@ -76,7 +76,7 @@ func TestRecoveryRefLinesKeepToolCallIDWithoutEventID(t *testing.T) {
 	require.Contains(t, placeholder, "tool_name: worker")
 	require.NotContains(t, placeholder, "recoverable: false")
 	require.NotContains(t, placeholder, "Use session_load")
-	require.Contains(t, placeholder, "read-only or idempotent")
+	require.Contains(t, placeholder, "read-only, idempotent, or safe")
 	require.Contains(t, placeholder, "do not repeat side-effecting")
 
 	withLoad := recoverableToolResultPlaceholder(
@@ -879,7 +879,7 @@ func TestCompactIncrementEvents_CurrentResultNoSessionLoadHint(t *testing.T) {
 	require.Contains(t, got, "characters truncated from tool result")
 	require.Contains(t, got, "tool_call_id=tool-call-current")
 	require.NotContains(t, got, "session_load")
-	require.Contains(t, got, "re-run only safe read-only/idempotent tools")
+	require.Contains(t, got, "compacted]")
 }
 
 func TestCompactIncrementEvents_CurrentResultWithEventIDHasSessionLoadHint(

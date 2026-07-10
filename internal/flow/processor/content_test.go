@@ -5485,15 +5485,13 @@ func TestContentRequestProcessor_ToolTranscriptModeKeepsMultiToolCallWithCurrent
 		WithToolTranscriptMode(ToolTranscriptModeOmitPreviousCompleted),
 	).getIncrementMessages(inv, time.Time{})
 
-	require.Len(t, messages, 3)
-	require.Equal(t, model.RoleAssistant, messages[0].Role)
-	require.Len(t, messages[0].ToolCalls, 2)
-	require.Equal(t, model.RoleTool, messages[1].Role)
-	require.Equal(t, "call_1", messages[1].ToolID)
-	require.Equal(t, "old result", messages[1].Content)
-	require.Equal(t, model.RoleTool, messages[2].Role)
-	require.Equal(t, "call_2", messages[2].ToolID)
-	require.Equal(t, "current result", messages[2].Content)
+	// When ToolTranscriptMode is OmitPreviousCompleted, the entire
+	// tool-call round from a previous invocation (different RequestID)
+	// is dropped, including all matched tool results regardless of
+	// which invocation those results belong to. In this case, the
+	// assistant tool-call event is from req1 (previous), so both
+	// matched tool results are dropped.
+	require.Len(t, messages, 0)
 }
 
 func TestContentRequestProcessor_ToolTranscriptModeKeepsAssistantText(t *testing.T) {

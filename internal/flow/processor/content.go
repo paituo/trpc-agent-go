@@ -1421,6 +1421,11 @@ func (p *ContentRequestProcessor) getIncrementHistoryAfterCutoff(
 	resultEvents := p.applyToolTranscriptMode(events, inv)
 	resultEvents = p.rearrangeLatestFuncResp(resultEvents)
 	resultEvents = p.rearrangeAsyncFuncRespHist(resultEvents)
+	// Apply tool transcript mode to omit previously-completed tool results
+	// when the mode is ToolTranscriptModeOmitPreviousCompleted.
+	// This must run after rearrange so the event order is stable and the
+	// transcript logic can identify the last completion boundary.
+	resultEvents = p.applyToolTranscriptMode(resultEvents, inv)
 	// Apply compaction to the already timeline-filtered projection. Tool-result
 	// policy (force-clean/keep) and historical passes must run for scoped modes
 	// such as request/invocation, not only when TimelineFilterAll is selected.

@@ -613,7 +613,7 @@ func TestSkillsRequestProcessor_DirectoryHints(t *testing.T) {
 
 	sys := req.Messages[0].Content
 	require.Contains(t, sys, skillRootsHeader)
-	require.Contains(t, sys, "- [s1]=/tmp/skills/local")
+	require.Contains(t, sys, "- [s1]="+filepath.Clean("/tmp/skills/local"))
 	require.Contains(t, sys, "- calc: math ops (dir: [s1]/calc)")
 	require.Contains(t, sys, "[Loaded] calc")
 	require.Contains(t, sys, skillDirLabel+"/tmp/skills/local/calc")
@@ -711,8 +711,8 @@ func TestSkillsRequestProcessor_RepositoryResolverAndHints(t *testing.T) {
 
 	sys := req.Messages[0].Content
 	require.Contains(t, sys, skillRootsHeader)
-	require.Contains(t, sys, "- [s1]=/tmp/skills/local")
-	require.NotContains(t, sys, "- [s2]=/tmp/skills/local")
+	require.Contains(t, sys, "- [s1]="+filepath.Clean("/tmp/skills/local"))
+	require.NotContains(t, sys, "- [s2]="+filepath.Clean("/tmp/skills/local"))
 	require.Contains(
 		t,
 		sys,
@@ -743,13 +743,13 @@ func TestSkillPathHelpers(t *testing.T) {
 			t,
 			[]skillRootAlias{{
 				alias: "s1",
-				root:  "/tmp/skills/local",
+				root:  filepath.Clean("/tmp/skills/local"),
 			}},
 			aliases,
 		)
 		text := buildSkillRootsText(repo)
 		require.Contains(t, text, skillRootsHeader)
-		require.Contains(t, text, "- [s1]=/tmp/skills/local")
+		require.Contains(t, text, "- [s1]="+filepath.Clean("/tmp/skills/local"))
 	})
 
 	t.Run("locators prefer aliases and fall back", func(t *testing.T) {
