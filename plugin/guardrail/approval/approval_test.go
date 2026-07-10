@@ -451,6 +451,10 @@ func (errorTokenCounter) CountTokensRange(
 	return 0, errors.New("count tokens failed")
 }
 
+func (errorTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return 0, errors.New("count tokens failed")
+}
+
 func TestCountTranscriptTokens_ReturnsOmissionSentinelOnCounterError(t *testing.T) {
 	p := &Plugin{tokenCounter: errorTokenCounter{}}
 	require.Equal(t, guardtranscript.DefaultMessageTranscriptBudget+1, p.countTranscriptTokens(context.Background(), guardtranscript.Entry{

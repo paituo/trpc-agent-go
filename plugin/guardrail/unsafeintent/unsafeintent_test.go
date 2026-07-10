@@ -210,6 +210,10 @@ func (errorTokenCounter) CountTokensRange(
 	return 0, errors.New("count tokens failed")
 }
 
+func (errorTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return 0, errors.New("count tokens failed")
+}
+
 func TestBuildReviewRequest_TokenCounterErrorFailsClosed(t *testing.T) {
 	p := &Plugin{tokenCounter: errorTokenCounter{}}
 	req := p.buildReviewRequest(context.Background(), []model.Message{
