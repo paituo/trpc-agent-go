@@ -1343,6 +1343,11 @@ func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
 	resultEvents := p.applyToolTranscriptMode(events, inv)
 	resultEvents = p.rearrangeLatestFuncResp(resultEvents)
 	resultEvents = p.rearrangeAsyncFuncRespHist(resultEvents)
+	// Apply tool transcript mode to omit previously-completed tool results
+	// when the mode is ToolTranscriptModeOmitPreviousCompleted.
+	// This must run after rearrange so the event order is stable and the
+	// transcript logic can identify the last completion boundary.
+	resultEvents = p.applyToolTranscriptMode(resultEvents, inv)
 	// Apply compaction to the already timeline-filtered projection. Tool-result
 	// policy (force-clean/keep) and historical passes must run for scoped modes
 	// such as request/invocation, not only when TimelineFilterAll is selected.
@@ -1399,6 +1404,15 @@ func (p *ContentRequestProcessor) getIncrementMessagesWithCutoff(
 
 	messages = p.mergeUserMessages(messages)
 	messages = annotateUserMessagesWithAttachedFiles(messages)
+	// Apply MaxHistoryRuns limit to the incremental message window.
+	// This mirrors the behaviour in ProcessRequest where the same cap is
+	// applied to the full-history path. When AddSessionSummary is true the
+	// summary already covers the history, so a message count limit is
+	// redundant; consistent with upstream the cap is only enforced when
+	// session summaries are not being used.
+	if !p.AddSessionSummary && p.MaxHistoryRuns > 0 {
+		messages = applyMaxHistoryRuns(messages, p.MaxHistoryRuns)
+	}
 	return messages, stats
 }
 

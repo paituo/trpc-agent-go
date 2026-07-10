@@ -128,7 +128,11 @@ func recoverableTruncationMarker(
 	if ref.Reason != "" {
 		fmt.Fprintf(&b, "; reason=%s", ref.Reason)
 	}
-	b.WriteString("; use session_load ...]\n\n")
+	if ref.SessionLoadAvailable {
+		b.WriteString("; use session_load ...]\n\n")
+	} else {
+		b.WriteString("; compacted]\n\n")
+	}
 	return b.String()
 }
 
