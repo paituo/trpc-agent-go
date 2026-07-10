@@ -1622,7 +1622,7 @@ func TestRebuildRequestForContextCompaction_PreservesPreContentToolMutation(
 	require.NotContains(t, rebuilt.Tools, "session_load")
 	compactedToolResult := toolResultContent(rebuilt.Messages, "call_1")
 	require.NotContains(t, compactedToolResult, "Use session_load")
-	require.Contains(t, compactedToolResult, "read-only or idempotent")
+	require.Contains(t, compactedToolResult, "read-only, idempotent, or safe")
 	require.Contains(t, compactedToolResult, "event_id: tool-result-event")
 	require.NotContains(t, compactedToolResult, toolPayload)
 }
