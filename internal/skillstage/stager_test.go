@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,6 +24,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	localexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/fsutil"
 )
 
 type stubFS struct {
@@ -35,12 +37,26 @@ type stubFS struct {
 
 func (s *stubFS) PutFiles(
 	_ context.Context,
-	_ codeexecutor.Workspace,
+	ws codeexecutor.Workspace,
 	files []codeexecutor.PutFile,
 ) error {
 	s.putCalls++
 	s.putFiles = append(s.putFiles, files...)
-	return s.putErr
+	if s.putErr != nil {
+		return s.putErr
+	}
+	// Write files to disk so that subsequent Go-level file
+	// operations (e.g. os.Rename) can find them.
+	for _, f := range files {
+		p := filepath.Join(ws.Path, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, f.Content, os.FileMode(f.Mode)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (*stubFS) StageDirectory(
@@ -80,33 +96,13 @@ func (*stubFS) CollectOutputs(
 	return codeexecutor.OutputManifest{}, nil
 }
 
-type stubRunner struct {
-	res      codeexecutor.RunResult
-	err      error
-	calls    int
-	lastSpec codeexecutor.RunProgramSpec
-	specs    []codeexecutor.RunProgramSpec
-}
-
-func (r *stubRunner) RunProgram(
-	_ context.Context,
-	_ codeexecutor.Workspace,
-	spec codeexecutor.RunProgramSpec,
-) (codeexecutor.RunResult, error) {
-	r.calls++
-	r.lastSpec = spec
-	r.specs = append(r.specs, spec)
-	return r.res, r.err
-}
-
 type stubEngine struct {
 	f codeexecutor.WorkspaceFS
-	r codeexecutor.ProgramRunner
 }
 
 func (*stubEngine) Manager() codeexecutor.WorkspaceManager { return nil }
 func (e *stubEngine) FS() codeexecutor.WorkspaceFS         { return e.f }
-func (e *stubEngine) Runner() codeexecutor.ProgramRunner   { return e.r }
+func (*stubEngine) Runner() codeexecutor.ProgramRunner     { return nil }
 func (*stubEngine) Describe() codeexecutor.Capabilities {
 	return codeexecutor.Capabilities{}
 }
@@ -161,25 +157,19 @@ func TestStager_LoadSaveMetadata_CoversBranches(t *testing.T) {
 	require.Equal(t, 1, md.Version)
 	require.NotNil(t, md.Skills)
 
+	// SaveWorkspaceMetadata: nil engine.
 	err = st.SaveWorkspaceMetadata(
 		ctx, nil, ws, codeexecutor.WorkspaceMetadata{},
 	)
 	require.Error(t, err)
 
-	err = st.SaveWorkspaceMetadata(
-		ctx, eng, ws, codeexecutor.WorkspaceMetadata{},
-	)
-	require.Error(t, err)
-
-	r := &stubRunner{}
-	eng.r = r
+	// SaveWorkspaceMetadata: no runner is now fine — it uses Go ops.
 	fs.putErr = fmt.Errorf("put fail")
 	err = st.SaveWorkspaceMetadata(
 		ctx, eng, ws, codeexecutor.WorkspaceMetadata{},
 	)
 	require.Error(t, err)
 	require.Equal(t, 1, fs.putCalls)
-	require.Equal(t, 1, r.calls)
 	const (
 		metadataTmpPrefix = ".metadata."
 		metadataTmpSuffix = ".tmp"
@@ -193,33 +183,30 @@ func TestStager_LoadSaveMetadata_CoversBranches(t *testing.T) {
 		metadataTmpSuffix,
 	))
 	require.Equal(t, workspaceMetadataFileMode, fs.putFiles[0].Mode)
-	require.Contains(t, r.specs[0].Args[1], "rm -f")
 
+	// SaveWorkspaceMetadata: successful write + rename.
 	fs.putErr = nil
-	r.err = fmt.Errorf("run fail")
+	fs.putCalls = 0
+	fs.putFiles = nil
 	err = st.SaveWorkspaceMetadata(
 		ctx, eng, ws, codeexecutor.WorkspaceMetadata{},
 	)
-	require.Error(t, err)
-	require.Equal(t, 2, fs.putCalls)
-	require.Equal(t, 3, r.calls)
-	require.Equal(t, "bash", r.specs[1].Cmd)
-	require.Len(t, r.specs[1].Args, 2)
-	require.Contains(t, r.specs[1].Args[1], "mv -f")
-	require.Contains(
-		t,
-		r.specs[1].Args[1],
-		"metadata path is a directory",
-	)
-	require.Contains(t, r.specs[2].Args[1], "rm -f")
+	require.NoError(t, err)
+	require.Equal(t, 1, fs.putCalls)
 
-	r.err = nil
-	r.res = codeexecutor.RunResult{ExitCode: 1, Stderr: "mv fail"}
-	err = st.SaveWorkspaceMetadata(
-		ctx, eng, ws, codeexecutor.WorkspaceMetadata{},
+	// Tmp file should be gone (renamed to metadata).
+	matches, err := filepath.Glob(
+		filepath.Join(ws.Path, ".metadata.*.tmp"),
 	)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exit code 1")
+	require.NoError(t, err)
+	require.Empty(t, matches)
+
+	// Metadata file should exist and be valid JSON.
+	raw, err := os.ReadFile(
+		filepath.Join(ws.Path, codeexecutor.MetaFileName),
+	)
+	require.NoError(t, err)
+	require.True(t, json.Valid(raw))
 }
 
 func TestStager_SaveWorkspaceMetadata_MetadataDirectoryFails(t *testing.T) {
@@ -255,32 +242,20 @@ func TestStager_SaveWorkspaceMetadata_MetadataDirectoryFails(t *testing.T) {
 	require.Empty(t, matches)
 }
 
-func TestCleanupMetadataTemp_NoRunnerOrPath(t *testing.T) {
-	cleanupMetadataTemp(
-		context.Background(),
-		nil,
-		codeexecutor.Workspace{},
-		"tmp",
-		nil,
-	)
-	cleanupMetadataTemp(
-		context.Background(),
-		&stubEngine{},
-		codeexecutor.Workspace{},
-		"",
-		nil,
-	)
-}
+func TestCleanupMetadataTempFile_Nop(t *testing.T) {
+	committed := true
+	cleanupMetadataTempFile("tmp", &committed)
+	cleanupMetadataTempFile("", nil)
+	cleanupMetadataTempFile("", &committed)
 
-func TestRunProgramExitError_ReturnsRunnerError(t *testing.T) {
-	runnerErr := fmt.Errorf("runner failed")
-	err := runProgramExitError(
-		"op",
-		codeexecutor.RunResult{},
-		runnerErr,
-	)
-
-	require.ErrorIs(t, err, runnerErr)
+	// When not committed, cleanup removes the tmp file.
+	dir := t.TempDir()
+	tmpPath := filepath.Join(dir, "metadata.test.tmp")
+	require.NoError(t, os.WriteFile(tmpPath, []byte("x"), 0o644))
+	notCommitted := false
+	cleanupMetadataTempFile(tmpPath, &notCommitted)
+	_, err := os.Stat(tmpPath)
+	require.True(t, os.IsNotExist(err))
 }
 
 func TestStager_StageSkillAndLinks(t *testing.T) {
@@ -328,9 +303,11 @@ func TestStager_StageSkillAndLinks(t *testing.T) {
 
 	checkSymlink := func(rel string) {
 		t.Helper()
-		fi, err := os.Lstat(filepath.Join(ws.Path, filepath.FromSlash(rel)))
+		ok, err := fsutil.IsLink(filepath.Join(
+			ws.Path, filepath.FromSlash(rel),
+		))
 		require.NoError(t, err)
-		require.NotZero(t, fi.Mode()&os.ModeSymlink)
+		require.True(t, ok, "expected link at %s", rel)
 	}
 	checkSymlink("skills/echoer/out")
 	checkSymlink("skills/echoer/work")
@@ -459,49 +436,116 @@ func TestStager_StageSkillWithOptionsReadOnly(t *testing.T) {
 		"read-only staging must clear the owner-write bit on regular files")
 
 	// Symlinks must stay intact.
-	fi, err = os.Lstat(filepath.Join(ws.Path, "skills", "echoer", "work"))
+	ok, err := fsutil.IsLink(filepath.Join(ws.Path, "skills", "echoer", "work"))
 	require.NoError(t, err)
-	require.NotZero(t, fi.Mode()&os.ModeSymlink)
+	require.True(t, ok)
 }
 
 func TestSkillStagingHelpers_EarlyReturns(t *testing.T) {
 	st := New()
 	ctx := context.Background()
-	ws := codeexecutor.Workspace{}
 
-	ok, err := st.SkillLinksPresent(ctx, nil, ws, "")
+	// Empty skill name returns false, no error.
+	ok, err := st.SkillLinksPresent(
+		ctx, nil,
+		codeexecutor.Workspace{Path: t.TempDir()},
+		"",
+	)
 	require.NoError(t, err)
 	require.False(t, ok)
 
-	ok, err = st.SkillLinksPresent(ctx, nil, ws, "echoer")
-	require.Error(t, err)
+	// Non-existent workspace — links are not present, no error.
+	ok, err = st.SkillLinksPresent(
+		ctx, nil,
+		codeexecutor.Workspace{Path: t.TempDir()},
+		"nonexistent",
+	)
+	require.NoError(t, err)
 	require.False(t, ok)
 
-	require.NoError(t, st.RemoveWorkspacePath(ctx, nil, ws, ""))
-	require.Error(t, st.RemoveWorkspacePath(ctx, nil, ws, "skills/echoer"))
+	// Empty target is a no-op.
+	require.NoError(
+		t,
+		st.RemoveWorkspacePath(
+			ctx, nil,
+			codeexecutor.Workspace{Path: t.TempDir()},
+			"",
+		),
+	)
 }
 
-func TestSkillStagingHelpers_ReturnExitCodeErrors(t *testing.T) {
+func TestSkillStagingHelpers_DirectFileOps(t *testing.T) {
 	st := New()
 	ctx := context.Background()
-	ws := codeexecutor.Workspace{}
-	r := &stubRunner{
-		res: codeexecutor.RunResult{
-			ExitCode: 1,
-			Stderr:   "shell failed",
-		},
+
+	// linkWorkspaceDirs operates directly on ws.Path.
+	dir := t.TempDir()
+	ws := codeexecutor.Workspace{ID: "x", Path: dir}
+
+	// Create required workspace dirs.
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(dir, codeexecutor.DirOut), 0o755,
+	))
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(dir, codeexecutor.DirWork), 0o755,
+	))
+	require.NoError(t, os.MkdirAll(
+		filepath.Join(dir, codeexecutor.DirSkills, "testskill"), 0o755,
+	))
+
+	err := st.linkWorkspaceDirs(ctx, nil, ws, "testskill")
+	require.NoError(t, err)
+
+	// Verify symlinks are created.
+	for _, linkName := range []string{"out", "work", "inputs"} {
+		ok, lerr := fsutil.IsLink(filepath.Join(
+			dir, codeexecutor.DirSkills, "testskill", linkName,
+		))
+		require.NoError(t, lerr)
+		require.True(t, ok)
 	}
-	eng := &stubEngine{r: r}
 
-	err := st.linkWorkspaceDirs(ctx, eng, ws, "echoer")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exit code 1")
+	// Verify .venv was created.
+	fi, err := os.Stat(filepath.Join(
+		dir, codeexecutor.DirSkills, "testskill", ".venv",
+	))
+	require.NoError(t, err)
+	require.True(t, fi.IsDir())
 
-	err = st.RemoveWorkspacePath(ctx, eng, ws, "skills/echoer")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exit code 1")
+	// RemoveWorkspacePath works on local filesystem.
+	require.NoError(t, st.RemoveWorkspacePath(
+		ctx, nil, ws, "skills/testskill",
+	))
+	_, err = os.Stat(filepath.Join(
+		dir, codeexecutor.DirSkills, "testskill",
+	))
+	require.True(t, os.IsNotExist(err))
 
-	err = st.readOnlyExceptSymlinks(ctx, eng, ws, "skills/echoer")
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exit code 1")
+	// readOnlyExceptSymlinks makes files read-only.
+	skillDir := filepath.Join(dir, codeexecutor.DirSkills, "readonly")
+	require.NoError(t, os.MkdirAll(skillDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(skillDir, "file.txt"), []byte("x"), 0o644,
+	))
+	venvDir := filepath.Join(skillDir, skillDirVenv)
+	require.NoError(t, os.MkdirAll(venvDir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(venvDir, "keep.sh"), []byte("y"), 0o755,
+	))
+
+	err = st.readOnlyExceptSymlinks(
+		ctx, nil, ws,
+		path.Join(codeexecutor.DirSkills, "readonly"),
+	)
+	require.NoError(t, err)
+
+	// Regular file should be read-only.
+	fi, err = os.Stat(filepath.Join(skillDir, "file.txt"))
+	require.NoError(t, err)
+	require.Zero(t, fi.Mode()&0o200)
+
+	// .venv file should keep write bit.
+	fi, err = os.Stat(filepath.Join(venvDir, "keep.sh"))
+	require.NoError(t, err)
+	require.NotZero(t, fi.Mode()&0o200)
 }

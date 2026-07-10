@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useReducer } from "react";
 import { formatStructured, safeJsonParse } from "../agui/format";
 import { streamAguiSse, type AguiSseEvent } from "../agui/sse";
+import { chatReducer, initialChatState } from "../store";
 
 export type UiMessageRole = "user" | "assistant" | "tool" | "system";
 
@@ -10,7 +11,13 @@ export type UiMessageKind =
   | "tool-call"
   | "tool-result"
   | "custom"
-  | "system";
+  | "system"
+  | "step"
+  | "block";
+
+export type StepStatus = "pending" | "running" | "in_progress" | "completed" | "failed" | "skipped";
+
+export type BlockType = "todo" | "in-progress" | "done" | "error" | "tool" | "agent";
 
 export type UiMessage = {
   id: string;
@@ -27,6 +34,14 @@ export type UiMessage = {
     result?: string;
   };
   timestamp: number;
+  startedAt?: number;
+  completedAt?: number;
+  /** 块容器专用字段 */
+  stepId?: string;
+  stepTitle?: string;
+  blockType?: BlockType;
+  stepStatus?: StepStatus;
+  children?: UiMessage[];
 };
 
 export type RawAguiEvent = {
@@ -37,7 +52,7 @@ export type RawAguiEvent = {
   payload: unknown;
 };
 
-type GraphInterrupt = {
+export type GraphInterrupt = {
   key: string;
   prompt: string;
   checkpointId?: string;
@@ -54,10 +69,18 @@ export type ReportSession = {
   content: string;
 };
 
+export type AguiToolDeclaration = {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+};
+
 export type AguiChatConfig = {
   endpoint: string;
   threadId: string;
   forwardedProps?: Record<string, unknown>;
+  /** 扩展工具声明列表，通过 payload.tools 传递给服务端，使 LLM 可调用这些工具 */
+  tools?: AguiToolDeclaration[];
 };
 
 export type HistoryLoadResult =
@@ -755,19 +778,13 @@ function restoreFromMessagesSnapshot(evt: AguiSseEvent): {
 }
 
 export function useAguiChat(config: AguiChatConfig) {
-  const [messages, setMessages] = useState<UiMessage[]>([]);
-  const [rawEvents, setRawEvents] = useState<RawAguiEvent[]>([]);
-  const [inProgress, setInProgress] = useState(false);
-  const [finishReason, setFinishReason] = useState<string | undefined>();
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [graphNodeId, setGraphNodeId] = useState<string | undefined>();
-  const [graphInterrupt, setGraphInterrupt] = useState<GraphInterrupt | null>(null);
-  const [progress, setProgress] = useState<{ percent: number; label?: string } | null>(null);
-  const [reportSessions, setReportSessions] = useState<ReportSession[]>([]);
-  const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  const [reportDrawerOpen, setReportDrawerOpen] = useState(false);
+  const [state, dispatch] = useReducer(chatReducer, initialChatState);
+  const { messages, rawEvents, session, reportSessions, activeReportId, reportDrawerOpen } = state;
+  const { inProgress, finishReason, lastError, graphNodeId, graphInterrupt, progress } = session;
 
   const abortRef = useRef<AbortController | null>(null);
+  const currentRunIdRef = useRef<string>("");
+  const cancelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageIndexByIdRef = useRef<Map<string, number>>(new Map());
   const toolCallNameByIdRef = useRef<Map<string, string>>(new Map());
   const toolCallArgsByIdRef = useRef<Map<string, string>>(new Map());
@@ -775,6 +792,8 @@ export function useAguiChat(config: AguiChatConfig) {
   const activeThinkingRef = useRef<{ id: string; active: boolean } | null>(null);
   const activeReasoningIdsRef = useRef<Set<string>>(new Set());
   const lastReasoningMessageIdRef = useRef<string>("");
+  const currentStepIdRef = useRef<string>("");
+  const contentBindMap = useRef<Map<string, string>>(new Map());
   const reportSessionsRef = useRef<ReportSession[]>([]);
   const writingReportIdRef = useRef<string | null>(null);
   const graphInterruptIdentityRef = useRef<string | null>(null);
@@ -782,15 +801,97 @@ export function useAguiChat(config: AguiChatConfig) {
   const rawEventsRef = useRef<RawAguiEvent[]>([]);
   const rawEventsFlushRef = useRef<number | null>(null);
 
-  reportSessionsRef.current = reportSessions;
+  reportSessionsRef.current = state.reportSessions;
 
-  const addMessage = useCallback((message: UiMessage) => {
-    setMessages((prev) => {
-      const next = [...prev, message];
-      messageIndexByIdRef.current.set(message.id, next.length - 1);
-      return next;
-    });
+  /** 使用 useRef 追踪最新消息数组，避免闭包快照过时问题 */
+  const messagesRef = useRef<UiMessage[]>(state.messages);
+  messagesRef.current = state.messages;
+
+  /** 递归查找指定 ID 的 block/step 消息在消息数组中的索引路径。
+   *  返回 [顶层索引, children索引路径] 或 null（未找到）。
+   *  children索引路径是一个数组，表示从顶层到目标 block 的每一层 children 索引。
+   *  例如 [2] 表示顶层第 3 个消息的 children 中；[2, 1] 表示再下一层。
+   *  支持任意多层嵌套 block 的递归查找。 */
+  const findBlockIndex = useCallback((messages: UiMessage[], blockId: string): [number, number[]] | null => {
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if ((msg.kind === "block" || msg.kind === "step") && msg.id === blockId) {
+        return [i, []];
+      }
+      if ((msg.kind === "block" || msg.kind === "step") && Array.isArray(msg.children)) {
+        const result = findBlockIndex(msg.children, blockId);
+        if (result) {
+          return [i, [result[0], ...result[1]]];
+        }
+      }
+    }
+    return null;
   }, []);
+
+  const addMessage = useCallback((message: UiMessage, contentParentId?: string) => {
+    const nestable = message.kind === "thinking" || message.kind === "tool-call" || (message.kind === "text" && message.role === "assistant");
+    const prev = messagesRef.current;
+    // 先追加到顶层
+    const next = [...prev, message];
+    const msgIdx = next.length - 1;
+    messageIndexByIdRef.current.set(message.id, msgIdx);
+
+    // 确定归属 parentId：优先使用传入的 contentParentId，其次查 contentBindMap，最后回退 block.context
+    const activeStepId = contentParentId || contentBindMap.current.get(message.id) || currentStepIdRef.current;
+    if (activeStepId && nestable) {
+      const found = findBlockIndex(next, activeStepId);
+      if (found) {
+        const [parentIdx, childPath] = found;
+        // 从顶层移除
+        next.splice(msgIdx, 1);
+        // 根据移除后的位置调整索引
+        const adjParentIdx = msgIdx < parentIdx ? parentIdx - 1 : parentIdx;
+        if (childPath.length === 0) {
+          // 顶层 block：直接加入 children
+          const container = next[adjParentIdx];
+          next[adjParentIdx] = {
+            ...container,
+            children: [...(container.children ?? []), { ...message, stepId: activeStepId }],
+          };
+        } else {
+          // 嵌套 block：沿 childPath 递归找到目标 block 并加入 children
+          const updateNestedChildren = (msgs: UiMessage[], path: number[], depth: number): UiMessage[] => {
+            const idx = path[depth];
+            const updated = msgs.slice();
+            if (depth === path.length - 1) {
+              // 最后一层：直接修改目标 block 的 children
+              const target = updated[idx];
+              updated[idx] = {
+                ...target,
+                children: [...(target.children ?? []), { ...message, stepId: activeStepId }],
+              };
+            } else {
+              // 中间层：递归修改
+              const target = updated[idx];
+              updated[idx] = {
+                ...target,
+                children: updateNestedChildren(target.children ?? [], path, depth + 1),
+              };
+            }
+            return updated;
+          };
+          const container = next[adjParentIdx];
+          next[adjParentIdx] = {
+            ...container,
+            children: updateNestedChildren(container.children ?? [], childPath, 0),
+          };
+        }
+        // 更新 ref 映射
+        messageIndexByIdRef.current.clear();
+        next.forEach((msg, i) => {
+          messageIndexByIdRef.current.set(msg.id, i);
+        });
+      }
+    }
+
+    dispatch({ type: "SET_MESSAGES", payload: next });
+    messagesRef.current = next;
+  }, [findBlockIndex]);
 
   const replaceMessages = useCallback((next: UiMessage[]) => {
     messageIndexByIdRef.current.clear();
@@ -810,47 +911,136 @@ export function useAguiChat(config: AguiChatConfig) {
       }
     });
 
-    setMessages(next);
+    dispatch({ type: "REPLACE_MESSAGES", payload: { messages: next, blocks: [], reportSessions: [], activeReportId: null } });
+    messagesRef.current = next;
   }, []);
 
-  const upsertMessage = useCallback((id: string, updater: (msg: UiMessage | null) => UiMessage) => {
-    setMessages((prev) => {
-      const index = messageIndexByIdRef.current.get(id);
-      if (index === undefined) {
-        const created = updater(null);
-        const next = [...prev, created];
-        messageIndexByIdRef.current.set(created.id, next.length - 1);
-        return next;
-      }
-      const existing = prev[index] ?? null;
+  const upsertMessage = useCallback((id: string, updater: (msg: UiMessage | null) => UiMessage, contentParentId?: string) => {
+    const prev = messagesRef.current;
+    const index = messageIndexByIdRef.current.get(id);
+    if (index !== undefined && index >= 0 && index < prev.length && prev[index]?.id === id) {
+      // 顶层找到，直接更新
+      const existing = prev[index];
       const updated = updater(existing);
       const next = prev.slice();
       next[index] = updated;
-      return next;
-    });
-  }, []);
+      dispatch({ type: "SET_MESSAGES", payload: next });
+      messagesRef.current = next;
+      return;
+    }
+
+    // 回退：递归搜索块容器的 children（支持多层嵌套）
+    let found = false;
+    const updateNested = (msgs: UiMessage[]): UiMessage[] => {
+      return msgs.map((msg) => {
+        if ((msg.kind === "block" || msg.kind === "step") && Array.isArray(msg.children)) {
+          const childIdx = msg.children.findIndex((c) => c.id === id);
+          if (childIdx !== -1) {
+            found = true;
+            const newChildren = msg.children.slice();
+            newChildren[childIdx] = updater(newChildren[childIdx]);
+            return { ...msg, children: newChildren };
+          }
+          // 递归搜索嵌套 block 的 children
+          const updatedChildren = updateNested(msg.children);
+          if (updatedChildren !== msg.children) {
+            found = true;
+            return { ...msg, children: updatedChildren };
+          }
+        }
+        return msg;
+      });
+    };
+    const next = updateNested(prev);
+
+    if (found) {
+      dispatch({ type: "SET_MESSAGES", payload: next });
+      messagesRef.current = next;
+      return;
+    }
+
+    // 都不存在：创建新消息
+    const created = updater(null);
+    // block 类型只有在明确指定 contentParentId 时才可嵌套（由 block.started 传入 parentId）
+    const nestable = created.kind === "thinking" || created.kind === "tool-call" || (created.kind === "text" && created.role === "assistant") || (created.kind === "block" && !!contentParentId);
+    // 确定归属 parentId：优先使用传入的 contentParentId，其次查 contentBindMap，最后回退 block.context
+    const activeStepId = contentParentId || contentBindMap.current.get(created.id) || currentStepIdRef.current;
+
+    if (activeStepId && nestable) {
+      const found2 = findBlockIndex(next, activeStepId);
+      if (found2) {
+        const [parentIdx, childPath] = found2;
+        if (childPath.length === 0) {
+          // 顶层 block
+          const container = next[parentIdx];
+          next[parentIdx] = {
+            ...container,
+            children: [...(container.children ?? []), { ...created, stepId: activeStepId }],
+          };
+        } else {
+          // 嵌套 block：沿 childPath 递归找到目标 block 并加入 children
+          const updateNestedChildren = (msgs: UiMessage[], path: number[], depth: number): UiMessage[] => {
+            const idx = path[depth];
+            const updated = msgs.slice();
+            if (depth === path.length - 1) {
+              const target = updated[idx];
+              updated[idx] = {
+                ...target,
+                children: [...(target.children ?? []), { ...created, stepId: activeStepId }],
+              };
+            } else {
+              const target = updated[idx];
+              updated[idx] = {
+                ...target,
+                children: updateNestedChildren(target.children ?? [], path, depth + 1),
+              };
+            }
+            return updated;
+          };
+          const container = next[parentIdx];
+          next[parentIdx] = {
+            ...container,
+            children: updateNestedChildren(container.children ?? [], childPath, 0),
+          };
+        }
+        // 重建索引映射
+        messageIndexByIdRef.current.clear();
+        next.forEach((msg, i) => {
+          messageIndexByIdRef.current.set(msg.id, i);
+        });
+        dispatch({ type: "SET_MESSAGES", payload: next });
+        messagesRef.current = next;
+        return;
+      }
+    }
+
+    const result = [...next, created];
+    messageIndexByIdRef.current.set(created.id, result.length - 1);
+    dispatch({ type: "SET_MESSAGES", payload: result });
+    messagesRef.current = result;
+  }, [findBlockIndex]);
 
   const flushRawEvents = useCallback(() => {
     rawEventsFlushRef.current = null;
-    setRawEvents([...rawEventsRef.current]);
+    dispatch({ type: "SET_RAW_EVENTS", payload: rawEventsRef.current });
   }, []);
 
   const setReportOpen = useCallback((open: boolean) => {
-    setReportDrawerOpen(open);
+    dispatch({ type: "SET_REPORT_DRAWER", payload: open });
   }, []);
 
   const openReport = useCallback((documentId: string) => {
     if (!documentId) {
       return;
     }
-    setActiveReportId(documentId);
-    setReportDrawerOpen(true);
+    dispatch({ type: "SET_ACTIVE_REPORT", payload: documentId });
+    dispatch({ type: "SET_REPORT_DRAWER", payload: true });
   }, []);
 
   const updateReportSessions = useCallback((updater: (prev: ReportSession[]) => ReportSession[]) => {
     const next = updater(reportSessionsRef.current);
     reportSessionsRef.current = next;
-    setReportSessions(next);
+    dispatch({ type: "SET_REPORT_SESSIONS", payload: next });
   }, []);
 
   const appendRawEvent = useCallback(
@@ -864,9 +1054,8 @@ export function useAguiChat(config: AguiChatConfig) {
         timestamp,
         payload: evt,
       };
-      const limit = 800;
       const prev = rawEventsRef.current;
-      rawEventsRef.current = prev.length >= limit ? [...prev.slice(prev.length - limit + 1), next] : [...prev, next];
+      rawEventsRef.current = [...prev, next];
       if (rawEventsFlushRef.current === null) {
         rawEventsFlushRef.current = window.requestAnimationFrame(flushRawEvents);
       }
@@ -883,9 +1072,8 @@ export function useAguiChat(config: AguiChatConfig) {
         timestamp: Date.now(),
         payload: request,
       };
-      const limit = 800;
       const prev = rawEventsRef.current;
-      rawEventsRef.current = prev.length >= limit ? [...prev.slice(prev.length - limit + 1), next] : [...prev, next];
+      rawEventsRef.current = [...prev, next];
       if (rawEventsFlushRef.current === null) {
         rawEventsFlushRef.current = window.requestAnimationFrame(flushRawEvents);
       }
@@ -924,6 +1112,13 @@ export function useAguiChat(config: AguiChatConfig) {
           status: "streaming",
           timestamp: evt.timestamp ?? Date.now(),
         });
+        return;
+      }
+
+      if (name === "state.delta") {
+        // Gateway sends state.delta with await_external_tool=true when the LLM
+        // calls an external tool (EndInvocation). The frontend should display
+        // a tool-result input UI after RUN_FINISHED arrives.
         return;
       }
 
@@ -983,7 +1178,7 @@ export function useAguiChat(config: AguiChatConfig) {
         const percent = Number(parsed.progress ?? parsed.percent ?? parsed.value ?? 0);
         const label = typeof parsed.message === "string" ? parsed.message : undefined;
         if (!Number.isNaN(percent)) {
-          setProgress({ percent, label });
+          dispatch({ type: "SET_PROGRESS", payload: { percent, label } });
         }
         return;
       }
@@ -1006,8 +1201,177 @@ export function useAguiChat(config: AguiChatConfig) {
         });
         return;
       }
+
+      // ---- 分块事件处理 ----
+
+      if (name === "block.context") {
+        // value: { stepId: string } — 设置当前分块上下文（降级兜底）
+        const payload = extractActivityValue(value) ?? {};
+        const ctxStepId = typeof payload.stepId === "string" ? payload.stepId : "";
+        currentStepIdRef.current = ctxStepId;
+        return;
+      }
+
+      if (name === "block.content_bind") {
+        // value: { contentId: string, parentId: string } — 内容归属声明
+        const payload = extractActivityValue(value) ?? {};
+        const contentId = typeof payload.contentId === "string" ? payload.contentId : "";
+        const bindParentId = typeof payload.parentId === "string" ? payload.parentId : "";
+        if (contentId) {
+          contentBindMap.current.set(contentId, bindParentId);
+        }
+        return;
+      }
+
+      if (name === "block.started") {
+        // value: { id: string, parentId?: string, status?: string, displayName?: string, blockType?: string, ... }
+        const payload = extractActivityValue(value) ?? {};
+        const blockId = typeof payload.id === "string" ? payload.id : "";
+        if (!blockId) return;
+        const blockParentId = typeof payload.parentId === "string" ? payload.parentId : "";
+        dispatch({
+          type: "BLOCK_STARTED",
+          payload: {
+            blockId,
+            parentId: blockParentId || undefined,
+            displayName: payload.displayName,
+            blockType: payload.blockType,
+            status: payload.status,
+            timestamp: evt.timestamp ?? Date.now(),
+          },
+        });
+        upsertMessage(blockId, (msg) => ({
+          id: blockId,
+          role: "assistant",
+          kind: "block",
+          title: payload.displayName ?? msg?.title ?? blockId,
+          content: "",
+          status: "complete",
+          children: msg?.children ?? [],
+          startedAt: evt.timestamp ?? Date.now(),
+          stepId: blockParentId || msg?.stepId,
+          stepTitle: payload.displayName ?? msg?.stepTitle ?? blockId,
+          blockType: payload.blockType ?? msg?.blockType ?? "todo",
+          stepStatus: payload.status ?? "in_progress",
+          timestamp: msg?.timestamp ?? Date.now(),
+        }), blockParentId || undefined);
+        return;
+      }
+
+      if (name === "block.finished") {
+        // value: { id: string, parentId?: string, status?: string, ... }
+        const payload = extractActivityValue(value) ?? {};
+        const blockId = typeof payload.id === "string" ? payload.id : "";
+        if (!blockId) return;
+        const blockParentId = typeof payload.parentId === "string" ? payload.parentId : "";
+        dispatch({
+          type: "BLOCK_FINISHED",
+          payload: {
+            blockId,
+            parentId: blockParentId || undefined,
+            status: payload.status,
+            displayName: payload.displayName,
+            timestamp: evt.timestamp ?? Date.now(),
+          },
+        });
+        upsertMessage(blockId, (msg) => ({
+          id: blockId,
+          role: "assistant",
+          kind: "block",
+          title: payload.displayName ?? msg?.title ?? blockId,
+          content: "",
+          status: "complete",
+          children: msg?.children ?? [],
+          startedAt: msg?.startedAt,
+          completedAt: evt.timestamp ?? Date.now(),
+          stepId: blockParentId || msg?.stepId,
+          stepTitle: payload.displayName ?? msg?.stepTitle ?? blockId,
+          blockType: payload.blockType ?? msg?.blockType ?? "todo",
+          stepStatus: payload.status ?? "completed",
+          timestamp: msg?.timestamp ?? Date.now(),
+        }));
+        // 如果当前上下文指向该分块，回退到父级 ID（支持多层嵌套回退）
+        if (currentStepIdRef.current === blockId) {
+          currentStepIdRef.current = blockParentId;
+        }
+        return;
+      }
+
+      if (name === "block.plan") {
+        // value: { steps: Array<{ id, displayName?, blockType?, status?, parentId? }> }
+        const plan = extractActivityValue(value) ?? {};
+        const steps = Array.isArray(plan.steps) ? plan.steps : [];
+        if (steps.length === 0) return;
+
+        dispatch({
+          type: "BLOCK_PLAN",
+          payload: { steps: steps.map((s: any) => ({ id: s.id, displayName: s.displayName, blockType: s.blockType, status: s.status, parentId: s.parentId })) },
+        });
+
+        // 同时更新 messages 中的 block（用于渲染）
+        const prev = messagesRef.current;
+        const newIds = new Set(steps.map((s: any) => String(s.id ?? "")).filter(Boolean));
+        const orphanIndices = new Set<number>();
+        prev.forEach((msg, i) => {
+          if ((msg.kind === "step" || msg.kind === "block") && msg.id && !newIds.has(msg.id)) {
+            orphanIndices.add(i);
+          }
+        });
+
+        const nextMsgs = prev.slice();
+        const toRemove = new Set(orphanIndices);
+        const now = Date.now();
+
+        for (let si = 0; si < steps.length; si++) {
+          const ps = steps[si] as any;
+          const stepId = String(ps.id ?? "");
+          if (!stepId) continue;
+
+          const existingIdx = nextMsgs.findIndex((m) => m.id === stepId && (m.kind === "block" || m.kind === "step"));
+          if (existingIdx !== -1) {
+            const existing = nextMsgs[existingIdx];
+            nextMsgs[existingIdx] = {
+              ...existing,
+              title: ps.displayName ?? existing.title,
+              stepTitle: ps.displayName ?? existing.stepTitle,
+              stepId: ps.parentId ?? existing.stepId,
+            };
+            continue;
+          }
+
+          const fresh: UiMessage = {
+            id: stepId,
+            role: "assistant",
+            kind: "block",
+            title: ps.displayName ?? stepId,
+            content: "",
+            status: "complete",
+            stepId: ps.parentId || undefined,
+            children: [],
+            stepTitle: ps.displayName ?? stepId,
+            blockType: ps.blockType ?? "todo",
+            stepStatus: ps.status ?? "pending",
+            timestamp: now + si,
+          };
+          nextMsgs.push(fresh);
+        }
+
+        const sortedRemove = Array.from(toRemove).sort((a, b) => b - a);
+        for (const ri of sortedRemove) {
+          nextMsgs.splice(ri, 1);
+        }
+
+        messageIndexByIdRef.current.clear();
+        nextMsgs.forEach((msg, i) => {
+          messageIndexByIdRef.current.set(msg.id, i);
+        });
+
+        dispatch({ type: "SET_MESSAGES", payload: nextMsgs });
+        messagesRef.current = nextMsgs;
+        return;
+      }
     },
-    [addMessage, upsertMessage],
+    [addMessage, upsertMessage, dispatch],
   );
 
   const handleReasoningEvent = useCallback(
@@ -1029,6 +1393,8 @@ export function useAguiChat(config: AguiChatConfig) {
       // Start or resume a reasoning stream.
       if (type === "REASONING_START" || type === "REASONING_MESSAGE_START") {
         activeReasoningIdsRef.current.add(thinkingId);
+        // 通过 contentBindMap 查找归属 parentId（使用原始 messageId）
+        const reasoningParentId = contentBindMap.current.get(rawMessageId) || undefined;
         upsertMessage(thinkingId, (msg) => {
           return {
             id: thinkingId,
@@ -1039,7 +1405,7 @@ export function useAguiChat(config: AguiChatConfig) {
             status: "streaming",
             timestamp: msg?.timestamp ?? timestamp,
           };
-        });
+        }, reasoningParentId);
         return;
       }
       if (type === "REASONING_MESSAGE_CHUNK") {
@@ -1152,13 +1518,13 @@ export function useAguiChat(config: AguiChatConfig) {
 
       const node = root.node;
       if (node && typeof node.nodeId === "string") {
-        setGraphNodeId(node.nodeId);
+        dispatch({ type: "SET_GRAPH_NODE_ID", payload: node.nodeId });
       }
 
       if (Object.prototype.hasOwnProperty.call(root, "interrupt")) {
         const interrupt = root.interrupt;
         if (!interrupt) {
-          setGraphInterrupt(null);
+          dispatch({ type: "SET_GRAPH_INTERRUPT", payload: null });
           graphInterruptIdentityRef.current = null;
           graphApprovalMessageIdRef.current = null;
         } else if (typeof interrupt === "object") {
@@ -1170,7 +1536,7 @@ export function useAguiChat(config: AguiChatConfig) {
             checkpointId: typeof interrupt.checkpointId === "string" ? interrupt.checkpointId : undefined,
             lineageId: typeof interrupt.lineageId === "string" ? interrupt.lineageId : undefined,
           };
-          setGraphInterrupt(nextInterrupt);
+          dispatch({ type: "SET_GRAPH_INTERRUPT", payload: nextInterrupt });
 
           if (shouldSuppressGraphApproval(nextInterrupt, toolCallNameByIdRef.current)) {
             graphInterruptIdentityRef.current = null;
@@ -1220,7 +1586,7 @@ export function useAguiChat(config: AguiChatConfig) {
 
       delete root.resume;
     },
-    [upsertMessage],
+    [upsertMessage, dispatch],
   );
 
   const handleToolCallResult = useCallback(
@@ -1247,8 +1613,8 @@ export function useAguiChat(config: AguiChatConfig) {
           copy[index] = { ...copy[index], ...next };
           return copy;
         });
-        setActiveReportId(documentId);
-        setReportDrawerOpen(true);
+        dispatch({ type: "SET_ACTIVE_REPORT", payload: documentId });
+        dispatch({ type: "SET_REPORT_DRAWER", payload: true });
 
         const actionMessageId = `report_open_${documentId}`;
         const actionPayload: Record<string, any> = { title, documentId, status: "open" };
@@ -1372,12 +1738,7 @@ export function useAguiChat(config: AguiChatConfig) {
 
       if (type === "RUN_STARTED") {
         appendRawEvent(evt);
-        setInProgress(true);
-        setFinishReason(undefined);
-        setLastError(null);
-        setGraphNodeId(undefined);
-        setGraphInterrupt(null);
-        setProgress(null);
+        dispatch({ type: "RUN_STARTED", payload: { timestamp: evt.timestamp ?? Date.now() } });
         lastReasoningMessageIdRef.current = "";
         const activeReasoningIds = Array.from(activeReasoningIdsRef.current);
         activeReasoningIdsRef.current.clear();
@@ -1403,10 +1764,16 @@ export function useAguiChat(config: AguiChatConfig) {
 
       if (type === "RUN_FINISHED") {
         appendRawEvent(evt);
-        setInProgress(false);
+        // 清除取消超时兜底（如果 cancel 后正常收到了 RunFinished）
+        if (cancelTimeoutRef.current !== null) {
+          clearTimeout(cancelTimeoutRef.current);
+          cancelTimeoutRef.current = null;
+        }
         abortRef.current = null;
+        currentRunIdRef.current = "";
+        contentBindMap.current.clear();
         const result = typeof evt.result === "string" ? evt.result : undefined;
-        setFinishReason(result);
+        dispatch({ type: "RUN_FINISHED", payload: { result, timestamp: evt.timestamp ?? Date.now() } });
         lastReasoningMessageIdRef.current = "";
         const activeReasoningIds = Array.from(activeReasoningIdsRef.current);
         activeReasoningIdsRef.current.clear();
@@ -1427,15 +1794,30 @@ export function useAguiChat(config: AguiChatConfig) {
             };
           });
         }
+        // 标记所有 streaming 状态的 tool-call 消息为 complete
+        // （EndInvocation 时 Run 停止但 tool-call 未收到完成事件，需在此兜底）
+        for (const msg of messagesRef.current) {
+          if (msg.kind === "tool-call" && msg.status === "streaming") {
+            upsertMessage(msg.id, (m) => ({
+              ...m!,
+              status: "complete" as const,
+            }));
+          }
+        }
         return;
       }
 
       if (type === "RUN_ERROR") {
         appendRawEvent(evt);
-        setInProgress(false);
+        // 清除取消超时兜底
+        if (cancelTimeoutRef.current !== null) {
+          clearTimeout(cancelTimeoutRef.current);
+          cancelTimeoutRef.current = null;
+        }
         abortRef.current = null;
+        currentRunIdRef.current = "";
         const msg = typeof evt.message === "string" ? evt.message : "Run error.";
-        setLastError(msg);
+        dispatch({ type: "RUN_ERROR", payload: { message: msg } });
         lastReasoningMessageIdRef.current = "";
         const activeReasoningIds = Array.from(activeReasoningIdsRef.current);
         activeReasoningIdsRef.current.clear();
@@ -1488,6 +1870,8 @@ export function useAguiChat(config: AguiChatConfig) {
           }
         }
         const messageId = typeof evt.messageId === "string" ? evt.messageId : randomId("assistant");
+        // 通过 contentBindMap 查找归属 parentId
+        const textParentId = contentBindMap.current.get(messageId) || undefined;
         addMessage({
           id: messageId,
           role: normalizeRole(evt.role),
@@ -1495,7 +1879,7 @@ export function useAguiChat(config: AguiChatConfig) {
           title: "Assistant",
           content: "",
           timestamp: evt.timestamp ?? Date.now(),
-        });
+        }, textParentId);
         return;
       }
 
@@ -1546,7 +1930,8 @@ export function useAguiChat(config: AguiChatConfig) {
         const toolCallName = typeof evt.toolCallName === "string" ? evt.toolCallName : "tool";
         toolCallNameByIdRef.current.set(toolCallId, toolCallName);
         toolCallArgsByIdRef.current.set(toolCallId, "");
-
+        // 通过 contentBindMap 查找归属 parentId
+        const toolParentId = contentBindMap.current.get(toolCallId) || undefined;
         addMessage({
           id: toolCallId,
           role: "assistant",
@@ -1561,7 +1946,7 @@ export function useAguiChat(config: AguiChatConfig) {
             args: "",
           },
           timestamp: evt.timestamp ?? Date.now(),
-        });
+        }, toolParentId);
         return;
       }
 
@@ -1621,15 +2006,64 @@ export function useAguiChat(config: AguiChatConfig) {
 
   const stop = useCallback(() => {
     abortActiveRun();
-    setInProgress(false);
+    dispatch({ type: "RUN_FINISHED", payload: { result: "stopped", timestamp: Date.now() } });
   }, [abortActiveRun]);
+
+  const cancel = useCallback(async () => {
+    const runId = currentRunIdRef.current;
+
+    // 先向服务端发送 cancel 请求，让后端通过 SSE 发送收尾事件（RunCanceled + RunFinished）
+    // 前端等收到 RunFinished 后由 handleEvent 自动重置 inProgress 和 abortRef
+    if (!runId) {
+      // 没有 runId 时直接中断 SSE 连接
+      abortActiveRun();
+      dispatch({ type: "RUN_FINISHED", payload: { result: "cancelled", timestamp: Date.now() } });
+      return;
+    }
+    const cancelPayload: Record<string, any> = {
+      threadId: config.threadId,
+      runId,
+    };
+    if (config.forwardedProps && Object.keys(config.forwardedProps).length > 0) {
+      cancelPayload.forwardedProps = config.forwardedProps;
+    }
+    try {
+      // 从 endpoint 推导 cancel 路径：/chat -> /cancel, /agui -> /cancel
+      const baseUrl = new URL(config.endpoint, window.location.origin);
+      const cancelUrl = new URL("/cancel", baseUrl.origin);
+      const response = await fetch(cancelUrl.toString(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(cancelPayload),
+      });
+      if (response.ok) {
+        // cancel 请求成功，等待 RunFinished 事件通过 SSE 到达后自然断开
+        // 设置超时兜底：如果 5 秒内没收到 RunFinished，强制中断
+        const timeoutId = setTimeout(() => {
+          abortActiveRun();
+          dispatch({ type: "RUN_FINISHED", payload: { result: "cancelled", timestamp: Date.now() } });
+          currentRunIdRef.current = "";
+        }, 5000);
+        // 保存 timeoutId 以便 RunFinished 到达时清除
+        cancelTimeoutRef.current = timeoutId;
+        return;
+      }
+    } catch {
+      // cancel 请求失败，静默处理
+    }
+    // cancel 请求失败或响应非 OK，直接中断 SSE 连接
+    abortActiveRun();
+    dispatch({ type: "RUN_FINISHED", payload: { result: "cancelled", timestamp: Date.now() } });
+    currentRunIdRef.current = "";
+  }, [abortActiveRun, config.endpoint, config.forwardedProps, config.threadId]);
 
   const run = useCallback(
     async (payload: Record<string, any>) => {
       abortActiveRun();
       const controller = new AbortController();
       abortRef.current = controller;
-      setInProgress(true);
+      currentRunIdRef.current = typeof payload.runId === "string" ? payload.runId : "";
+      dispatch({ type: "RUN_STARTED", payload: { timestamp: Date.now() } });
       appendRequest({ endpoint: config.endpoint, payload });
 
       try {
@@ -1641,9 +2075,8 @@ export function useAguiChat(config: AguiChatConfig) {
         if (controller.signal.aborted) {
           return;
         }
-        setInProgress(false);
         abortRef.current = null;
-        setLastError(String(error?.message ?? error));
+        dispatch({ type: "RUN_ERROR", payload: { message: String(error?.message ?? error) } });
       }
     },
     [abortActiveRun, appendRequest, config.endpoint, handleEvent],
@@ -1654,15 +2087,14 @@ export function useAguiChat(config: AguiChatConfig) {
       const historyEndpoint = options?.endpoint ?? "";
       if (!historyEndpoint) {
         const message = "history endpoint is empty";
-        setLastError(message);
+        dispatch({ type: "RUN_ERROR", payload: { message } });
         return { ok: false, message };
       }
 
       abortActiveRun();
-      setLastError(null);
+      dispatch({ type: "RUN_STARTED", payload: { timestamp: Date.now() } });
       const controller = new AbortController();
       abortRef.current = controller;
-      setInProgress(true);
 
       let snapshotEvent: AguiSseEvent | null = null;
       let runError: string | null = null;
@@ -1695,14 +2127,14 @@ export function useAguiChat(config: AguiChatConfig) {
           const restored = restoreFromMessagesSnapshot(evt);
           replaceMessages(restored.messages);
           reportSessionsRef.current = restored.reportSessions;
-          setReportSessions(restored.reportSessions);
+          dispatch({ type: "SET_REPORT_SESSIONS", payload: restored.reportSessions });
           const openReport = restored.reportSessions.slice().reverse().find((session) => session.status === "open") ?? null;
           writingReportIdRef.current = openReport ? openReport.documentId : null;
           const nextActiveReportId = openReport?.documentId ?? restored.activeReportId;
-          setActiveReportId(nextActiveReportId);
-          setReportDrawerOpen(Boolean(openReport));
-          setGraphNodeId(restored.graphNodeId);
-          setGraphInterrupt(restored.graphInterrupt);
+          dispatch({ type: "SET_ACTIVE_REPORT", payload: nextActiveReportId });
+          dispatch({ type: "SET_REPORT_DRAWER", payload: Boolean(openReport) });
+          dispatch({ type: "SET_GRAPH_NODE_ID", payload: restored.graphNodeId });
+          dispatch({ type: "SET_GRAPH_INTERRUPT", payload: restored.graphInterrupt ?? null });
           settle({ ok: true, count: restored.messages.length });
         };
 
@@ -1714,12 +2146,9 @@ export function useAguiChat(config: AguiChatConfig) {
               appendRawEvent(evt);
               const message = typeof (evt as any).message === "string" ? (evt as any).message : "Run error.";
               runError = message;
-              setInProgress(false);
+              dispatch({ type: "RUN_ERROR", payload: { message } });
               if (abortRef.current === controller) {
                 abortRef.current = null;
-              }
-              if (!isSessionNotFoundError(message)) {
-                setLastError(message);
               }
               if (!snapshotEvent) {
                 settle({ ok: false, message });
@@ -1741,36 +2170,36 @@ export function useAguiChat(config: AguiChatConfig) {
           if (!snapshotEvent) {
             const message = runError ?? "history snapshot not found";
             if (!isSessionNotFoundError(message)) {
-              setLastError(message);
+              dispatch({ type: "RUN_ERROR", payload: { message } });
             }
             settle({ ok: false, message });
             if (abortRef.current === controller) {
               abortRef.current = null;
-              setInProgress(false);
+              dispatch({ type: "RUN_FINISHED", payload: { result: "error", timestamp: Date.now() } });
             }
             return;
           }
           if (abortRef.current === controller) {
             abortRef.current = null;
-            setInProgress(false);
+            dispatch({ type: "RUN_FINISHED", payload: { result: "completed", timestamp: Date.now() } });
           }
         }).catch((error: any) => {
           if (controller.signal.aborted) {
             settle({ ok: false, message: "aborted" });
             if (abortRef.current === controller) {
               abortRef.current = null;
-              setInProgress(false);
+              dispatch({ type: "RUN_FINISHED", payload: { result: "aborted", timestamp: Date.now() } });
             }
             return;
           }
           const message = String(error?.message ?? error);
           if (!isSessionNotFoundError(message)) {
-            setLastError(message);
+            dispatch({ type: "RUN_ERROR", payload: { message } });
           }
           settle({ ok: false, message });
           if (abortRef.current === controller) {
             abortRef.current = null;
-            setInProgress(false);
+            dispatch({ type: "RUN_FINISHED", payload: { result: "error", timestamp: Date.now() } });
           }
         });
       });
@@ -1783,7 +2212,7 @@ export function useAguiChat(config: AguiChatConfig) {
       config.threadId,
       handleEvent,
       replaceMessages,
-      setLastError,
+      dispatch,
     ],
   );
 
@@ -1808,6 +2237,14 @@ export function useAguiChat(config: AguiChatConfig) {
         runId: randomId("run"),
         messages: [{ role: "user", content: trimmed }],
       };
+      // 将用户名称也放入消息的 name 字段，确保服务端能通过消息级路径提取用户ID
+      const userIdFromProps = config.forwardedProps?.userId;
+      if (typeof userIdFromProps === "string" && userIdFromProps.trim()) {
+        payload.messages[0].name = userIdFromProps.trim();
+      }
+      if (config.tools && config.tools.length > 0) {
+        payload.tools = config.tools;
+      }
       const mergedForwardedProps = {
         ...(config.forwardedProps && Object.keys(config.forwardedProps).length > 0 ? config.forwardedProps : {}),
         ...(options?.forwardedProps && Object.keys(options.forwardedProps).length > 0 ? options.forwardedProps : {}),
@@ -1818,7 +2255,7 @@ export function useAguiChat(config: AguiChatConfig) {
 
       await run(payload);
     },
-    [addMessage, config.forwardedProps, config.threadId, run],
+    [addMessage, config.forwardedProps, config.threadId, config.tools, run],
   );
 
   const sendToolResult = useCallback(
@@ -1840,17 +2277,41 @@ export function useAguiChat(config: AguiChatConfig) {
         return;
       }
 
-      const payload: Record<string, any> = {
-        threadId: config.threadId,
-        runId: randomId("run"),
-        messages: [{
+      // Build messages array: assistant toolCalls + tool result.
+      // The assistant message carries the tool_call info so the backend
+      // can inject it into the LLM context (EndInvocation doesn't persist it).
+      const savedName = toolCallNameByIdRef.current.get(toolCallId) || toolCallName;
+      const savedArgs = toolCallArgsByIdRef.current.get(toolCallId) || "";
+      const messages: Record<string, any>[] = [
+        {
+          id: `assistant-toolcall-${toolCallId}`,
+          role: "assistant",
+          toolCalls: [{
+            id: toolCallId,
+            type: "function",
+            function: {
+              name: savedName,
+              arguments: savedArgs,
+            },
+          }],
+        },
+        {
           id: (args.messageId || `tool-result-${toolCallId}`).trim(),
           role: "tool",
           toolCallId,
-          name: toolCallName || "tool",
+          name: savedName || "tool",
           content,
-        }],
+        },
+      ];
+
+      const payload: Record<string, any> = {
+        threadId: config.threadId,
+        runId: randomId("run"),
+        messages,
       };
+      if (config.tools && config.tools.length > 0) {
+        payload.tools = config.tools;
+      }
       const mergedForwardedProps = {
         ...(config.forwardedProps && Object.keys(config.forwardedProps).length > 0 ? config.forwardedProps : {}),
         ...(args.forwardedProps && Object.keys(args.forwardedProps).length > 0 ? args.forwardedProps : {}),
@@ -1861,7 +2322,7 @@ export function useAguiChat(config: AguiChatConfig) {
 
       await run(payload);
     },
-    [config.forwardedProps, config.threadId, inProgress, run],
+    [config.forwardedProps, config.threadId, config.tools, inProgress, run],
   );
 
   const approveGraphInterrupt = useCallback(async () => {
@@ -1925,11 +2386,11 @@ export function useAguiChat(config: AguiChatConfig) {
       payload.forwardedProps = mergedForwardedProps;
     }
 
-    setGraphInterrupt(null);
+    dispatch({ type: "SET_GRAPH_INTERRUPT", payload: null });
     graphInterruptIdentityRef.current = null;
     graphApprovalMessageIdRef.current = null;
     await run(payload);
-  }, [config.forwardedProps, config.threadId, graphInterrupt, run, upsertMessage]);
+  }, [config.forwardedProps, config.threadId, graphInterrupt, run, upsertMessage, dispatch]);
 
   const dismissGraphInterrupt = useCallback(async () => {
     const identity = graphInterrupt ? graphInterruptIdentity(graphInterrupt) : "";
@@ -1962,7 +2423,7 @@ export function useAguiChat(config: AguiChatConfig) {
     }
 
     if (!graphInterrupt) {
-      setGraphInterrupt(null);
+      dispatch({ type: "SET_GRAPH_INTERRUPT", payload: null });
       graphInterruptIdentityRef.current = null;
       graphApprovalMessageIdRef.current = null;
       return;
@@ -1996,33 +2457,27 @@ export function useAguiChat(config: AguiChatConfig) {
       payload.forwardedProps = mergedForwardedProps;
     }
 
-    setGraphInterrupt(null);
+    dispatch({ type: "SET_GRAPH_INTERRUPT", payload: null });
     graphInterruptIdentityRef.current = null;
     graphApprovalMessageIdRef.current = null;
     await run(payload);
-  }, [config.forwardedProps, config.threadId, graphInterrupt, run, upsertMessage]);
+  }, [config.forwardedProps, config.threadId, graphInterrupt, run, upsertMessage, dispatch]);
 
   const reset = useCallback(() => {
     abortActiveRun();
-    setMessages([]);
+    dispatch({ type: "RESET" });
     messageIndexByIdRef.current.clear();
     toolCallNameByIdRef.current.clear();
     toolCallArgsByIdRef.current.clear();
     activityStateRef.current = {};
+    contentBindMap.current.clear();
+    currentStepIdRef.current = "";
     activeThinkingRef.current = null;
     reportSessionsRef.current = [];
     writingReportIdRef.current = null;
     clearRawEvents();
-    setFinishReason(undefined);
-    setLastError(null);
-    setGraphNodeId(undefined);
-    setGraphInterrupt(null);
     graphInterruptIdentityRef.current = null;
     graphApprovalMessageIdRef.current = null;
-    setProgress(null);
-    setReportSessions([]);
-    setActiveReportId(null);
-    setReportDrawerOpen(false);
   }, [abortActiveRun, clearRawEvents]);
 
   return {
@@ -2038,11 +2493,12 @@ export function useAguiChat(config: AguiChatConfig) {
     activeReportId,
     reportDrawerOpen,
     setReportOpen,
-    setReportDrawerOpen,
+    setReportDrawerOpen: setReportOpen,
     openReport,
     loadHistory,
     send,
     stop,
+    cancel,
     reset,
     approveGraphInterrupt,
     dismissGraphInterrupt,

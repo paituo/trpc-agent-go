@@ -13,11 +13,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
+	"trpc.group/trpc-go/trpc-agent-go/internal/fsutil"
 )
 
 const (
@@ -196,9 +199,6 @@ func (s *Stager) SaveWorkspaceMetadata(
 	if eng == nil || eng.FS() == nil {
 		return fmt.Errorf("workspace fs is not configured")
 	}
-	if eng.Runner() == nil {
-		return fmt.Errorf("workspace runner is not configured")
-	}
 	if md.Version == 0 {
 		md.Version = 1
 	}
@@ -216,8 +216,12 @@ func (s *Stager) SaveWorkspaceMetadata(
 		return err
 	}
 	tmpFile := codeexecutor.MetadataTempFileName()
+	tmpPath := filepath.Join(ws.Path, filepath.FromSlash(tmpFile))
+	destPath := filepath.Join(
+		ws.Path, filepath.FromSlash(codeexecutor.MetaFileName),
+	)
 	committed := false
-	defer cleanupMetadataTemp(ctx, eng, ws, tmpFile, &committed)
+	defer cleanupMetadataTempFile(tmpPath, &committed)
 	if err := eng.FS().PutFiles(ctx, ws, []codeexecutor.PutFile{{
 		Path:    tmpFile,
 		Content: buf,
@@ -225,64 +229,28 @@ func (s *Stager) SaveWorkspaceMetadata(
 	}}); err != nil {
 		return err
 	}
-	var sb strings.Builder
-	sb.WriteString("set -e; tmp=")
-	sb.WriteString(shellQuote(tmpFile))
-	sb.WriteString("; dest=")
-	sb.WriteString(shellQuote(codeexecutor.MetaFileName))
-	sb.WriteString("; trap 'rm -f \"$tmp\"' EXIT; ")
-	sb.WriteString("if [ -d \"$dest\" ]; then ")
-	sb.WriteString("echo \"metadata path is a directory\" >&2; exit 1; ")
-	sb.WriteString("fi; mv -f \"$tmp\" \"$dest\"")
-	sb.WriteString("; trap - EXIT")
-	res, err := eng.Runner().RunProgram(
-		ctx, ws, codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", sb.String()},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
-	)
-	if err != nil {
-		return err
+	// Reject if destination path is a directory.
+	if fi, err := os.Stat(destPath); err == nil && fi.IsDir() {
+		return fmt.Errorf("metadata path is a directory")
 	}
-	if res.ExitCode != 0 {
-		return fmt.Errorf(
-			"workspace metadata commit failed: exit code %d: %s",
-			res.ExitCode,
-			strings.TrimSpace(res.Stderr),
-		)
+	_ = os.Remove(destPath)
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		return err
 	}
 	committed = true
 	return nil
 }
 
-func cleanupMetadataTemp(
-	ctx context.Context,
-	eng codeexecutor.Engine,
-	ws codeexecutor.Workspace,
-	tmpFile string,
-	committed *bool,
-) {
+// cleanupMetadataTempFile removes the temporary metadata file unless
+// the commit flag has been set to true.
+func cleanupMetadataTempFile(tmpPath string, committed *bool) {
 	if committed != nil && *committed {
 		return
 	}
-	if eng == nil || eng.Runner() == nil || tmpFile == "" {
+	if tmpPath == "" {
 		return
 	}
-	cleanupCtx := context.WithoutCancel(ctx)
-	_, _ = eng.Runner().RunProgram(
-		cleanupCtx,
-		ws,
-		codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", "rm -f " + shellQuote(tmpFile)},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
-	)
+	_ = os.Remove(tmpPath)
 }
 
 // SkillLinksPresent reports whether the staged skill directory still exposes
@@ -297,70 +265,87 @@ func (s *Stager) SkillLinksPresent(
 	if skillName == "" {
 		return false, nil
 	}
-	if eng == nil || eng.Runner() == nil {
-		return false, fmt.Errorf("workspace runner is not configured")
-	}
-	base := path.Join(codeexecutor.DirSkills, skillName)
-	var sb strings.Builder
-	sb.WriteString("test -L ")
-	sb.WriteString(shellQuote(path.Join(base, codeexecutor.DirOut)))
-	sb.WriteString(" && test -L ")
-	sb.WriteString(shellQuote(path.Join(base, codeexecutor.DirWork)))
-	sb.WriteString(" && test -L ")
-	sb.WriteString(shellQuote(path.Join(base, skillDirInputs)))
-	rr, err := eng.Runner().RunProgram(
-		ctx, ws, codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", sb.String()},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
+	base := filepath.Join(
+		ws.Path,
+		filepath.FromSlash(path.Join(codeexecutor.DirSkills, skillName)),
 	)
-	if err != nil {
-		return false, err
+	for _, linkName := range []string{
+		codeexecutor.DirOut,
+		codeexecutor.DirWork,
+		skillDirInputs,
+	} {
+		p := filepath.Join(base, linkName)
+		ok, err := fsutil.IsLink(p)
+		if err != nil || !ok {
+			return false, nil
+		}
 	}
-	return rr.ExitCode == 0, nil
+	return true, nil
 }
 
+// linkWorkspaceDirs creates symlinks from a staged skill directory back to
+// the shared workspace out/, work/, and work/inputs/ directories.
+// On Windows without symlink privileges it falls back to directory junctions
+// via the fsutil package.
 func (s *Stager) linkWorkspaceDirs(
 	ctx context.Context,
 	eng codeexecutor.Engine,
 	ws codeexecutor.Workspace,
 	name string,
 ) error {
-	skillRoot := path.Join(codeexecutor.DirSkills, name)
-	toOut := path.Join("..", "..", codeexecutor.DirOut)
-	toWork := path.Join("..", "..", codeexecutor.DirWork)
-	toInputs := path.Join("..", "..", codeexecutor.DirWork, skillDirInputs)
-	var sb strings.Builder
-	sb.WriteString("set -e; cd ")
-	sb.WriteString(shellQuote(skillRoot))
-	sb.WriteString("; rm -rf out work ")
-	sb.WriteString(skillDirInputs)
-	sb.WriteString(" ")
-	sb.WriteString(shellQuote(skillDirVenv))
-	sb.WriteString("; mkdir -p ")
-	sb.WriteString(shellQuote(toInputs))
-	sb.WriteString(" ")
-	sb.WriteString(shellQuote(skillDirVenv))
-	sb.WriteString("; ln -sfn ")
-	sb.WriteString(shellQuote(toOut))
-	sb.WriteString(" out; ln -sfn ")
-	sb.WriteString(shellQuote(toWork))
-	sb.WriteString(" work; ln -sfn ")
-	sb.WriteString(shellQuote(toInputs))
-	sb.WriteString(" inputs")
-	res, err := eng.Runner().RunProgram(
-		ctx, ws, codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", sb.String()},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
+	skillRel := filepath.FromSlash(
+		path.Join(codeexecutor.DirSkills, name),
 	)
-	return runProgramExitError("link workspace dirs", res, err)
+	skillRoot := filepath.Join(ws.Path, skillRel)
+
+	// Remove old entries (links or directories).
+	for _, d := range []string{
+		codeexecutor.DirOut,
+		codeexecutor.DirWork,
+		skillDirInputs,
+		skillDirVenv,
+	} {
+		_ = os.RemoveAll(filepath.Join(skillRoot, d))
+	}
+
+	// Ensure workspace-level work/inputs exists.
+	inputsDir := filepath.Join(
+		ws.Path,
+		filepath.FromSlash(codeexecutor.DirWork),
+		skillDirInputs,
+	)
+	if err := os.MkdirAll(inputsDir, 0o755); err != nil {
+		return err
+	}
+
+	// Ensure skill-level .venv exists.
+	venvDir := filepath.Join(skillRoot, skillDirVenv)
+	if err := os.MkdirAll(venvDir, 0o755); err != nil {
+		return err
+	}
+
+	// Create symlinks back to shared workspace dirs.
+	outTarget := filepath.Join(ws.Path, codeexecutor.DirOut)
+	workTarget := filepath.Join(ws.Path, codeexecutor.DirWork)
+	inputsTarget := inputsDir
+
+	links := []struct {
+		target string
+		link   string
+	}{
+		{outTarget, filepath.Join(skillRoot, codeexecutor.DirOut)},
+		{workTarget, filepath.Join(skillRoot, codeexecutor.DirWork)},
+		{inputsTarget, filepath.Join(skillRoot, skillDirInputs)},
+	}
+	for _, l := range links {
+		if err := fsutil.CreateSymlink(l.target, l.link); err != nil {
+			return fmt.Errorf(
+				"link workspace dirs: symlink %s -> %s: %w",
+				l.link, l.target, err,
+			)
+		}
+	}
+	return nil
 }
 
 // RemoveWorkspacePath removes a workspace-relative path after first making
@@ -375,79 +360,62 @@ func (s *Stager) RemoveWorkspacePath(
 	if target == "" {
 		return nil
 	}
-	if eng == nil || eng.Runner() == nil {
-		return fmt.Errorf("workspace runner is not configured")
-	}
-	var sb strings.Builder
-	sb.WriteString("set -e; if [ -e ")
-	sb.WriteString(shellQuote(target))
-	sb.WriteString(" ]; then find ")
-	sb.WriteString(shellQuote(target))
-	sb.WriteString(" -type l -prune -o -exec chmod u+w {} +; fi")
-	sb.WriteString("; rm -rf ")
-	sb.WriteString(shellQuote(target))
-	res, err := eng.Runner().RunProgram(
-		ctx,
-		ws,
-		codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", sb.String()},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
-	)
-	return runProgramExitError("remove workspace path", res, err)
+	absTarget := filepath.Join(ws.Path, filepath.FromSlash(target))
+
+	// Make non-symlink entries writable before removal so we can
+	// delete read-only trees (e.g. from legacy ReadOnly staging).
+	_ = filepath.WalkDir(absTarget, func(
+		p string, d os.DirEntry, err error,
+	) error {
+		if err != nil {
+			return nil
+		}
+		// Skip symlinks — chmod on a symlink would affect its target.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil {
+			return nil
+		}
+		_ = os.Chmod(p, info.Mode().Perm()|0o200) // add owner-write.
+		return nil
+	})
+	return os.RemoveAll(absTarget)
 }
 
+// readOnlyExceptSymlinks removes write bits from all regular files in dest,
+// skipping symlinks and the .venv directory.
 func (s *Stager) readOnlyExceptSymlinks(
 	ctx context.Context,
 	eng codeexecutor.Engine,
 	ws codeexecutor.Workspace,
 	dest string,
 ) error {
-	venv := path.Join(dest, skillDirVenv)
-	var sb strings.Builder
-	sb.WriteString("set -e; find ")
-	sb.WriteString(shellQuote(dest))
-	sb.WriteString(" -path ")
-	sb.WriteString(shellQuote(venv))
-	sb.WriteString(" -prune -o -type l -prune -o -exec chmod a-w {} +")
-	res, err := eng.Runner().RunProgram(
-		ctx, ws, codeexecutor.RunProgramSpec{
-			Cmd:     "bash",
-			Args:    []string{"-lc", sb.String()},
-			Env:     map[string]string{},
-			Cwd:     ".",
-			Timeout: 5 * time.Second,
-		},
-	)
-	return runProgramExitError("make skill read-only", res, err)
-}
-
-func runProgramExitError(
-	op string,
-	res codeexecutor.RunResult,
-	err error,
-) error {
-	if err != nil {
-		return err
-	}
-	if res.ExitCode == 0 {
-		return nil
-	}
-	return fmt.Errorf(
-		"%s failed: exit code %d: %s",
-		op,
-		res.ExitCode,
-		strings.TrimSpace(res.Stderr),
-	)
-}
-
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	q := strings.ReplaceAll(s, "'", "'\\''")
-	return "'" + q + "'"
+	absDest := filepath.Join(ws.Path, filepath.FromSlash(dest))
+	venvAbs := filepath.Join(absDest, skillDirVenv)
+	return filepath.WalkDir(absDest, func(
+		p string, d os.DirEntry, err error,
+	) error {
+		if err != nil {
+			return err
+		}
+		// Skip .venv directory entirely.
+		if p == venvAbs ||
+			strings.HasPrefix(p, venvAbs+string(os.PathSeparator)) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Skip symlinks.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		info, statErr := d.Info()
+		if statErr != nil {
+			return statErr
+		}
+		return os.Chmod(p, info.Mode().Perm()&^0o222)
+	})
 }

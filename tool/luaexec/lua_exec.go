@@ -66,7 +66,7 @@ func (t *luaExecTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 	// Resolve script content: either from string or from file path.
 	var script string
 	if hasScriptPath {
-		resolved, err := resolveScriptPath(args.ScriptPath, t.cfg.AllowedScriptDirs)
+		resolved, err := resolveScriptPath(args.ScriptPath, t.cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -119,10 +119,19 @@ func (t *luaExecTool) Call(ctx context.Context, jsonArgs []byte) (any, error) {
 }
 
 // resolveScriptPath validates that scriptPath is under one of the allowed
-// directories and returns the cleaned absolute path. It prevents path
-// traversal attacks (e.g. "../../etc/passwd").
-func resolveScriptPath(scriptPath string, allowedDirs []string) (string, error) {
-	if len(allowedDirs) == 0 {
+// directories when the whitelist is enabled, otherwise allows any path.
+func resolveScriptPath(scriptPath string, cfg Config) (string, error) {
+	// If whitelist is disabled, allow any path (for MCP deployments etc.)
+	if !cfg.EnableScriptPathWhitelist {
+		absPath, err := filepath.Abs(filepath.Clean(scriptPath))
+		if err != nil {
+			return "", fmt.Errorf("invalid script_path %q: %w", scriptPath, err)
+		}
+		return absPath, nil
+	}
+
+	// Whitelist enabled — must be configured and path must be under it.
+	if len(cfg.AllowedScriptDirs) == 0 {
 		return "", fmt.Errorf("script_path is disabled: no allowed_script_dirs configured")
 	}
 
@@ -133,7 +142,7 @@ func resolveScriptPath(scriptPath string, allowedDirs []string) (string, error) 
 
 	// Check that the resolved path is under one of the allowed directories.
 	allowed := false
-	for _, dir := range allowedDirs {
+	for _, dir := range cfg.AllowedScriptDirs {
 		absDir, err := filepath.Abs(filepath.Clean(dir))
 		if err != nil {
 			continue
@@ -381,8 +390,12 @@ func buildDescription(cfg Config) string {
 
 	desc += "【参数传递】通过args参数传入，脚本内以ARGS全局table访问。例: lua_exec(script=\"return ARGS.x\", args={x=42}) → result=42\n\n"
 
-	if len(cfg.AllowedScriptDirs) > 0 {
-		desc += "【脚本文件执行】支持script_path参数指定白名单目录下的.lua文件路径，避免回显完整脚本内容。script和script_path二选一，不可同时提供。例: lua_exec(script_path=\"/scripts/validate.lua\", args={category=\"基础组件\"})\n\n"
+	if len(cfg.AllowedScriptDirs) > 0 || !cfg.EnableScriptPathWhitelist {
+		desc += "【脚本文件执行】支持script_path参数指定"
+		if cfg.EnableScriptPathWhitelist {
+			desc += "白名单目录下的"
+		}
+		desc += ".lua文件路径，避免回显完整脚本内容。script和script_path二选一，不可同时提供。例: lua_exec(script_path=\"/scripts/validate.lua\", args={category=\"基础组件\"})\n\n"
 	}
 
 	desc += "【错误处理】\n"
@@ -406,7 +419,7 @@ func buildDescription(cfg Config) string {
 func buildInputSchema(cfg Config) *tool.Schema {
 	schema := &tool.Schema{
 		Type:     "object",
-		Required: []string{}, // will be set below based on allowed_script_dirs
+		Required: []string{}, // will be set below based on config
 		Properties: map[string]*tool.Schema{
 			"script": {
 				Type:        "string",
@@ -414,7 +427,7 @@ func buildInputSchema(cfg Config) *tool.Schema {
 			},
 			"script_path": {
 				Type:        "string",
-				Description: "Lua脚本文件路径。文件内容作为脚本执行，与script互斥。路径必须在allowed_script_dirs配置的白名单目录下。",
+				Description: "Lua脚本文件路径。文件内容作为脚本执行，与script互斥。" + scriptPathNote(cfg),
 			},
 			"timeout": {
 				Type:        "integer",
@@ -426,14 +439,30 @@ func buildInputSchema(cfg Config) *tool.Schema {
 			},
 		},
 	}
-	// When allowed_script_dirs is configured, script_path is available;
-	// otherwise fall back to requiring script only.
-	if len(cfg.AllowedScriptDirs) > 0 {
-		schema.Description = "script和script_path二选一。script_path指定白名单目录下的脚本文件路径，避免回显完整脚本内容。"
+	// When whitelist disabled or allowed_script_dirs configured, script_path is
+	// available; otherwise fall back to requiring script only.
+	if len(cfg.AllowedScriptDirs) > 0 || !cfg.EnableScriptPathWhitelist {
+		schema.Description = "script和script_path二选一。script_path指定脚本文件路径" + scriptPathSubDesc(cfg) + "。"
 	} else {
 		schema.Required = []string{"script"}
 	}
 	return schema
+}
+
+// scriptPathNote returns the schema note about path restrictions.
+func scriptPathNote(cfg Config) string {
+	if cfg.EnableScriptPathWhitelist {
+		return "路径必须在allowed_script_dirs配置的白名单目录下。"
+	}
+	return ""
+}
+
+// scriptPathSubDesc returns the description suffix for script_path.
+func scriptPathSubDesc(cfg Config) string {
+	if cfg.EnableScriptPathWhitelist {
+		return "（须位于白名单目录下），避免回显完整脚本内容"
+	}
+	return "，避免回显完整脚本内容"
 }
 
 func buildOutputSchema() *tool.Schema {

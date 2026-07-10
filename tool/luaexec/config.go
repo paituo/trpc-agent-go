@@ -89,9 +89,16 @@ type Config struct {
 	DeniedTools []string
 
 	// AllowedScriptDirs lists directories from which script_path can load
-	// Lua scripts. If empty, script_path is disabled. Paths are resolved
-	// to absolute paths and must be under one of these directories.
+	// Lua scripts. If empty and EnableScriptPathWhitelist is true, script_path
+	// is disabled. Paths are resolved to absolute paths and must be under one
+	// of these directories.
 	AllowedScriptDirs []string
+
+	// EnableScriptPathWhitelist controls whether script_path must be under
+	// one of AllowedScriptDirs. When false, script_path can point to any
+	// accessible file on disk (useful for MCP deployments where scripts are
+	// provided by the caller). Defaults to true (secure by default).
+	EnableScriptPathWhitelist bool
 
 	// ToolsProvider returns the current tool list at runtime.
 	// When non-nil, Call() resolves it before creating the VM and
@@ -121,12 +128,13 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
-		Name:           defaultToolSetName,
-		DefaultTimeout: 300,
-		MaxOutputLen:   65536,
-		MaxErrorLen:    1024,
-		AllowIOLib:     false,
-		AllowOSLib:     false,
-		AllowFSLib:     true,
+		Name:                       defaultToolSetName,
+		DefaultTimeout:             300,
+		MaxOutputLen:               65536,
+		MaxErrorLen:                1024,
+		AllowIOLib:                 false,
+		AllowOSLib:                 false,
+		AllowFSLib:                 true,
+		EnableScriptPathWhitelist:  true,
 	}
 }

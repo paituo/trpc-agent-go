@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // getLuaExecResult 从 lua_exec 返回结果中提取完整响应
@@ -32,16 +33,14 @@ func getScriptResult(t *testing.T, result any) map[string]any {
 // setupWriteObjTest 初始化 write_obj.lua 测试环境
 func setupWriteObjTest(t *testing.T) (ct interface {
 	Call(ctx context.Context, jsonArgs []byte) (any, error)
-}, scriptsDir string, outputDir string) {
+}, scriptsDir string, outputDir string, rulesDir string) {
 	t.Helper()
 
-	// 脚本目录：使用实际技能目录
 	scriptsDir = filepath.Join("..", "..", ".trae", "skills", "single-extractor", "scripts")
 	absScriptsDir, err := filepath.Abs(scriptsDir)
 	require.NoError(t, err)
 
-	// 规则文件目录
-	rulesDir := filepath.Join("..", "..", ".trae", "skills", "single-extractor", "references", "field_rules")
+	rulesDir = filepath.Join("..", "..", ".trae", "skills", "single-extractor", "references", "field_rules")
 	absRulesDir, err := filepath.Abs(rulesDir)
 	require.NoError(t, err)
 
@@ -60,7 +59,7 @@ func setupWriteObjTest(t *testing.T) (ct interface {
 	ct = ts.Tools(context.Background())[0].(interface {
 		Call(ctx context.Context, jsonArgs []byte) (any, error)
 	})
-	return ct, absScriptsDir, outputDir
+	return ct, absScriptsDir, outputDir, absRulesDir
 }
 
 // callWriteObj 调用 write_obj.lua 并返回脚本 return 值（内层 result）
@@ -77,7 +76,6 @@ func callWriteObj(t *testing.T, ct interface {
 	result, err := ct.Call(context.Background(), argsJSON)
 	require.NoError(t, err)
 
-	// 先检查 lua_exec 顶层 status
 	resp := getLuaExecResult(t, result)
 	require.Equal(t, "success", resp["status"], "lua_exec 执行失败: %v", resp["errors"])
 
@@ -98,10 +96,44 @@ func assertError(t *testing.T, inner map[string]any) {
 	assert.Equal(t, float64(1), inner["code"])
 }
 
+// getRuleFilePath 获取规则文件路径
+func getRuleFilePath(t *testing.T, rulesDir, filename string) string {
+	t.Helper()
+	return filepath.Join(rulesDir, filename)
+}
+
+// createTestFieldRule 创建测试用的 field_rule YAML 文件
+// 返回 field_rule_path 文件路径
+// 注意：不包含 field_definitions，因此不会触发字段校验（多余字段检查）。
+// 需要字段校验的测试应自行创建包含 field_definitions 的 YAML。
+func createTestFieldRule(t *testing.T, outputDir, rulesDir, category, subcategory, mdFilename string, keyFields []string) string {
+	t.Helper()
+	frData := map[string]any{
+		"_meta": map[string]any{
+			"category":    category,
+			"subcategory": subcategory,
+			"rules_path":  filepath.Join(rulesDir, mdFilename),
+		},
+		"subcategory": map[string]any{
+			"name":         subcategory,
+			"project_name": "测试工程",
+			"key_fields":   keyFields,
+			"field_count":  0,
+		},
+	}
+	frFilePath := filepath.Join(outputDir, subcategory+"_field_rule.yaml")
+	frBytes, err := yaml.Marshal(frData)
+	require.NoError(t, err)
+	err = os.WriteFile(frFilePath, frBytes, 0644)
+	require.NoError(t, err)
+	return frFilePath
+}
+
 func TestWriteObj_基本写入场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "test_output.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "杆塔组件", "铁塔", "tower_component.md", []string{"铁塔型号", "呼高(m)"})
 
 	// ==================== 场景1：首次写入（新增对象） ====================
 	t.Run("首次写入-新增对象", func(t *testing.T) {
@@ -113,12 +145,9 @@ func TestWriteObj_基本写入场景(t *testing.T) {
 				"基数":      2,
 				"塔全高(m)":  32.5,
 				"每基塔重(t)": 8.5,
-				"物料":      []any{},
 			},
-			"category":        "杆塔组件",
-			"subcategory":     "铁塔",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"铁塔型号", "呼高(m)"},
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
@@ -126,9 +155,11 @@ func TestWriteObj_基本写入场景(t *testing.T) {
 		assert.Equal(t, "added", r["action"])
 		assert.Equal(t, float64(1), r["round"])
 		assert.Equal(t, "1E5-SZ1|24", r["object_key"])
-		t.Logf("  action=%s, key=%s", r["action"], r["object_key"])
+		assert.Equal(t, true, r["supports_multiple"])
+		assert.Equal(t, true, r["has_material"])
+		t.Logf("  action=%s, key=%s, supports_multiple=%v, has_material=%v",
+			r["action"], r["object_key"], r["supports_multiple"], r["has_material"])
 
-		// 验证文件已创建
 		_, err := os.Stat(objDraftsPath)
 		require.NoError(t, err, "文件应存在")
 	})
@@ -143,12 +174,9 @@ func TestWriteObj_基本写入场景(t *testing.T) {
 				"基数":      3,
 				"塔全高(m)":  35.5,
 				"每基塔重(t)": 9.2,
-				"物料":      []any{},
 			},
-			"category":        "杆塔组件",
-			"subcategory":     "铁塔",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"铁塔型号", "呼高(m)"},
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
@@ -165,15 +193,12 @@ func TestWriteObj_基本写入场景(t *testing.T) {
 				"序号":      1,
 				"铁塔型号":    "1E5-SZ1",
 				"呼高(m)":   24,
-				"基数":      5, // 修改基数
+				"基数":      5,
 				"塔全高(m)":  32.5,
 				"每基塔重(t)": 8.5,
-				"物料":      []any{},
 			},
-			"category":        "杆塔组件",
-			"subcategory":     "铁塔",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"铁塔型号", "呼高(m)"},
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
@@ -190,26 +215,24 @@ func TestWriteObj_基本写入场景(t *testing.T) {
 		content := string(data)
 		t.Logf("文件内容:\n%s", content)
 
-		assert.Contains(t, content, "_meta:")
-		assert.Contains(t, content, "_validation_report:")
-		assert.Contains(t, content, "杆塔组件:")
 		assert.Contains(t, content, "铁塔:")
-		assert.Contains(t, content, "objects:")
-		assert.Contains(t, content, "object_count: 2") // 2个对象
+		assert.Contains(t, content, "序号: 1")
+		assert.Contains(t, content, "序号: 2")
 	})
 }
 
 func TestWriteObj_参数校验场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "param_test.yaml")
+	basicFrFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{})
+	towerFrFilePath := createTestFieldRule(t, outputDir, rulesDir, "杆塔组件", "铁塔", "tower_component.md", []string{"铁塔型号"})
 
 	// ==================== 场景5：缺少必填参数 ====================
 	t.Run("缺少必填参数", func(t *testing.T) {
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"category":    "杆塔组件",
 			"subcategory": "铁塔",
-			// 缺少 obj_data, obj_drafts_path, key_fields
 		})
 
 		assertError(t, inner)
@@ -217,32 +240,29 @@ func TestWriteObj_参数校验场景(t *testing.T) {
 		t.Logf("  错误信息: %s", inner["message"])
 	})
 
-	// ==================== 场景6：key_fields 为空 ====================
-	t.Run("key_fields为空", func(t *testing.T) {
+	// ==================== 场景6：key_fields 为空（单条记录模式） ====================
+	t.Run("key_fields为空-单条记录模式", func(t *testing.T) {
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":   1,
-				"铁塔型号": "1E5-SZ1",
+				"工程名称": "测试工程",
 			},
-			"category":        "杆塔组件",
-			"subcategory":     "铁塔",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{},
+			"field_rule_path": basicFrFilePath,
 		})
 
-		assertError(t, inner)
-		assert.Contains(t, inner["message"].(string), "key_fields 必须为非空数组")
-		t.Logf("  错误信息: %s", inner["message"])
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, false, r["supports_multiple"])
+		t.Logf("  单条记录模式: supports_multiple=%v", r["supports_multiple"])
 	})
 
 	// ==================== 场景7：obj_data 类型错误 ====================
 	t.Run("obj_data类型错误", func(t *testing.T) {
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
-			"obj_data":        12345, // 非法类型
-			"category":        "杆塔组件",
-			"subcategory":     "铁塔",
+			"obj_data":        12345,
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"铁塔型号"},
+			"field_rule_path": towerFrFilePath,
 		})
 
 		assertError(t, inner)
@@ -252,24 +272,22 @@ func TestWriteObj_参数校验场景(t *testing.T) {
 }
 
 func TestWriteObj_source_fields场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "source_fields_test.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{"工程名称"})
 
 	// ==================== 场景8：source_fields 自动设置来源位置 ====================
 	t.Run("source_fields自动设置来源位置", func(t *testing.T) {
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
-				"序号":      1,
-				"工程名称":    "测试工程",
-				"电压等级":    "110kV",
-				"工程性质":    "新建",
-				"物料":      []any{},
+				"序号":     1,
+				"工程名称":   "测试工程",
+				"电压等级":   "110kV",
+				"工程性质":   "新建",
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"source_fields": map[string]any{
 				"序号":    "初设说明书.md::工程概况|100-250→1",
 				"工程名称":  "初设说明书.md::工程概况|100-250→测试工程",
@@ -281,7 +299,6 @@ func TestWriteObj_source_fields场景(t *testing.T) {
 		assertSuccess(t, inner)
 		t.Logf("  source_fields 写入成功")
 
-		// 验证文件中包含来源位置
 		data, err := os.ReadFile(objDraftsPath)
 		require.NoError(t, err)
 		content := string(data)
@@ -292,21 +309,17 @@ func TestWriteObj_source_fields场景(t *testing.T) {
 
 	// ==================== 场景9：source_fields 合并到已有来源位置 ====================
 	t.Run("source_fields合并到已有来源位置", func(t *testing.T) {
-		// 先写入一个带部分来源位置的对象
 		inner1 := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":    2,
 				"工程名称":  "测试工程2",
 				"电压等级":  "220kV",
-				"物料":    []any{},
 				"来源位置": map[string]any{
 					"工程名称": "旧文档.md::章节|1-50→测试工程2",
 				},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"source_fields": map[string]any{
 				"电压等级": "新文档.md::章节|1-50→220kV",
 			},
@@ -314,7 +327,6 @@ func TestWriteObj_source_fields场景(t *testing.T) {
 
 		assertSuccess(t, inner1)
 
-		// 验证来源位置合并
 		data, err := os.ReadFile(objDraftsPath)
 		require.NoError(t, err)
 		content := string(data)
@@ -325,11 +337,11 @@ func TestWriteObj_source_fields场景(t *testing.T) {
 }
 
 func TestWriteObj_write_mode场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "write_mode_test.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{"工程名称"})
 
-	// 先写入一个初始对象
 	_ = callWriteObj(t, ct, scriptPath, map[string]any{
 		"obj_data": map[string]any{
 			"序号":     1,
@@ -337,16 +349,13 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 			"电压等级":   "110kV",
 			"工程性质":   "新建",
 			"地区类型":   "Ⅱ类",
-			"物料":     []any{},
 			"来源位置": map[string]any{
 				"工程名称": "doc.md::章节|1-50→测试工程",
 				"电压等级": "doc.md::章节|1-50→110kV",
 			},
 		},
-		"category":        "基本信息",
-		"subcategory":     "新建信息",
 		"obj_drafts_path": objDraftsPath,
-		"key_fields":      []string{"工程名称"},
+		"field_rule_path": frFilePath,
 	})
 
 	// ==================== 场景10：overwrite 模式（默认） ====================
@@ -355,14 +364,10 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 			"obj_data": map[string]any{
 				"序号":    1,
 				"工程名称":  "测试工程",
-				"电压等级":  "220kV", // 修改电压等级
-				"物料":    []any{},
-				// 注意：没有工程性质、地区类型、来源位置
+				"电压等级":  "220kV",
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"write_mode":      "overwrite",
 		})
 
@@ -370,7 +375,6 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 		r := inner["data"].(map[string]any)
 		assert.Equal(t, "updated", r["action"])
 
-		// 验证：overwrite 模式下，旧字段（工程性质、地区类型）应被移除
 		data, err := os.ReadFile(objDraftsPath)
 		require.NoError(t, err)
 		content := string(data)
@@ -382,40 +386,31 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 
 	// ==================== 场景11：merge 模式（增量合并） ====================
 	t.Run("merge模式-增量合并", func(t *testing.T) {
-		// 先写入一个初始对象
 		_ = callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":    2,
 				"工程名称":  "测试工程-merge",
 				"电压等级":  "110kV",
 				"工程性质":  "新建",
-				"物料":    []any{},
 				"来源位置": map[string]any{
 					"工程名称": "doc.md::章节|1-50→测试工程-merge",
 				},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 		})
 
-		// merge 模式：只更新部分字段
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":    2,
 				"工程名称":  "测试工程-merge",
-				"电压等级":  "220kV", // 更新电压等级
-				// 没有工程性质
-				"物料": []any{},
+				"电压等级":  "220kV",
 				"来源位置": map[string]any{
 					"电压等级": "new_doc.md::章节|1-50→220kV",
 				},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"write_mode":      "merge",
 		})
 
@@ -423,7 +418,6 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 		r := inner["data"].(map[string]any)
 		assert.Equal(t, "updated", r["action"])
 
-		// 验证：merge 模式下，旧字段（工程性质）应保留
 		data, err := os.ReadFile(objDraftsPath)
 		require.NoError(t, err)
 		content := string(data)
@@ -435,21 +429,73 @@ func TestWriteObj_write_mode场景(t *testing.T) {
 }
 
 func TestWriteObj_field_rule_path场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
-
-	// 规则文件路径
-	rulesDir := filepath.Join("..", "..", ".trae", "skills", "single-extractor", "references", "field_rules")
-	absRulesDir, err := filepath.Abs(rulesDir)
-	require.NoError(t, err)
-	basicInfoRulePath := filepath.Join(absRulesDir, "basic_info.md")
-
 	objDraftsPath := filepath.Join(outputDir, "field_rule_test.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{"工程名称"})
+
+	// 为"规则文件不存在"场景创建特殊的 field_rule（rules_path 指向不存在的文件）
+	notExistRulePath := filepath.Join(outputDir, "not_exist.md")
+	frNotExistData := map[string]any{
+		"_meta": map[string]any{
+			"category":    "基本信息",
+			"subcategory": "新建信息",
+			"rules_path":  notExistRulePath,
+		},
+		"subcategory": map[string]any{
+			"name":           "新建信息",
+			"project_name":   "测试工程",
+			"key_fields":     []string{"工程名称"},
+			"field_count":    0,
+			"field_definitions": []map[string]string{
+				{"字段": "工程名称", "来源": "直提", "约束值": "必须存在", "说明": "工程名称"},
+			},
+		},
+	}
+	frNotExistFilePath := filepath.Join(outputDir, "field_rule_not_exist.yaml")
+	frNotExistBytes, err := yaml.Marshal(frNotExistData)
+	require.NoError(t, err)
+	err = os.WriteFile(frNotExistFilePath, frNotExistBytes, 0644)
+	require.NoError(t, err)
+
+	// 为"字段校验失败-多余字段"场景创建包含 field_definitions 的 field_rule
+	frWithDefsData := map[string]any{
+		"_meta": map[string]any{
+			"category":    "基本信息",
+			"subcategory": "新建信息",
+			"rules_path":  filepath.Join(rulesDir, "basic_info.md"),
+		},
+		"subcategory": map[string]any{
+			"name":         "新建信息",
+			"project_name": "测试工程",
+			"key_fields":   []string{"工程名称"},
+			"field_count":  14,
+			"field_definitions": []map[string]string{
+				{"字段": "序号", "来源": "直提", "约束值": "数值", "说明": "唯一编号"},
+				{"字段": "工程名称", "来源": "直提", "约束值": "必须存在", "说明": "工程名称"},
+				{"字段": "项目划分", "来源": "直提", "约束值": "架空输电线路工程等", "说明": "项目划分"},
+				{"字段": "工程阶段", "来源": "直提", "约束值": "可行性研究估算等", "说明": "工程阶段"},
+				{"字段": "定额规范", "来源": "直提", "约束值": "电网预规2025年版", "说明": "定额规范"},
+				{"字段": "地区规范", "来源": "直提", "约束值": "预规等", "说明": "地区规范"},
+				{"字段": "电压等级", "来源": "直提", "约束值": "35kV~1100kV", "说明": "电压等级"},
+				{"字段": "工程性质", "来源": "直提", "约束值": "新建/扩建", "说明": "工程性质"},
+				{"字段": "地区类型", "来源": "直提", "约束值": "Ⅰ类~Ⅴ类", "说明": "地区类型"},
+				{"字段": "架线类型", "来源": "直提", "约束值": "一般线路/大跨越", "说明": "架线类型"},
+				{"字段": "编制模式", "来源": "直提", "约束值": "统计工程量", "说明": "编制模式"},
+				{"字段": "阶段类型", "来源": "直提", "约束值": "概预算/建安预算", "说明": "阶段类型"},
+				{"字段": "项目类型", "来源": "直提", "约束值": "变电/线路", "说明": "项目类型"},
+				{"字段": "特殊地区", "来源": "直提", "约束值": "常规地区等", "说明": "特殊地区"},
+			},
+		},
+	}
+	frWithDefsBytes, err := yaml.Marshal(frWithDefsData)
+	require.NoError(t, err)
+	frFilePathWithDefs := filepath.Join(outputDir, "field_rule_with_defs.yaml")
+	err = os.WriteFile(frFilePathWithDefs, frWithDefsBytes, 0644)
+	require.NoError(t, err)
 
 	// ==================== 场景12：字段校验通过 ====================
 	t.Run("字段校验通过", func(t *testing.T) {
-		// 新建信息规则定义14个字段：序号、工程名称、项目划分、工程阶段、定额规范、地区规范、
-		// 电压等级、工程性质、地区类型、架线类型、编制模式、阶段类型、项目类型、特殊地区
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":     1,
@@ -466,54 +512,29 @@ func TestWriteObj_field_rule_path场景(t *testing.T) {
 				"阶段类型":   "概预算",
 				"项目类型":   "线路",
 				"特殊地区":   "常规地区",
-				"物料":     []any{},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"field_rule_path": basicInfoRulePath,
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
 		t.Logf("  字段校验通过")
 	})
 
-	// ==================== 场景13：字段校验失败-缺少字段 ====================
-	t.Run("字段校验失败-缺少字段", func(t *testing.T) {
+	// ==================== 场景13：缺少字段（不再校验，应成功） ====================
+	t.Run("缺少字段-应成功通过", func(t *testing.T) {
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":    2,
 				"工程名称":  "测试工程2",
 				"电压等级":  "110kV",
-				"物料":    []any{},
-				// 缺少：项目划分、工程阶段、定额规范、地区规范、工程性质等
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"field_rule_path": basicInfoRulePath,
+			"field_rule_path": frFilePath,
 		})
 
-		assertError(t, inner)
-		assert.Contains(t, inner["message"].(string), "字段校验失败")
-		errs := inner["errors"].([]any)
-		assert.GreaterOrEqual(t, len(errs), 1)
-		hasMissing := false
-		for _, e := range errs {
-			if str, ok := e.(string); ok {
-				if contains(str, "缺少字段") {
-					hasMissing = true
-					break
-				}
-			}
-		}
-		assert.True(t, hasMissing, "应包含缺少字段错误")
-		t.Logf("  字段校验失败，错误数: %d", len(errs))
-		for _, e := range errs {
-			t.Logf("    - %v", e)
-		}
+		assertSuccess(t, inner)
+		t.Logf("  缺少字段场景：已通过（不再校验缺少字段）")
 	})
 
 	// ==================== 场景14：字段校验失败-多余字段 ====================
@@ -536,13 +557,9 @@ func TestWriteObj_field_rule_path场景(t *testing.T) {
 				"特殊地区":   "常规地区",
 				"多余字段1":  "不应该存在",
 				"多余字段2":  "也不应该存在",
-				"物料":     []any{},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"field_rule_path": basicInfoRulePath,
+			"field_rule_path": frFilePathWithDefs,
 		})
 
 		assertError(t, inner)
@@ -570,62 +587,35 @@ func TestWriteObj_field_rule_path场景(t *testing.T) {
 			"obj_data": map[string]any{
 				"序号":   4,
 				"工程名称": "测试工程4",
-				"物料":   []any{},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"field_rule_path": filepath.Join(outputDir, "not_exist.md"),
+			"field_rule_path": frNotExistFilePath,
 		})
 
 		assertError(t, inner)
 		assert.Contains(t, inner["message"].(string), "解析规则文件失败")
 		t.Logf("  规则文件不存在检测成功: %s", inner["message"])
 	})
-
-	// ==================== 场景16：子类别在规则文件中不存在 ====================
-	t.Run("子类别不存在于规则文件", func(t *testing.T) {
-		inner := callWriteObj(t, ct, scriptPath, map[string]any{
-			"obj_data": map[string]any{
-				"序号":   5,
-				"工程名称": "测试工程5",
-				"物料":   []any{},
-			},
-			"category":        "基本信息",
-			"subcategory":     "不存在的子类别",
-			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"field_rule_path": basicInfoRulePath,
-		})
-
-		assertError(t, inner)
-		assert.Contains(t, inner["message"].(string), "解析规则文件失败")
-		t.Logf("  子类别不存在检测成功: %s", inner["message"])
-	})
 }
 
 func TestWriteObj_读取模式场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "read_test.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{"工程名称"})
 
-	// 先写入一个对象用于读取测试
 	_ = callWriteObj(t, ct, scriptPath, map[string]any{
 		"obj_data": map[string]any{
 			"序号":     1,
 			"工程名称":   "测试工程",
 			"电压等级":   "110kV",
 			"工程性质":   "新建",
-			"物料":     []any{},
 			"来源位置": map[string]any{
 				"工程名称": "doc.md::章节|1-50→测试工程",
 			},
 		},
-		"category":        "基本信息",
-		"subcategory":     "新建信息",
 		"obj_drafts_path": objDraftsPath,
-		"key_fields":      []string{"工程名称"},
+		"field_rule_path": frFilePath,
 	})
 
 	// ==================== 场景17：读取模式-找到对象 ====================
@@ -634,10 +624,8 @@ func TestWriteObj_读取模式场景(t *testing.T) {
 			"obj_data": map[string]any{
 				"工程名称": "测试工程",
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"action":          "read",
 		})
 
@@ -654,10 +642,8 @@ func TestWriteObj_读取模式场景(t *testing.T) {
 			"obj_data": map[string]any{
 				"工程名称": "不存在的工程",
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"action":          "read",
 		})
 
@@ -672,94 +658,25 @@ func TestWriteObj_读取模式场景(t *testing.T) {
 			"obj_data": map[string]any{
 				"工程名称": "测试工程",
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": filepath.Join(outputDir, "not_exist.yaml"),
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 			"action":          "read",
 		})
 
 		assertError(t, inner)
-		assert.Contains(t, inner["message"].(string), "读取 obj_drafts.yaml 失败")
+		assert.Contains(t, inner["message"].(string), "读取文件失败")
 		t.Logf("  文件不存在检测成功: %s", inner["message"])
 	})
 }
 
-func TestWriteObj_多轮次场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
-	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
-	objDraftsPath := filepath.Join(outputDir, "round_test.yaml")
-
-	// ==================== 场景20：round=1 首次写入 ====================
-	t.Run("round=1首次写入", func(t *testing.T) {
-		inner := callWriteObj(t, ct, scriptPath, map[string]any{
-			"obj_data": map[string]any{
-				"序号":    1,
-				"工程名称":  "测试工程",
-				"电压等级":  "110kV",
-				"物料":    []any{},
-			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
-			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"round":           1,
-		})
-
-		assertSuccess(t, inner)
-		t.Logf("  round=1 写入成功")
-	})
-
-	// ==================== 场景21：round=2 第二轮写入 ====================
-	t.Run("round=2第二轮写入", func(t *testing.T) {
-		inner := callWriteObj(t, ct, scriptPath, map[string]any{
-			"obj_data": map[string]any{
-				"序号":    1,
-				"工程名称":  "测试工程",
-				"电压等级":  "220kV",
-				"物料":    []any{},
-			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
-			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"round":           2,
-		})
-
-		assertSuccess(t, inner)
-		t.Logf("  round=2 写入成功")
-	})
-
-	// ==================== 场景22：round=2 重复写入（当前 validation_history 未写入，所以会成功） ====================
-	t.Run("round=2重复写入-当前允许", func(t *testing.T) {
-		inner := callWriteObj(t, ct, scriptPath, map[string]any{
-			"obj_data": map[string]any{
-				"序号":    1,
-				"工程名称":  "测试工程",
-				"电压等级":  "220kV",
-				"物料":    []any{},
-			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
-			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
-			"round":           2,
-		})
-
-		// 注意：当前脚本中 validation_history 未被写入，所以 round 检测不会触发
-		// 此处验证脚本不会报错，后续如需严格限制需补充 validation_history 写入逻辑
-		assertSuccess(t, inner)
-		t.Logf("  round=2 重复写入（当前允许，因 validation_history 未写入）")
-	})
-}
-
 func TestWriteObj_真实数据场景(t *testing.T) {
-	ct, scriptsDir, outputDir := setupWriteObjTest(t)
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
 	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
 	objDraftsPath := filepath.Join(outputDir, "real_data_test.yaml")
 
-	// ==================== 场景23：使用真实 output_draft.yaml 中的新建信息数据 ====================
+	// ==================== 场景20：使用真实 output_draft.yaml 中的新建信息数据 ====================
 	t.Run("真实数据-新建信息", func(t *testing.T) {
+		frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{"工程名称"})
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":     1,
@@ -781,7 +698,6 @@ func TestWriteObj_真实数据场景(t *testing.T) {
 				"项目代码":   "1183-202207C-S02-01",
 				"建设依据":   "可研批复、设计中标通知书等",
 				"备注":     "",
-				"物料":     []any{},
 				"来源位置": map[string]any{
 					"工程名称": "初设说明书.md::工程概况|100-250→梅花~邵屯T接城东变电站110kV线路工程",
 					"项目名称": "初设说明书.md::工程概况|100-250→梅花~邵屯T接城东变电站110kV线路工程",
@@ -799,18 +715,17 @@ func TestWriteObj_真实数据场景(t *testing.T) {
 					"建设依据": "初设说明书.md::工程概况|100-250→可研批复、设计中标通知书等",
 				},
 			},
-			"category":        "基本信息",
-			"subcategory":     "新建信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"工程名称"},
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
 		t.Logf("  真实数据写入成功")
 	})
 
-	// ==================== 场景24：使用真实 output_draft.yaml 中的编制人信息数据 ====================
+	// ==================== 场景21：使用真实 output_draft.yaml 中的编制人信息数据 ====================
 	t.Run("真实数据-编制人信息", func(t *testing.T) {
+		frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "编制人信息", "basic_info.md", []string{"序号"})
 		inner := callWriteObj(t, ct, scriptPath, map[string]any{
 			"obj_data": map[string]any{
 				"序号":     1,
@@ -819,7 +734,6 @@ func TestWriteObj_真实数据场景(t *testing.T) {
 				"资质证书":   "工程设计(乙级)：A213006018；工程勘察(乙级)：B213012838；工程咨询(乙级)：032022010104",
 				"工程地址":   "邢台市南和县",
 				"编制时间":   "二〇二四年六月",
-				"物料":     []any{},
 				"来源位置": map[string]any{
 					"编制单位": "施工组织设计大纲.md::1.2各专业设计简介|1-50→邢台电力勘测设计院有限责任公司",
 					"工程地址": "施工组织设计大纲.md::1.2各专业设计简介|1-50→邢台市南和县",
@@ -827,17 +741,15 @@ func TestWriteObj_真实数据场景(t *testing.T) {
 					"编制时间": "初设说明书.md::封面|1-10→二〇二四年六月",
 				},
 			},
-			"category":        "基本信息",
-			"subcategory":     "编制人信息",
 			"obj_drafts_path": objDraftsPath,
-			"key_fields":      []string{"序号"},
+			"field_rule_path": frFilePath,
 		})
 
 		assertSuccess(t, inner)
 		t.Logf("  编制人信息写入成功")
 	})
 
-	// ==================== 场景25：验证最终文件包含所有子类别 ====================
+	// ==================== 场景22：验证最终文件包含所有子类别 ====================
 	t.Run("验证最终文件包含所有子类别", func(t *testing.T) {
 		data, err := os.ReadFile(objDraftsPath)
 		require.NoError(t, err)
@@ -851,7 +763,188 @@ func TestWriteObj_真实数据场景(t *testing.T) {
 	})
 }
 
-// contains 辅助函数，判断字符串是否包含子串
+// ==================== 新增：规则解析和物料写入测试 ====================
+
+func TestWriteObj_规则解析场景(t *testing.T) {
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
+	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
+	objDraftsPath := filepath.Join(outputDir, "rule_parse_test.yaml")
+
+	// ==================== 场景23：基础组件-灌注桩基础（多条+物料） ====================
+	t.Run("基础组件-灌注桩基础-多条+物料", func(t *testing.T) {
+		frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基础组件", "灌注桩基础", "foundation.md", []string{"特征段", "灌注桩基础型号"})
+		inner := callWriteObj(t, ct, scriptPath, map[string]any{
+			"obj_data": map[string]any{
+				"序号":          1,
+				"特征段":         "特征段1",
+				"灌注桩基础型号":     "110-DD21GS-J4-18",
+				"基数":          1,
+				"每基孔数":        1,
+				"基础类型":        "灌注桩",
+				"孔径(m)":       2.2,
+				"桩长(m)":       11.8,
+				"桩入土长(m)":    11.5,
+				"累计深度":        11.8,
+				"基础.砼量(m3)":  47.64,
+				"一般钢筋.钢筋量(t)": 2.47,
+				"地脚螺栓(t)":    3.44,
+				"保护帽":         true,
+				"商品砼":         true,
+				"土质类型":        "Ⅰ、Ⅱ类土",
+				"挖土方式":        "机械坑上挖土",
+			},
+			"obj_drafts_path": objDraftsPath,
+			"field_rule_path": frFilePath,
+		})
+
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, true, r["supports_multiple"], "灌注桩基础应支持多条")
+		assert.Equal(t, true, r["has_material"], "灌注桩基础应有物料")
+		t.Logf("  灌注桩基础: supports_multiple=%v, has_material=%v", r["supports_multiple"], r["has_material"])
+	})
+
+	// ==================== 场景24：基本信息-新建信息（单条+无物料） ====================
+	t.Run("基本信息-新建信息-单条+无物料", func(t *testing.T) {
+		frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基本信息", "新建信息", "basic_info.md", []string{})
+		inner := callWriteObj(t, ct, scriptPath, map[string]any{
+			"obj_data": map[string]any{
+				"序号":    1,
+				"工程名称":  "测试工程",
+				"电压等级":  "110kV",
+			},
+			"obj_drafts_path": objDraftsPath,
+			"field_rule_path": frFilePath,
+		})
+
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, false, r["supports_multiple"], "新建信息应为单条")
+		assert.Equal(t, false, r["has_material"], "新建信息应无物料")
+		t.Logf("  新建信息: supports_multiple=%v, has_material=%v", r["supports_multiple"], r["has_material"])
+	})
+
+	// ==================== 场景25：杆塔组件-铁塔（多条+items-ref物料） ====================
+	t.Run("杆塔组件-铁塔-多条+items-ref物料", func(t *testing.T) {
+		frFilePath := createTestFieldRule(t, outputDir, rulesDir, "杆塔组件", "铁塔", "tower_component.md", []string{"铁塔型号", "呼高(m)"})
+		inner := callWriteObj(t, ct, scriptPath, map[string]any{
+			"obj_data": map[string]any{
+				"序号":      1,
+				"铁塔型号":    "1E5-SZ1",
+				"呼高(m)":   24,
+				"基数":      2,
+			},
+			"obj_drafts_path": objDraftsPath,
+			"field_rule_path": frFilePath,
+		})
+
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, true, r["supports_multiple"], "铁塔应支持多条")
+		assert.Equal(t, true, r["has_material"], "铁塔应有物料（items-ref）")
+		t.Logf("  铁塔: supports_multiple=%v, has_material=%v", r["supports_multiple"], r["has_material"])
+	})
+}
+
+func TestWriteObj_物料写入场景(t *testing.T) {
+	ct, scriptsDir, outputDir, rulesDir := setupWriteObjTest(t)
+	scriptPath := filepath.Join(scriptsDir, "write_obj.lua")
+	objDraftsPath := filepath.Join(outputDir, "material_test.yaml")
+	frFilePath := createTestFieldRule(t, outputDir, rulesDir, "基础组件", "灌注桩基础", "foundation.md", []string{"特征段", "灌注桩基础型号"})
+
+	// 先写入主对象
+	_ = callWriteObj(t, ct, scriptPath, map[string]any{
+		"obj_data": map[string]any{
+			"序号":          1,
+			"特征段":         "特征段1",
+			"灌注桩基础型号":     "110-DD21GS-J4-18",
+			"基数":          1,
+			"每基孔数":        1,
+			"基础类型":        "灌注桩",
+			"孔径(m)":       2.2,
+			"桩长(m)":       11.8,
+			"累计深度":        11.8,
+			"基础.砼量(m3)":  47.64,
+			"一般钢筋.钢筋量(t)": 2.47,
+			"地脚螺栓(t)":    3.44,
+			"保护帽":         true,
+			"商品砼":         true,
+		},
+		"obj_drafts_path": objDraftsPath,
+		"field_rule_path": frFilePath,
+	})
+
+	// ==================== 场景26：写入物料-混凝土 ====================
+	t.Run("写入物料-混凝土", func(t *testing.T) {
+		inner := callWriteObj(t, ct, scriptPath, map[string]any{
+			"obj_data": map[string]any{
+				"项目名称": "混凝土",
+				"规格型号": "C30",
+				"单位":   "m3",
+				"数量":   47.64,
+				"来源位置": map[string]any{
+					"项目名称": "设备材料清册.md::基础明细|L1→C30",
+					"规格型号": "设备材料清册.md::基础明细|L1→C30",
+					"单位":   "设备材料清册.md::基础明细|L1→m3",
+					"数量":   "设备材料清册.md::基础明细|L1→47.64",
+				},
+			},
+			"obj_drafts_path": objDraftsPath,
+			"field_rule_path": frFilePath,
+			"write_type":      "material",
+			"material_key":    []string{"特征段1", "110-DD21GS-J4-18"},
+		})
+
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, "material_added", r["action"])
+		assert.Equal(t, float64(1), r["material_index"])
+		t.Logf("  物料写入成功: material_index=%v", r["material_index"])
+	})
+
+	// ==================== 场景27：写入物料-地脚螺栓 ====================
+	t.Run("写入物料-地脚螺栓", func(t *testing.T) {
+		inner := callWriteObj(t, ct, scriptPath, map[string]any{
+			"obj_data": map[string]any{
+				"项目名称": "地脚螺栓",
+				"规格型号": "5.6级",
+				"单位":   "t",
+				"数量":   3.44,
+				"来源位置": map[string]any{
+					"项目名称": "设备材料清册.md::结构架空部分材料表|L1→地脚螺栓",
+					"规格型号": "设备材料清册.md::结构架空部分材料表|L1→5.6级",
+					"单位":   "设备材料清册.md::结构架空部分材料表|L1→t",
+					"数量":   "设备材料清册.md::基础明细|L1→3440.97kg",
+				},
+			},
+			"obj_drafts_path": objDraftsPath,
+			"field_rule_path": frFilePath,
+			"write_type":      "material",
+			"material_key":    []string{"特征段1", "110-DD21GS-J4-18"},
+		})
+
+		assertSuccess(t, inner)
+		r := inner["data"].(map[string]any)
+		assert.Equal(t, "material_added", r["action"])
+		assert.Equal(t, float64(2), r["material_index"])
+		t.Logf("  物料写入成功: material_index=%v", r["material_index"])
+	})
+
+	// ==================== 场景28：验证物料嵌套在对象内部 ====================
+	t.Run("验证物料嵌套结构", func(t *testing.T) {
+		data, err := os.ReadFile(objDraftsPath)
+		require.NoError(t, err)
+		content := string(data)
+		t.Logf("物料文件内容:\n%s", content)
+
+		assert.Contains(t, content, "物料:")
+		assert.Contains(t, content, "C30")
+		assert.Contains(t, content, "5.6级")
+		assert.Contains(t, content, "3440.97kg")
+	})
+}
+
+// contains 辅助函数
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && containsImpl(s, substr)
 }

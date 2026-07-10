@@ -9,6 +9,7 @@ replace (
 	trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/python => ../../knowledge/document/reader/python
 	trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/gemini => ../../knowledge/embedder/gemini
 	trpc.group/trpc-go/trpc-agent-go/knowledge/graphstore/age => ../../knowledge/graphstore/age
+	trpc.group/trpc-go/trpc-agent-go/knowledge/graphstore/sqlite => ../../knowledge/graphstore/sqlite
 	trpc.group/trpc-go/trpc-agent-go/knowledge/ocr/tesseract => ../../knowledge/ocr/tesseract
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/elasticsearch => ../../knowledge/vectorstore/elasticsearch
 	trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/milvus => ../../knowledge/vectorstore/milvus
@@ -25,6 +26,7 @@ require (
 	github.com/getkin/kin-openapi v0.131.0
 	github.com/jackc/pgx/v5 v5.7.2
 	trpc.group/trpc-go/trpc-agent-go v1.10.1-0.20260605075142-de51b6b2b584
+	gopkg.in/yaml.v3 v3.0.1
 	trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/golang v0.0.0-20260602121024-664ebd0ab56d
 	trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/pdf v0.5.0
 	trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/python v0.0.0
@@ -69,7 +71,7 @@ require (
 	github.com/form3tech-oss/jwt-go v3.2.3+incompatible // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/getsentry/sentry-go v0.12.0 // indirect
-	github.com/go-ego/gse v1.0.0 // indirect
+	github.com/go-ego/gse v1.0.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -150,7 +152,7 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20201229170055-e5319fda7802 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
-	github.com/vcaesar/cedar v0.20.2 // indirect
+	github.com/vcaesar/cedar v0.30.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
@@ -196,10 +198,10 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apimachinery v0.32.3 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 	trpc.group/trpc-go/trpc-a2a-go v0.2.5 // indirect
+	trpc.group/trpc-go/trpc-agent-go/knowledge/graphstore/sqlite v0.0.0 // indirect
 	trpc.group/trpc-go/trpc-agent-go/storage/elasticsearch v0.2.0 // indirect
 	trpc.group/trpc-go/trpc-agent-go/storage/milvus v0.8.0 // indirect
 	trpc.group/trpc-go/trpc-agent-go/storage/tcvector v0.0.4 // indirect

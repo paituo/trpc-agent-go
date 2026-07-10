@@ -143,13 +143,13 @@ knowledges:
         #   system_prompt: |
         #     根据对话历史改写用户问题为适合向量检索的独立查询。
         sources:
-          - type: "url"
-            name: "知识卡片数据"
-            urls:
-              - "http://10.1.6.20:5180/api/knowledge-card/export-md"
-            metadata:
-              source_type: "api"
-              category: "knowledge_card"
+          # - type: "url"
+          #   name: "知识卡片数据"
+          #   urls:
+          #     - "http://10.1.6.20:5180/api/knowledge-card/export-md"
+          #   metadata:
+          #     source_type: "api"
+          #     category: "knowledge_card"
           # - name: "references"
           #   type: "dir"
           #   paths:

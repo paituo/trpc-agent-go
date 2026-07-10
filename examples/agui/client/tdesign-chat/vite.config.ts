@@ -8,6 +8,10 @@ export default defineConfig(({ mode }) => {
   return {
     base: "/chat/",
     plugins: [react()],
+    build: {
+      minify: false,
+      sourcemap: true,
+    },
     server: {
       proxy: {
         "/agui": {
@@ -15,6 +19,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
         "/history": {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        "/cancel": {
           target: proxyTarget,
           changeOrigin: true,
         },

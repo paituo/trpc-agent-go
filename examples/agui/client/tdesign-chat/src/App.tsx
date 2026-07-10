@@ -12,16 +12,146 @@ import {
   Tag,
   Textarea,
 } from "tdesign-react";
-import { ChatIcon, RefreshIcon } from "tdesign-icons-react";
+import { ChatIcon, RefreshIcon, StopCircleIcon } from "tdesign-icons-react";
 import { formatTimestamp } from "./agui/format";
-import { useAguiChat, type RawAguiEvent, type UiMessage } from "./hooks/useAguiChat";
+import { useAguiChat, type RawAguiEvent, type StepStatus, type UiMessage } from "./hooks/useAguiChat";
 
 const AGUI_OPEN_REPORT_EVENT = "agui-open-report";
 const AGUI_GRAPH_APPROVAL_EVENT = "agui-graph-approval";
 const REPORT_OPEN_TOOL_NAME = "open_report_sidebar";
 const GRAPH_APPROVAL_TOOL_NAME = "graph_interrupt_approval";
 const DEFAULT_INPUT_MESSAGE = "计算123+456";
-const EXTERNAL_TOOL_NAME = "external_search";
+const EXTERNAL_HITL_TOOL_NAMES = ["hitl_notification", "hitl_decision", "hitl_permission", "hitl_progress"];
+type HITLType = "notification" | "decision" | "permission" | "progress";
+
+/** AG-UI 协议 tools 字段中的工具声明格式 */
+interface AguiToolDeclaration {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+}
+
+/** 四种 HITL 扩展工具的完整声明，通过 payload.tools 传递给服务端 */
+const HITL_TOOL_DECLARATIONS: AguiToolDeclaration[] = [
+  {
+    name: "hitl_notification",
+    description: "向用户发送通知并等待确认。用于需要用户知悉的重要信息、警告或状态变更。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "通知标题" },
+        detail: { type: "string", description: "通知详细内容" },
+        severity: { type: "string", enum: ["info", "warning", "critical"], description: "严重程度" },
+        request_id: { type: "string", description: "请求唯一标识" },
+        affected_resources: { type: "array", items: { type: "string" }, description: "受影响的资源列表" },
+      },
+      required: ["title", "request_id"],
+      "x-hitl-type": "notification",
+    },
+  },
+  {
+    name: "hitl_decision",
+    description: "向用户请求决策选择。用于需要人工判断的多选项场景，支持预设选项和自由输入。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "决策标题" },
+        description: { type: "string", description: "决策背景说明" },
+        request_id: { type: "string", description: "请求唯一标识" },
+        options: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "选项标识" },
+              label: { type: "string", description: "选项显示文本" },
+              style: { type: "string", enum: ["primary", "danger", "default"], description: "选项样式" },
+            },
+            required: ["id", "label"],
+          },
+          description: "可选决策项列表",
+        },
+        allow_free_input: { type: "boolean", description: "是否允许用户自由输入" },
+      },
+      required: ["title", "request_id", "options"],
+      "x-hitl-type": "decision",
+    },
+  },
+  {
+    name: "hitl_permission",
+    description: "向用户请求操作权限审批。用于高风险操作（如文件删除、数据修改、外部调用）的人工授权。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "权限请求标题" },
+        action: { type: "string", description: "请求执行的操作" },
+        resource: { type: "string", description: "目标资源" },
+        request_id: { type: "string", description: "请求唯一标识" },
+        risk_level: { type: "string", enum: ["low", "medium", "high", "critical"], description: "风险等级" },
+        justification: { type: "string", description: "操作理由" },
+        required_roles: { type: "array", items: { type: "string" }, description: "需要具备的角色" },
+        scope_constraints: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              key: { type: "string", description: "约束键名" },
+              label: { type: "string", description: "约束显示名" },
+              options: { type: "array", items: { type: "string" }, description: "可选范围值" },
+            },
+            required: ["key", "label", "options"],
+          },
+          description: "范围约束列表",
+        },
+        expires_in_seconds: { type: "number", description: "权限过期时间（秒）" },
+      },
+      required: ["title", "action", "resource", "request_id"],
+      "x-hitl-type": "permission",
+    },
+  },
+  {
+    name: "hitl_progress",
+    description: "向用户展示任务进度并接受操作指令。用于长时间运行任务的进度跟踪和人工干预。",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "任务标题" },
+        progress: { type: "number", description: "进度百分比 (0-100)" },
+        status: { type: "string", enum: ["running", "waiting", "blocked", "completed"], description: "任务状态" },
+        request_id: { type: "string", description: "请求唯一标识" },
+        detail: { type: "string", description: "进度详情" },
+        next_step: { type: "string", description: "下一步操作描述" },
+        estimated_remaining_seconds: { type: "number", description: "预计剩余秒数" },
+        issues: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              level: { type: "string", enum: ["error", "warning"], description: "问题级别" },
+              message: { type: "string", description: "问题描述" },
+            },
+            required: ["level", "message"],
+          },
+          description: "当前问题列表",
+        },
+        allow_actions: { type: "array", items: { type: "string", enum: ["continue", "pause", "abort"] }, description: "允许的操作" },
+      },
+      required: ["title", "progress", "request_id"],
+      "x-hitl-type": "progress",
+    },
+  },
+];
+
+function getHITLType(toolName: string, parametersSchema?: any): HITLType | null {
+  if (parametersSchema?.["x-hitl-type"]) {
+    return parametersSchema["x-hitl-type"];
+  }
+  const HITL_PREFIX = "hitl_";
+  if (toolName.startsWith(HITL_PREFIX)) {
+    return toolName.slice(HITL_PREFIX.length) as HITLType;
+  }
+  return null;
+}
 
 function createThreadId(): string {
   if (typeof crypto !== "undefined") {
@@ -502,10 +632,55 @@ function isVisibleMainMessage(message: UiMessage): boolean {
   if (message.kind === "tool-call") {
     return true;
   }
+  if (message.kind === "step" || message.kind === "block") {
+    return true;
+  }
   if (message.kind === "text" && (message.role === "user" || message.role === "assistant")) {
     return true;
   }
   return false;
+}
+
+/** 根据工具名返回合适的图标 emoji。找不到对应时返回默认 🔧。 */
+function pickToolIcon(name: string | undefined | null): string {
+  if (!name) return "🔧";
+  const low = String(name).toLowerCase();
+  if (low.includes("search") || low.includes("检索") || low.includes("知识库") || low.includes("vector")) return "🔍";
+  if (low.includes("file") || low.includes("fs_") || low.includes("save") || low.includes("write") || low.includes("读取") || low.includes("文件")) return "📁";
+  if (low.includes("web") || low.includes("http") || low.includes("browser") || low.includes("网页")) return "🌐";
+  if (low.includes("read") || low.includes("pdf") || low.includes("doc")) return "📄";
+  if (low.includes("code") || low.includes("run") || low.includes("exec") || low.includes("代码") || low.includes("执行")) return "💻";
+  if (low.includes("image") || low.includes("draw") || low.includes("图片") || low.includes("画图")) return "🎨";
+  if (low.includes("db") || low.includes("sql") || low.includes("数据库")) return "🗄️";
+  if (low.includes("todo") || low.includes("plan") || low.includes("计划") || low.includes("todo")) return "✅";
+  if (low.includes("agent") || low.includes("智能")) return "🤖";
+  return "🔧";
+}
+
+/** 步骤状态图标：用于步骤面板内的圆形状态指示器。 */
+function stepStatusGlyph(status: StepStatus): string {
+  switch (status) {
+    case "pending": return "·";
+    case "running":
+    case "in_progress": return "↻";
+    case "completed": return "✓";
+    case "failed": return "✕";
+    case "skipped": return "—";
+    default: return "·";
+  }
+}
+
+/** 步骤状态中文标签。 */
+function stepStatusText(status: StepStatus): string {
+  switch (status) {
+    case "pending": return "待执行";
+    case "running":
+    case "in_progress": return "执行中";
+    case "completed": return "已完成";
+    case "failed": return "失败";
+    case "skipped": return "已跳过";
+    default: return status ?? "未知";
+  }
 }
 
 type RenderedChatItem =
@@ -536,6 +711,10 @@ function groupChatItems(messages: UiMessage[]): RenderedChatItem[] {
     assistantGroup = [];
   };
 
+  // 规则：
+  // - user text 消息：先 flush 之前的 assistant 组，再作为独立 user 块插入。
+  // - 其它消息（assistant text、thinking、tool-call、step 块）都归入"最近的 assistant 组"。
+  //   这样 step 块会与它前后的 assistant 文本放在同一个气泡中，文本在前、step 块在后。
   for (const message of messages) {
     if (message.kind === "text" && message.role === "user") {
       flushAssistantGroup();
@@ -547,24 +726,6 @@ function groupChatItems(messages: UiMessage[]): RenderedChatItem[] {
 
   flushAssistantGroup();
   return items;
-}
-
-function defaultExternalToolContent(toolCallName: string, args?: string): string {
-  if (toolCallName !== EXTERNAL_TOOL_NAME) {
-    return "";
-  }
-  const rawArgs = (args || "").trim();
-  if (!rawArgs) {
-    return `${toolCallName} result`;
-  }
-  try {
-    const parsed = JSON.parse(rawArgs);
-    const query = typeof parsed?.query === "string" ? parsed.query.trim() : "";
-    if (query) {
-      return `${toolCallName} result for query: ${query}`;
-    }
-  } catch {}
-  return `${toolCallName} result: ${rawArgs}`;
 }
 
 export default function App() {
@@ -585,8 +746,13 @@ export default function App() {
   const [isComposing, setIsComposing] = useState(false);
   const [errorDrawerOpen, setErrorDrawerOpen] = useState(false);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
-  const [externalToolDrafts, setExternalToolDrafts] = useState<Record<string, string>>({});
   const [externalToolLineageDrafts, setExternalToolLineageDrafts] = useState<Record<string, string>>({});
+  // HITL card states
+  const [hitlDecisionSelections, setHitlDecisionSelections] = useState<Record<string, string>>({});
+  const [hitlDecisionFreeInputs, setHitlDecisionFreeInputs] = useState<Record<string, string>>({});
+  const [hitlPermissionScopes, setHitlPermissionScopes] = useState<Record<string, Record<string, string>>>({});
+  const [hitlPermissionDeniedReasons, setHitlPermissionDeniedReasons] = useState<Record<string, string>>({});
+  const [hitlProgressInstructions, setHitlProgressInstructions] = useState<Record<string, string>>({});
 
   useEffect(() => {
     persistSiderWidth(siderWidth);
@@ -643,7 +809,7 @@ export default function App() {
   const forwardedProps = useMemo(() => {
     const props: Record<string, unknown> = {};
     if (userId.trim()) {
-      props.userId = userId.trim();
+      props.userid = userId.trim();
     }
     return props;
   }, [userId]);
@@ -653,6 +819,7 @@ export default function App() {
     endpoint,
     threadId,
     forwardedProps,
+    tools: HITL_TOOL_DECLARATIONS,
   });
 
   useEffect(() => {
@@ -665,7 +832,7 @@ export default function App() {
     const toolCallMessage = chat.messages.find((msg) => {
       return msg.kind === "tool-call"
         && msg.toolCall?.toolCallId === toolCallId
-        && msg.toolCall.toolCallName === EXTERNAL_TOOL_NAME;
+        && EXTERNAL_HITL_TOOL_NAMES.includes(msg.toolCall.toolCallName);
     });
     if (!toolCallMessage) {
       return;
@@ -730,8 +897,6 @@ export default function App() {
     setInput("");
     await chat.send(text);
   };
-
-  const canSend = !chat.inProgress;
 
   const chatRef = useRef<HTMLDivElement | null>(null);
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
@@ -809,7 +974,6 @@ export default function App() {
     }
     chat.reset();
     setInput(DEFAULT_INPUT_MESSAGE);
-    setExternalToolDrafts({});
     setExternalToolLineageDrafts({});
 
     const nextServerAddress = serverAddressDraft.trim() || "127.0.0.1:7878";
@@ -827,7 +991,7 @@ export default function App() {
 
     const nextForwardedProps: Record<string, unknown> = {};
     if (userId.trim()) {
-      nextForwardedProps.userId = userId.trim();
+      nextForwardedProps.userid = userId.trim();
     }
 
     setHistoryHint("正在载入历史...");
@@ -1027,7 +1191,6 @@ export default function App() {
                     icon={<RefreshIcon />}
                     onClick={() => {
                       chat.reset();
-                      setExternalToolDrafts({});
                       setExternalToolLineageDrafts({});
                       const nextThreadId = createThreadId();
                       setThreadId(nextThreadId);
@@ -1066,7 +1229,7 @@ export default function App() {
                         <ChatMessage
                           key={item.key}
                           role="user"
-                          name="You"
+                          name={`You · ${formatTimestamp(item.message.timestamp)}`}
                           placement="right"
                           content={[{ type: "text", data: item.message.content || "" }] as any}
                           variant="base"
@@ -1077,19 +1240,158 @@ export default function App() {
                     const blocks: any[] = [];
                     const toolSlots: JSX.Element[] = [];
 
-                    for (const message of item.messages) {
+                    // 构建 block 树形结构映射
+                    const blockIds = new Set<string>();
+                    const childBlocksMap = new Map<string, UiMessage[]>();
+                    for (const msg of item.messages) {
+                      if (msg.kind === "step" || msg.kind === "block") {
+                        blockIds.add(msg.id);
+                      }
+                    }
+                    for (const msg of item.messages) {
+                      if ((msg.kind === "step" || msg.kind === "block") && msg.stepId && blockIds.has(msg.stepId) && msg.stepId !== msg.id) {
+                        const siblings = childBlocksMap.get(msg.stepId) ?? [];
+                        siblings.push(msg);
+                        childBlocksMap.set(msg.stepId, siblings);
+                      }
+                    }
+
+                    // 递归渲染 block 元素（支持多层嵌套）
+                    const renderBlockElement = (blockMsg: UiMessage, depth: number, slotAttr?: string): JSX.Element => {
+                      const hasChildren = Array.isArray(blockMsg.children) && blockMsg.children.length > 0;
+                      const statusLabel = (blockMsg.stepStatus ?? "pending") as StepStatus;
+                      const stepKey = `block-${blockMsg.id}-${depth}`;
+                      const statusIcon = stepStatusGlyph(statusLabel);
+                      const statusText = stepStatusText(statusLabel);
+                      const isRunning = statusLabel === "running" || statusLabel === "in_progress";
+                      const isCompleted = statusLabel === "completed";
+                      const isFailed = statusLabel === "failed";
+                      const isAgent = blockMsg.blockType === "agent";
+                      const defaultOpen = hasChildren || isRunning;
+                      const childBlocks = childBlocksMap.get(blockMsg.id) ?? [];
+                      const hasContent = hasChildren || childBlocks.length > 0;
+
+                      return (
+                        <details
+                          key={stepKey}
+                          {...(slotAttr ? { slot: slotAttr } : {})}
+                          className={`block-panel ${depth > 0 ? "block-panel--nested" : ""} ${isAgent ? "block-panel--agent" : ""}`}
+                          data-status={statusLabel}
+                          open={defaultOpen}
+                        >
+                          <summary className="block-panel__summary">
+                            <span className="block-panel__chevron" aria-hidden="true">▸</span>
+                            <span
+                              className={`block-panel__status-icon ${isRunning ? "block-panel__status-icon--spin" : ""}`}
+                              aria-hidden="true"
+                              data-status={statusLabel}
+                            >
+                              {statusIcon}
+                            </span>
+                            <span className="block-panel__title-block">
+                              <span className="block-panel__title" title={blockMsg.stepTitle ?? blockMsg.title ?? blockMsg.id}>
+                                {isAgent ? `🤖 ${blockMsg.stepTitle ?? blockMsg.title ?? blockMsg.id}` : (blockMsg.stepTitle ?? blockMsg.title ?? blockMsg.id)}
+                              </span>
+                              <span className="block-panel__meta">
+                                {hasChildren ? `${blockMsg.children!.length} 项` : null}
+                                {blockMsg.startedAt ? (
+                                  <span className="block-panel__time">
+                                    {formatTimestamp(blockMsg.startedAt)}
+                                    {blockMsg.completedAt ? ` → ${formatTimestamp(blockMsg.completedAt)}` : ""}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </span>
+                            <span
+                              className={`block-panel__status-tag block-panel__status-tag--${
+                                isCompleted ? "success" : isRunning ? "running" : isFailed ? "failed" : "pending"
+                              }`}
+                            >
+                              {statusText}
+                            </span>
+                          </summary>
+                          <div className="block-panel__body">
+                            {hasContent ? (
+                              <div className="block-panel__children">
+                                {hasChildren ? blockMsg.children!.map((child, idx) => {
+                                  if (child.kind === "thinking") {
+                                    return (
+                                      <details key={`${stepKey}-th-${idx}`} className="step-item step-item--thinking" data-kind="thinking" open={true}>
+                                        <summary className="step-item__header">
+                                          <span className="step-item__chevron" aria-hidden="true">▸</span>
+                                          <span className="step-item__icon step-item__icon--thinking" aria-hidden="true">💭</span>
+                                          <span className="step-item__label">思考</span>
+                                          <span className="step-item__title" title={child.title ?? "深度思考"}>
+                                            {child.title ?? "深度思考"}
+                                          </span>
+                                        </summary>
+                                        <div className="step-item__body">
+                                          <ChatMarkdown content={child.content || ""} />
+                                        </div>
+                                      </details>
+                                    );
+                                  }
+                                  if (child.kind === "tool-call" && child.toolCall) {
+                                    const tCall: ToolCall = {
+                                      toolCallId: child.toolCall.toolCallId,
+                                      toolCallName: child.toolCall.toolCallName,
+                                      parentMessageId: child.toolCall.parentMessageId,
+                                      args: child.toolCall.args,
+                                      result: child.toolCall.result,
+                                    };
+                                    const argsText = typeof tCall.args === "string" ? tCall.args.trim() : "";
+                                    const hasResult = typeof tCall.result === "string" && tCall.result.trim().length > 0;
+                                    const icon = pickToolIcon(tCall.toolCallName);
+                                    const displayArgs = argsText && tCall.toolCallName && argsText.startsWith(tCall.toolCallName)
+                                      ? argsText.slice(tCall.toolCallName.length).replace(/^[\s:：]+/, "")
+                                      : argsText;
+                                    return (
+                                      <div key={`${stepKey}-tc-${idx}`} className={`step-item-tool ${hasResult ? "step-item-tool--done" : ""}`}>
+                                        <span className="step-item-tool__icon" aria-hidden="true">{icon}</span>
+                                        <span className="step-item-tool__name">{tCall.toolCallName}</span>
+                                        <span className="step-item-tool__args" title={argsText || tCall.toolCallName}>
+                                          {displayArgs || tCall.toolCallName}
+                                        </span>
+                                        {hasResult ? <span className="step-item-tool__dot" /> : null}
+                                      </div>
+                                    );
+                                  }
+                                  if (child.kind === "text" && child.role === "assistant") {
+                                    const textContent = (child.content || "").trim();
+                                    if (!textContent) return null;
+                                    return (
+                                      <div key={`${stepKey}-tx-${idx}`} className="step-item step-item--text" data-kind="text">
+                                        <ChatMarkdown content={child.content || ""} />
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                }) : null}
+                                {childBlocks.map(child => renderBlockElement(child, depth + 1))}
+                              </div>
+                            ) : (
+                              <div className="step-panel__empty">
+                                {isRunning ? "步骤正在执行中…" : isCompleted ? "已完成" : isFailed ? "失败" : "等待执行"}
+                              </div>
+                            )}
+                          </div>
+                        </details>
+                      );
+                    };
+
+                    const renderMessageIntoBlocks = (message: UiMessage) => {
                       if (message.kind === "thinking") {
                         blocks.push({
                           type: "thinking",
                           data: { title: message.title ?? "Thinking", text: message.content || "" },
                           status: message.status,
                         });
-                        continue;
+                        return;
                       }
 
                       if (message.kind === "tool-call" && message.toolCall) {
                         if (suppressGraphApproval && message.toolCall.toolCallName === GRAPH_APPROVAL_TOOL_NAME) {
-                          continue;
+                          return;
                         }
                         const toolCall: ToolCall = {
                           toolCallId: message.toolCall.toolCallId,
@@ -1098,48 +1400,457 @@ export default function App() {
                           args: message.toolCall.args,
                           result: message.toolCall.result,
                         };
-                        const isExternalTool = toolCall.toolCallName === EXTERNAL_TOOL_NAME;
+                        const isExternalTool = EXTERNAL_HITL_TOOL_NAMES.includes(toolCall.toolCallName);
+                        const hitlType = getHITLType(toolCall.toolCallName);
                         const toolLineageDraft = externalToolLineageDrafts[toolCall.toolCallId];
                         const toolLineageId = (typeof toolLineageDraft === "string" ? toolLineageDraft : "").trim();
                         const lineageReady = Boolean(toolLineageId);
-                        const toolResult = externalToolDrafts[toolCall.toolCallId] ?? defaultExternalToolContent(
-                          toolCall.toolCallName,
-                          toolCall.args,
-                        );
                         const canResume = isExternalTool
                           && !toolCall.result
                           && !chat.inProgress
-                          && lineageReady
-                          && Boolean(toolResult.trim());
+                          && lineageReady;
+                        let parsedArgs: Record<string, any> = {};
+                        try {
+                          parsedArgs = JSON.parse((toolCall.args || "{}").trim() || "{}");
+                        } catch {
+                          // Fallback: parse key=value format (e.g. "progress=60, title=xxx, options=[...]")
+                          const raw = (toolCall.args || "").trim();
+                          if (raw) {
+                            try {
+                              // Try wrapping in braces to make it valid JSON-like
+                              const wrapped = "{" + raw
+                                .replace(/(\w+)=/g, '"$1":')
+                                .replace(/，/g, ",") + "}";
+                              parsedArgs = JSON.parse(wrapped);
+                            } catch {
+                              // Last resort: extract key=value pairs manually
+                              const pairs = raw.replace(/，/g, ",").split(/,(?=\s*\w+=)/);
+                              for (const pair of pairs) {
+                                const eqIdx = pair.indexOf("=");
+                                if (eqIdx > 0) {
+                                  const key = pair.slice(0, eqIdx).trim();
+                                  let val: any = pair.slice(eqIdx + 1).trim();
+                                  // Try to parse value as JSON
+                                  try { val = JSON.parse(val); } catch {}
+                                  parsedArgs[key] = val;
+                                }
+                              }
+                            }
+                          }
+                        }
                         const index = blocks.length;
                         blocks.push({ type: "toolcall", data: toolCall });
                         toolSlots.push(
                           <div key={toolCall.toolCallId} slot={`toolcall-${index}`} className="toolcall__slot">
-                            <ToolCallRenderer toolCall={toolCall} />
-                            {isExternalTool && !toolCall.result ? (
-                              <div className="external-tool">
-                                <div className="external-tool__header">
+                            {isExternalTool && hitlType ? (
+                              <>
+                                <ToolCallRenderer toolCall={toolCall} />
+                                {!toolCall.result ? (
+                              <div className="hitl-card">
+                                <div className="hitl-card__header">
                                   <Space size="small" align="center" breakLine>
-                                    <Tag theme="primary" variant="outline">External tool</Tag>
-                                    <Tag theme="default" variant="outline">toolCallId: {toolCall.toolCallId}</Tag>
-                                    {toolLineageId ? (
-                                      <Tag theme="default" variant="outline">lineage_id: {toolLineageId}</Tag>
-                                    ) : null}
+                                    <Tag theme="primary" variant="outline">HITL</Tag>
+                                    <Tag theme="default" variant="outline">{hitlType}</Tag>
+                                    <Tag theme="default" variant="outline">request_id: {parsedArgs.request_id || "N/A"}</Tag>
                                   </Space>
                                 </div>
 
                                 {!lineageReady ? (
                                   <Alert
-                                    className="external-tool__alert"
+                                    className="hitl-card__alert"
                                     theme="warning"
-                                    title="externaltool 需要 lineage_id"
-                                    message="等待服务端在 graph.node.interrupt 事件中返回 lineageId；如未返回可在下方高级配置手动填写 forwardedProps.lineage_id。"
+                                    title="HITL 工具需要 lineage_id"
+                                    message="等待服务端在 graph.node.interrupt 事件中返回 lineageId；如未返回可在下方高级配置手动填写。"
                                   />
                                 ) : null}
 
-                                <details className="external-tool__advanced">
-                                  <summary className="external-tool__advanced-summary">高级配置</summary>
-                                  <div className="external-tool__advanced-body">
+                                {/* Notification Card */}
+                                {hitlType === "notification" && (
+                                  <div className="hitl-card__body">
+                                    <div className="hitl-card__title">
+                                      {parsedArgs.severity === "critical" ? <Tag theme="danger" variant="light">严重</Tag> : null}
+                                      {parsedArgs.severity === "warning" ? <Tag theme="warning" variant="light">警告</Tag> : null}
+                                      {parsedArgs.severity === "info" ? <Tag theme="primary" variant="light">信息</Tag> : null}
+                                      <span style={{ marginLeft: 6 }}>{parsedArgs.title || "通知"}</span>
+                                    </div>
+                                    {parsedArgs.detail ? (
+                                      <div className="hitl-card__detail">{parsedArgs.detail}</div>
+                                    ) : null}
+                                    {parsedArgs.affected_resources?.length > 0 ? (
+                                      <div className="hitl-card__resources">
+                                        <span className="hitl-card__label">受影响资源：</span>
+                                        <Space size="small">
+                                          {parsedArgs.affected_resources.map((r: string, i: number) => (
+                                            <Tag key={i} size="small" variant="outline">{r}</Tag>
+                                          ))}
+                                        </Space>
+                                      </div>
+                                    ) : null}
+                                    <div className="hitl-card__actions">
+                                      <Button
+                                        size="small"
+                                        theme="primary"
+                                        disabled={!canResume}
+                                        onClick={() => {
+                                          const result = JSON.stringify({
+                                            request_id: parsedArgs.request_id || "unknown",
+                                            acknowledged: true,
+                                            acknowledged_by: "current_user",
+                                            acknowledged_at: new Date().toISOString(),
+                                          });
+                                          void chat.sendToolResult({
+                                            toolCallId: toolCall.toolCallId,
+                                            toolCallName: toolCall.toolCallName,
+                                            content: result,
+                                            messageId: `tool-result-${toolCall.toolCallId}`,
+                                            forwardedProps: { lineage_id: toolLineageId },
+                                          });
+                                        }}
+                                      >
+                                        已阅
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Decision Card */}
+                                {hitlType === "decision" && (
+                                  <div className="hitl-card__body">
+                                    <div className="hitl-card__title">{parsedArgs.title || "请做出决策"}</div>
+                                    {parsedArgs.description ? (
+                                      <div className="hitl-card__detail">{parsedArgs.description}</div>
+                                    ) : null}
+                                    <div className="hitl-card__options">
+                                      {(parsedArgs.options || []).map((opt: Record<string, any>) => {
+                                        const selected = hitlDecisionSelections[toolCall.toolCallId] === opt.id;
+                                        const btnTheme = opt.style === "danger" ? "danger" : opt.style === "primary" ? "primary" : "default";
+                                        return (
+                                          <Button
+                                            key={opt.id}
+                                            size="small"
+                                            variant={selected ? "base" : "outline"}
+                                            theme={selected ? btnTheme : "default"}
+                                            disabled={!canResume}
+                                            onClick={() => {
+                                              setHitlDecisionSelections((prev) => ({ ...prev, [toolCall.toolCallId]: opt.id }));
+                                              setHitlDecisionFreeInputs((prev) => ({ ...prev, [toolCall.toolCallId]: "" }));
+                                            }}
+                                          >
+                                            {opt.label}
+                                          </Button>
+                                        );
+                                      })}
+                                    </div>
+                                    {parsedArgs.allow_free_input ? (
+                                      <div className="hitl-card__free-input">
+                                        <div className="hitl-card__label">自定义输入（选择此项将覆盖上方选项）</div>
+                                        <Textarea
+                                          value={hitlDecisionFreeInputs[toolCall.toolCallId] || ""}
+                                          onChange={(v) => {
+                                            const next = String(v);
+                                            setHitlDecisionFreeInputs((prev) => ({ ...prev, [toolCall.toolCallId]: next }));
+                                            if (next.trim()) {
+                                              setHitlDecisionSelections((prev) => ({ ...prev, [toolCall.toolCallId]: "" }));
+                                            }
+                                          }}
+                                          placeholder="输入自定义决策..."
+                                          autosize={{ minRows: 2, maxRows: 4 }}
+                                          disabled={chat.inProgress}
+                                        />
+                                      </div>
+                                    ) : null}
+                                    <div className="hitl-card__actions">
+                                      <Button
+                                        size="small"
+                                        theme="primary"
+                                        disabled={!canResume || (!hitlDecisionSelections[toolCall.toolCallId] && !(hitlDecisionFreeInputs[toolCall.toolCallId] || "").trim())}
+                                        onClick={() => {
+                                          const freeInput = (hitlDecisionFreeInputs[toolCall.toolCallId] || "").trim();
+                                          const result = JSON.stringify({
+                                            request_id: parsedArgs.request_id || "unknown",
+                                            selected_option_id: freeInput ? null : (hitlDecisionSelections[toolCall.toolCallId] || null),
+                                            free_input: freeInput || null,
+                                            decided_by: "current_user",
+                                            decided_at: new Date().toISOString(),
+                                          });
+                                          void chat.sendToolResult({
+                                            toolCallId: toolCall.toolCallId,
+                                            toolCallName: toolCall.toolCallName,
+                                            content: result,
+                                            messageId: `tool-result-${toolCall.toolCallId}`,
+                                            forwardedProps: { lineage_id: toolLineageId },
+                                          });
+                                        }}
+                                      >
+                                        确认决策
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Permission Card */}
+                                {hitlType === "permission" && (
+                                  <div className="hitl-card__body">
+                                    <div className="hitl-card__title">
+                                      {parsedArgs.risk_level === "critical" ? <Tag theme="danger" variant="light">极高风险</Tag> : null}
+                                      {parsedArgs.risk_level === "high" ? <Tag theme="danger" variant="light">高风险</Tag> : null}
+                                      {parsedArgs.risk_level === "medium" ? <Tag theme="warning" variant="light">中风险</Tag> : null}
+                                      {parsedArgs.risk_level === "low" ? <Tag theme="success" variant="light">低风险</Tag> : null}
+                                      <span style={{ marginLeft: 6 }}>{parsedArgs.title || "权限请求"}</span>
+                                    </div>
+                                    <div className="hitl-card__detail">
+                                      <div><strong>操作：</strong>{parsedArgs.action || "N/A"}</div>
+                                      <div><strong>目标资源：</strong>{parsedArgs.resource || "N/A"}</div>
+                                      {parsedArgs.justification ? (
+                                        <div><strong>理由：</strong>{parsedArgs.justification}</div>
+                                      ) : null}
+                                      {parsedArgs.required_roles?.length > 0 ? (
+                                        <div>
+                                          <strong>需要角色：</strong>
+                                          <Space size="small">
+                                            {parsedArgs.required_roles.map((r: string, i: number) => (
+                                              <Tag key={i} size="small" variant="outline">{r}</Tag>
+                                            ))}
+                                          </Space>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    {parsedArgs.scope_constraints?.length > 0 ? (
+                                      <div className="hitl-card__scopes">
+                                        <div className="hitl-card__label">范围约束</div>
+                                        {parsedArgs.scope_constraints.map((c: Record<string, any>) => (
+                                          <div key={c.key} className="hitl-card__scope-item">
+                                            <span className="hitl-card__scope-label">{c.label}：</span>
+                                            <Space size="small">
+                                              {(c.options || []).map((opt: string) => {
+                                                const currentScopes = hitlPermissionScopes[toolCall.toolCallId] || {};
+                                                const selected = currentScopes[c.key] === opt;
+                                                return (
+                                                  <Tag
+                                                    key={opt}
+                                                    size="small"
+                                                    variant={selected ? "dark" : "outline"}
+                                                    theme={selected ? "primary" : "default"}
+                                                    style={{ cursor: "pointer" }}
+                                                    onClick={() => {
+                                                      setHitlPermissionScopes((prev) => ({
+                                                        ...prev,
+                                                        [toolCall.toolCallId]: {
+                                                          ...(prev[toolCall.toolCallId] || {}),
+                                                          [c.key]: opt,
+                                                        },
+                                                      }));
+                                                    }}
+                                                  >
+                                                    {opt}
+                                                  </Tag>
+                                                );
+                                              })}
+                                            </Space>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                    <div className="hitl-card__actions">
+                                      <Space size="small">
+                                        <Button
+                                          size="small"
+                                          theme="primary"
+                                          disabled={!canResume}
+                                          onClick={() => {
+                                            const result = JSON.stringify({
+                                              request_id: parsedArgs.request_id || "unknown",
+                                              granted: true,
+                                              scope: hitlPermissionScopes[toolCall.toolCallId] || {},
+                                              denied_reason: null,
+                                              granted_by: "current_user",
+                                              granted_at: new Date().toISOString(),
+                                              expires_at: parsedArgs.expires_in_seconds
+                                                ? new Date(Date.now() + parsedArgs.expires_in_seconds * 1000).toISOString()
+                                                : null,
+                                            });
+                                            void chat.sendToolResult({
+                                              toolCallId: toolCall.toolCallId,
+                                              toolCallName: toolCall.toolCallName,
+                                              content: result,
+                                              messageId: `tool-result-${toolCall.toolCallId}`,
+                                              forwardedProps: { lineage_id: toolLineageId },
+                                            });
+                                          }}
+                                        >
+                                          批准
+                                        </Button>
+                                        <Button
+                                          size="small"
+                                          theme="danger"
+                                          variant="outline"
+                                          disabled={!canResume}
+                                          onClick={() => {
+                                            const reason = (hitlPermissionDeniedReasons[toolCall.toolCallId] || "").trim();
+                                            const result = JSON.stringify({
+                                              request_id: parsedArgs.request_id || "unknown",
+                                              granted: false,
+                                              scope: {},
+                                              denied_reason: reason || "用户拒绝",
+                                              granted_by: "current_user",
+                                              granted_at: new Date().toISOString(),
+                                              expires_at: null,
+                                            });
+                                            void chat.sendToolResult({
+                                              toolCallId: toolCall.toolCallId,
+                                              toolCallName: toolCall.toolCallName,
+                                              content: result,
+                                              messageId: `tool-result-${toolCall.toolCallId}`,
+                                              forwardedProps: { lineage_id: toolLineageId },
+                                            });
+                                          }}
+                                        >
+                                          拒绝
+                                        </Button>
+                                      </Space>
+                                      <div className="hitl-card__deny-reason" style={{ marginTop: 8 }}>
+                                        <Input
+                                          value={hitlPermissionDeniedReasons[toolCall.toolCallId] || ""}
+                                          onChange={(v) => {
+                                            setHitlPermissionDeniedReasons((prev) => ({
+                                              ...prev,
+                                              [toolCall.toolCallId]: String(v),
+                                            }));
+                                          }}
+                                          placeholder="拒绝理由（可选）"
+                                          disabled={chat.inProgress}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Progress Card */}
+                                {hitlType === "progress" && (
+                                  <div className="hitl-card__body">
+                                    <div className="hitl-card__title">{parsedArgs.title || "任务进度"}</div>
+                                    <div className="hitl-card__progress">
+                                      <Progress
+                                        percentage={parsedArgs.progress ?? 0}
+                                        theme="line"
+                                        color={
+                                          parsedArgs.status === "blocked" ? "#e34d59"
+                                          : parsedArgs.status === "waiting" ? "#ed7b2f"
+                                          : parsedArgs.status === "completed" ? "#00a870"
+                                          : "#0052d9"
+                                        }
+                                        status={
+                                          parsedArgs.status === "completed" ? "success"
+                                          : parsedArgs.status === "blocked" ? "error"
+                                          : "active"
+                                        }
+                                      />
+                                    </div>
+                                    <div className="hitl-card__status">
+                                      <Tag
+                                        variant="light"
+                                        theme={
+                                          parsedArgs.status === "running" ? "primary"
+                                          : parsedArgs.status === "waiting" ? "warning"
+                                          : parsedArgs.status === "blocked" ? "danger"
+                                          : "success"
+                                        }
+                                      >
+                                        {parsedArgs.status === "running" ? "运行中"
+                                         : parsedArgs.status === "waiting" ? "等待中"
+                                         : parsedArgs.status === "blocked" ? "已阻塞"
+                                         : "已完成"}
+                                      </Tag>
+                                      {parsedArgs.estimated_remaining_seconds != null ? (
+                                        <span className="hitl-card__eta">
+                                          预计剩余 {Math.ceil(parsedArgs.estimated_remaining_seconds / 60)} 分钟
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {parsedArgs.detail ? (
+                                      <div className="hitl-card__detail">{parsedArgs.detail}</div>
+                                    ) : null}
+                                    {parsedArgs.next_step ? (
+                                      <div className="hitl-card__next-step">
+                                        <span className="hitl-card__label">下一步：</span>{parsedArgs.next_step}
+                                      </div>
+                                    ) : null}
+                                    {parsedArgs.issues?.length > 0 ? (
+                                      <div className="hitl-card__issues">
+                                        {parsedArgs.issues.map((issue: Record<string, any>, i: number) => (
+                                          <Alert
+                                            key={i}
+                                            theme={issue.level === "error" ? "error" : "warning"}
+                                            message={issue.message}
+                                            style={{ marginTop: 4 }}
+                                          />
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                    <div className="hitl-card__instruction">
+                                      <div className="hitl-card__label">附加指令（可选）</div>
+                                      <Textarea
+                                        value={hitlProgressInstructions[toolCall.toolCallId] || ""}
+                                        onChange={(v) => {
+                                          setHitlProgressInstructions((prev) => ({
+                                            ...prev,
+                                            [toolCall.toolCallId]: String(v),
+                                          }));
+                                        }}
+                                        placeholder="输入附加指令..."
+                                        autosize={{ minRows: 1, maxRows: 3 }}
+                                        disabled={chat.inProgress}
+                                      />
+                                    </div>
+                                    <div className="hitl-card__actions">
+                                      <Space size="small">
+                                        {(() => {
+                                          const actions = parsedArgs.allow_actions || ["continue"];
+                                          return actions.map((action: string) => {
+                                            const btnTheme = action === "abort" ? "danger"
+                                              : action === "pause" ? "warning"
+                                              : "primary";
+                                            const btnLabel = action === "continue" ? "继续"
+                                              : action === "pause" ? "暂停"
+                                              : "终止";
+                                            return (
+                                              <Button
+                                                key={action}
+                                                size="small"
+                                                theme={btnTheme}
+                                                variant={action === "abort" ? "outline" : "base"}
+                                                disabled={!canResume}
+                                                onClick={() => {
+                                                  const instruction = (hitlProgressInstructions[toolCall.toolCallId] || "").trim();
+                                                  const result = JSON.stringify({
+                                                    request_id: parsedArgs.request_id || "unknown",
+                                                    action,
+                                                    instruction: instruction || null,
+                                                    responded_by: "current_user",
+                                                    responded_at: new Date().toISOString(),
+                                                  });
+                                                  void chat.sendToolResult({
+                                                    toolCallId: toolCall.toolCallId,
+                                                    toolCallName: toolCall.toolCallName,
+                                                    content: result,
+                                                    messageId: `tool-result-${toolCall.toolCallId}`,
+                                                    forwardedProps: { lineage_id: toolLineageId },
+                                                  });
+                                                }}
+                                              >
+                                                {btnLabel}
+                                              </Button>
+                                            );
+                                          });
+                                        })()}
+                                      </Space>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <details className="hitl-card__advanced">
+                                  <summary className="hitl-card__advanced-summary">高级配置</summary>
+                                  <div className="hitl-card__advanced-body">
                                     <Input
                                       label="lineage_id"
                                       value={typeof toolLineageDraft === "string" ? toolLineageDraft : ""}
@@ -1154,77 +1865,105 @@ export default function App() {
                                     />
                                   </div>
                                 </details>
-
-                                <div className="external-tool__label">工具执行结果（role=tool）</div>
-                                <div className="external-tool__textarea">
-                                  <Textarea
-                                    value={toolResult}
-                                    onChange={(v) => {
-                                      const next = String(v);
-                                      setExternalToolDrafts((prev) => ({ ...prev, [toolCall.toolCallId]: next }));
-                                    }}
-                                    placeholder="填写外部工具执行结果..."
-                                    autosize={{ minRows: 2, maxRows: 8 }}
-                                    disabled={chat.inProgress}
-                                  />
-                                </div>
-
-                                <div className="external-tool__actions">
-                                  <Space size="small">
-                                    <Button
-                                      size="small"
-                                      theme="primary"
-                                      disabled={!canResume}
-                                      onClick={() => {
-                                        void chat.sendToolResult({
-                                          toolCallId: toolCall.toolCallId,
-                                          toolCallName: toolCall.toolCallName,
-                                          content: toolResult,
-                                          messageId: `tool-result-${toolCall.toolCallId}`,
-                                          forwardedProps: { lineage_id: toolLineageId },
-                                        });
-                                      }}
-                                    >
-                                      发送工具结果并继续
-                                    </Button>
-                                    <Button
-                                      size="small"
-                                      variant="outline"
-                                      disabled={chat.inProgress}
-                                      onClick={() => {
-                                        setExternalToolDrafts((prev) => {
-                                          const next = { ...prev };
-                                          delete next[toolCall.toolCallId];
-                                          return next;
-                                        });
-                                        setExternalToolLineageDrafts((prev) => {
-                                          const next = { ...prev };
-                                          delete next[toolCall.toolCallId];
-                                          return next;
-                                        });
-                                      }}
-                                    >
-                                      重置结果
-                                    </Button>
-                                  </Space>
-                                </div>
                               </div>
                             ) : null}
+                            </>
+                          ) : (
+                            <div className="toolcall__compact">
+                              <span className="toolcall__compact-icon">{pickToolIcon(toolCall.toolCallName)}</span>
+                              <span className="toolcall__compact-name">{toolCall.toolCallName}</span>
+                              <span className="toolcall__compact-args">{
+                                (() => {
+                                  const raw = (toolCall.args || toolCall.toolCallName).trim();
+                                  // 去除 args 中与工具名重复的前缀
+                                  if (raw && toolCall.toolCallName && raw.startsWith(toolCall.toolCallName)) {
+                                    const stripped = raw.slice(toolCall.toolCallName.length).replace(/^[\s:：]+/, "");
+                                    return stripped || raw;
+                                  }
+                                  return raw;
+                                })()
+                              }</span>
+                              {toolCall.result ? <span className="toolcall__compact-dot" /> : null}
+                            </div>
+                          )}
                           </div>,
                         );
-                        continue;
+                        return;
+                      }
+
+                      if (message.kind === "step" || message.kind === "block") {
+                        // 如果有 parentId 且父 block 存在且不是自己（避免 parentId === id 时跳过自身），跳过（由父 block 递归渲染）
+                        if (message.stepId && blockIds.has(message.stepId) && message.stepId !== message.id) {
+                          return;
+                        }
+                        const statusLabel = (message.stepStatus ?? "pending") as StepStatus;
+                        const statusText = stepStatusText(statusLabel);
+                        blocks.push({
+                          type: "custom",
+                          data: {
+                            title: message.stepTitle ?? message.title ?? message.id,
+                            text: statusText,
+                            collapsed: false,
+                          },
+                        });
+                        toolSlots.push(renderBlockElement(message, 0, `custom-${blocks.length - 1}`));
+                        return;
                       }
 
                       if (message.kind === "text" && message.role === "assistant") {
-                        blocks.push({ type: "markdown", data: message.content || "" });
+                        // 合并相邻的 markdown 条目，减少 content 数组长度
+                        const lastBlock = blocks[blocks.length - 1];
+                        if (lastBlock && lastBlock.type === "markdown") {
+                          lastBlock.data += (message.content || "");
+                        } else {
+                          blocks.push({ type: "markdown", data: message.content || "" });
+                        }
                       }
+                    };
+
+                    // 三阶段排序：前文本 → 步骤(含中间文本) → 后文本
+                    // 1) 找到 step/block 消息在时间线中的范围
+                    // 2) 位置在此范围之前的 text/thinking → "前文本"（渲染在步骤上方）
+                    // 3) 位置在此范围之后的 text/thinking → "后文本"（渲染在步骤下方）
+                    // 4) 所有 step/block/tool-call + 区间内的 text/thinking → "步骤组"（按时间线顺序渲染）
+                    // 这样 slot 名称基于 content 数组位置索引正确匹配
+                    let firstStepIdx = -1;
+                    let lastStepIdx = -1;
+                    for (let i = 0; i < item.messages.length; i++) {
+                      const m = item.messages[i];
+                      if (m.kind === "step" || m.kind === "block") {
+                        if (firstStepIdx === -1) firstStepIdx = i;
+                        lastStepIdx = i;
+                      }
+                    }
+                    const beforeText: UiMessage[] = [];
+                    const stepGroup: UiMessage[] = [];
+                    const afterText: UiMessage[] = [];
+                    for (let i = 0; i < item.messages.length; i++) {
+                      const m = item.messages[i];
+                      if (firstStepIdx >= 0 && i < firstStepIdx && (m.kind === "text" || m.kind === "thinking")) {
+                        beforeText.push(m);
+                      } else if (lastStepIdx >= 0 && i > lastStepIdx && (m.kind === "text" || m.kind === "thinking")) {
+                        afterText.push(m);
+                      } else {
+                        stepGroup.push(m);
+                      }
+                    }
+                    for (const message of beforeText) {
+                      renderMessageIntoBlocks(message);
+                    }
+                    for (const message of stepGroup) {
+                      renderMessageIntoBlocks(message);
+                    }
+                    for (const message of afterText) {
+                      renderMessageIntoBlocks(message);
                     }
 
                     return (
                       <ChatMessage
                         key={item.key}
                         role="assistant"
-                        name="Assistant"
+                        name={`Assistant · ${formatTimestamp(item.messages[0]?.timestamp)}`}
                         placement="left"
                         content={blocks as any}
                         variant="base"
@@ -1272,9 +2011,9 @@ export default function App() {
                     <Textarea
                       value={input}
                       onChange={(v) => setInput(String(v))}
-                      placeholder="输入消息..."
+                      placeholder={chat.inProgress ? "等待停止后继续输入..." : "输入消息..."}
                       autosize={{ minRows: 2, maxRows: 6 }}
-                      disabled={!canSend}
+                      disabled={chat.inProgress}
                       onCompositionStart={() => setIsComposing(true)}
                       onCompositionEnd={() => setIsComposing(false)}
                       onKeydown={(_, ctx) => {
@@ -1293,9 +2032,21 @@ export default function App() {
                       }}
                     />
                   </div>
-                  <Button theme="primary" onClick={send} disabled={!canSend}>
-                    发送
-                  </Button>
+                  {chat.inProgress ? (
+                    <Button
+                      theme="danger"
+                      variant="outline"
+                      icon={<StopCircleIcon />}
+                      onClick={() => void chat.cancel()}
+                      className="composer__stop-btn"
+                    >
+                      停止
+                    </Button>
+                  ) : (
+                    <Button theme="primary" onClick={send} disabled={!input.trim()}>
+                      发送
+                    </Button>
+                  )}
                 </div>
               </Space>
             </div>
