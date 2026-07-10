@@ -804,6 +804,10 @@ func (c testFixedTokenCounter) CountTokensRange(
 	return c.tokens * (end - start), nil
 }
 
+func (c testFixedTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
+	return c.tokens, nil
+}
+
 type testCaptureTokenCounter struct {
 	lastMessage model.Message
 }
@@ -836,6 +840,10 @@ func (c *testCaptureTokenCounter) CountTokensRange(
 	return total, nil
 }
 
+func (c *testCaptureTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return c.CountTokensRange(ctx, messages, 0, len(messages))
+}
+
 type testContextTokenCounter struct {
 	key   any
 	value any
@@ -866,6 +874,10 @@ func (c *testContextTokenCounter) CountTokensRange(
 		return 0, err
 	}
 	return tokens * (end - start), nil
+}
+
+func (c *testContextTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return c.CountTokensRange(ctx, messages, 0, len(messages))
 }
 
 func TestSetTokenCounter_AffectsCheckTokenThreshold(t *testing.T) {
