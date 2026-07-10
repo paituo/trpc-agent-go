@@ -222,6 +222,10 @@ func (c rangeErrorTokenCounter) CountTokensRange(
 	return 0, errors.New("range count failed")
 }
 
+func (c rangeErrorTokenCounter) RecordEstimate(_ context.Context, _ []model.Message) (int, error) {
+	return 0, errors.New("range count failed")
+}
+
 func TestReportAccountingHelpers(t *testing.T) {
 	defer SetTokenCounter(nil)
 	SetTokenCounter(rangeErrorTokenCounter{tokens: 4})
