@@ -36,6 +36,10 @@ func (c fixedTokenCounter) CountTokensRange(
 	return c.count, c.err
 }
 
+func (c fixedTokenCounter) RecordEstimate(ctx context.Context, messages []model.Message) (int, error) {
+	return c.count, c.err
+}
+
 func TestBuild_KeepsLatestUserInputOutsideTranscript(t *testing.T) {
 	req := Build(context.Background(), []model.Message{
 		{Role: model.RoleUser, Content: "Earlier user context."},
