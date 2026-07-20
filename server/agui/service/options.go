@@ -18,6 +18,8 @@ const (
 	defaultMessagesSnapshotPath = "/history"
 	// defaultCancelPath is the default path for the cancel handler.
 	defaultCancelPath = "/cancel"
+	// defaultCapabilitiesPath is the default path for the capabilities handler.
+	defaultCapabilitiesPath = "/capabilities"
 )
 
 // Options holds the options for an AG-UI transport implementation.
@@ -29,6 +31,8 @@ type Options struct {
 	CancelEnabled           bool          // CancelEnabled enables the cancel handler.
 	CancelPath              string        // CancelPath is the HTTP path for the cancel handler.
 	HeartbeatInterval       time.Duration // HeartbeatInterval controls how often heartbeat frames are sent.
+	CapabilitiesEnabled     bool          // CapabilitiesEnabled enables the capabilities handler.
+	CapabilitiesPath        string        // CapabilitiesPath is the HTTP path for the capabilities handler.
 }
 
 // NewOptions creates a new options instance.
@@ -45,6 +49,9 @@ func NewOptions(opt ...Option) *Options {
 	}
 	if opts.CancelEnabled && opts.CancelPath == "" {
 		opts.CancelPath = defaultCancelPath
+	}
+	if opts.CapabilitiesEnabled && opts.CapabilitiesPath == "" {
+		opts.CapabilitiesPath = defaultCapabilitiesPath
 	}
 	return opts
 }
@@ -91,5 +98,19 @@ func WithCancelPath(p string) Option {
 func WithHeartbeatInterval(d time.Duration) Option {
 	return func(s *Options) {
 		s.HeartbeatInterval = d
+	}
+}
+
+// WithCapabilitiesEnabled enables the capabilities handler.
+func WithCapabilitiesEnabled(e bool) Option {
+	return func(s *Options) {
+		s.CapabilitiesEnabled = e
+	}
+}
+
+// WithCapabilitiesPath sets the HTTP path for the capabilities handler.
+func WithCapabilitiesPath(p string) Option {
+	return func(s *Options) {
+		s.CapabilitiesPath = p
 	}
 }

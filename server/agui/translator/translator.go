@@ -145,6 +145,9 @@ func (t *translator) Translate(ctx context.Context, event *agentevent.Event) ([]
 	// Handle node custom events (progress, text, custom).
 	events = append(events, t.graphNodeCustomEvents(event)...)
 	events = append(events, t.toolArtifactsEvents(event)...)
+	// Emit state.delta custom events for unhandled state delta entries,
+	// allowing frontends to react to arbitrary state changes.
+	events = append(events, t.stateDeltaEvents(event)...)
 	queuedUserEvents, handled, err := t.queuedUserMessageEvents(event)
 	if err != nil {
 		return nil, err
@@ -374,6 +377,52 @@ func (t *translator) toolArtifactsEvents(evt *agentevent.Event) []aguievents.Eve
 			"tool.artifacts",
 			aguievents.WithValue(payload),
 		),
+	}
+}
+
+// stateDeltaEvents emits a state.delta custom event for state delta entries
+// that are not handled by recognized metadata keys (Model, Tool, Node, NodeCustom,
+// Pregel, Channel, State, Completion, Checkpoint, CacheHit, artifacts).
+// This allows frontends to react to arbitrary state changes emitted by
+// graph nodes or custom event emitters.
+func (t *translator) stateDeltaEvents(evt *agentevent.Event) []aguievents.Event {
+	if t == nil || evt == nil || len(evt.StateDelta) == 0 {
+		return nil
+	}
+	// Build a set of keys already handled by other translation methods.
+	handledKeys := map[string]bool{
+		graph.MetadataKeyModel:       true,
+		graph.MetadataKeyTool:        true,
+		graph.MetadataKeyNode:        true,
+		graph.MetadataKeyNodeCustom:  true,
+		graph.MetadataKeyNodeEmitter: true,
+		graph.MetadataKeyPregel:      true,
+		graph.MetadataKeyChannel:     true,
+		graph.MetadataKeyState:       true,
+		graph.MetadataKeyCompletion:  true,
+		graph.MetadataKeyCheckpoint:  true,
+		graph.MetadataKeyCacheHit:    true,
+		skillRunArtifactsStateKey:    true,
+	}
+	// Collect unhandled entries.
+	payload := make(map[string]any, len(evt.StateDelta))
+	for k, v := range evt.StateDelta {
+		if handledKeys[k] || len(v) == 0 {
+			continue
+		}
+		// Preserve valid JSON as json.RawMessage, wrap plain strings.
+		if json.Valid(v) {
+			payload[k] = json.RawMessage(v)
+		} else {
+			wrapped, _ := json.Marshal(string(v))
+			payload[k] = json.RawMessage(wrapped)
+		}
+	}
+	if len(payload) == 0 {
+		return nil
+	}
+	return []aguievents.Event{
+		aguievents.NewCustomEvent("state.delta", aguievents.WithValue(payload)),
 	}
 }
 

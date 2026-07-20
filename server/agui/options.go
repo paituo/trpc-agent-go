@@ -25,8 +25,10 @@ var (
 	defaultServiceFactory        = sse.New
 	defaultMessagesSnapshotPath  = "/history"
 	defaultCancelPath            = "/cancel"
+	defaultCapabilitiesPath      = "/capabilities"
 	defaultMessagesSnapshotState = false
 	defaultCancelState           = false
+	defaultCapabilitiesState     = false
 )
 
 // options holds the options for the AG-UI server.
@@ -40,6 +42,8 @@ type options struct {
 	messagesSnapshotEnabled  bool
 	cancelPath               string
 	cancelEnabled            bool
+	capabilitiesPath         string
+	capabilitiesEnabled      bool
 	distributedCancelEnabled bool
 	heartbeatInterval        time.Duration
 	appName                  string
@@ -57,6 +61,8 @@ func newOptions(opt ...Option) *options {
 		messagesSnapshotEnabled: defaultMessagesSnapshotState,
 		cancelPath:              defaultCancelPath,
 		cancelEnabled:           defaultCancelState,
+		capabilitiesPath:        defaultCapabilitiesPath,
+		capabilitiesEnabled:     defaultCapabilitiesState,
 	}
 	for _, o := range opt {
 		o(opts)
@@ -322,5 +328,19 @@ func WithSessionService(service session.Service) Option {
 	return func(o *options) {
 		o.sessionService = service
 		o.aguiRunnerOptions = append(o.aguiRunnerOptions, aguirunner.WithSessionService(service))
+	}
+}
+
+// WithCapabilitiesEnabled enables the capabilities handler.
+func WithCapabilitiesEnabled(e bool) Option {
+	return func(o *options) {
+		o.capabilitiesEnabled = e
+	}
+}
+
+// WithCapabilitiesPath sets the HTTP path for the capabilities handler, "/capabilities" in default.
+func WithCapabilitiesPath(p string) Option {
+	return func(o *options) {
+		o.capabilitiesPath = p
 	}
 }

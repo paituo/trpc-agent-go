@@ -108,6 +108,17 @@ func newService(runner runner.Runner, opts *options) (service.Service, error) {
 			service.WithMessagesSnapshotPath(messagesSnapshotPath),
 		)
 	}
+	if opts.capabilitiesEnabled {
+		capabilitiesPath, err := joinURLPath(opts.basePath, opts.capabilitiesPath)
+		if err != nil {
+			return nil, fmt.Errorf("agui: url join capabilities path: %w", err)
+		}
+		serviceOpts = append(
+			serviceOpts,
+			service.WithCapabilitiesEnabled(true),
+			service.WithCapabilitiesPath(capabilitiesPath),
+		)
+	}
 	return opts.serviceFactory(aguiRunner, serviceOpts...), nil
 }
 

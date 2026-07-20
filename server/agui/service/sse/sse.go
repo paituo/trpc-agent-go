@@ -31,11 +31,13 @@ type sse struct {
 	path                    string
 	messagesSnapshotPath    string
 	cancelPath              string
+	capabilitiesPath        string
 	writer                  *aguisse.SSEWriter
 	runner                  aguirunner.Runner
 	handler                 http.Handler
 	messagesSnapshotEnabled bool
 	cancelEnabled           bool
+	capabilitiesEnabled     bool
 	heartbeatInterval       time.Duration
 }
 
@@ -46,10 +48,12 @@ func New(runner aguirunner.Runner, opt ...service.Option) service.Service {
 		path:                    opts.Path,
 		messagesSnapshotPath:    opts.MessagesSnapshotPath,
 		cancelPath:              opts.CancelPath,
+		capabilitiesPath:        opts.CapabilitiesPath,
 		runner:                  runner,
 		writer:                  aguisse.NewSSEWriter(),
 		messagesSnapshotEnabled: opts.MessagesSnapshotEnabled,
 		cancelEnabled:           opts.CancelEnabled,
+		capabilitiesEnabled:     opts.CapabilitiesEnabled,
 		heartbeatInterval:       opts.HeartbeatInterval,
 	}
 	h := http.NewServeMux()
@@ -59,6 +63,9 @@ func New(runner aguirunner.Runner, opt ...service.Option) service.Service {
 	}
 	if s.cancelEnabled {
 		h.HandleFunc(s.cancelPath, s.handleCancel)
+	}
+	if s.capabilitiesEnabled {
+		h.HandleFunc(s.capabilitiesPath, s.handleCapabilities)
 	}
 	s.handler = h
 	return s
@@ -378,4 +385,61 @@ func runAgentInputFromReader(r io.Reader) (*adapter.RunAgentInput, error) {
 func drainEvents(events <-chan aguievents.Event) {
 	for range events {
 	}
+}
+
+// handleCapabilities returns AG-UI protocol capabilities information.
+func (s *sse) handleCapabilities(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	log.DebugfContext(
+		ctx,
+		"agui handle capabilities: path: %s, method: %s",
+		s.capabilitiesPath,
+		r.Method,
+	)
+	if r.Method == http.MethodOptions {
+		log.DebugContext(ctx, "agui handle capabilities: options request")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", http.MethodGet)
+		if reqHeaders := r.Header.Get("Access-Control-Request-Headers"); reqHeaders != "" {
+			w.Header().Set("Access-Control-Allow-Headers", reqHeaders)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodGet {
+		log.DebugfContext(
+			ctx,
+			"agui handle capabilities: method not allowed, method: %s",
+			r.Method,
+		)
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	capabilities := map[string]any{
+		"protocol": "agui-v1",
+		"features": map[string]any{
+			"streaming":         true,
+			"cancel":            s.cancelEnabled,
+			"messages_snapshot": s.messagesSnapshotEnabled,
+			"heartbeat_interval": int(s.heartbeatInterval.Seconds()),
+		},
+		"endpoints": map[string]string{
+			"chat": s.path,
+		},
+	}
+	if s.messagesSnapshotEnabled {
+		capabilities["endpoints"].(map[string]string)["messages_snapshot"] = s.messagesSnapshotPath
+	}
+	if s.cancelEnabled {
+		capabilities["endpoints"].(map[string]string)["cancel"] = s.cancelPath
+	}
+	if s.capabilitiesEnabled {
+		capabilities["endpoints"].(map[string]string)["capabilities"] = s.capabilitiesPath
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(capabilities)
 }
