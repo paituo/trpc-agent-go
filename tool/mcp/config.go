@@ -65,6 +65,11 @@ type ConnectionConfig struct {
 	Command string   `json:"command,omitempty"`
 	Args    []string `json:"args,omitempty"`
 
+	// Env holds environment variables passed to the spawned stdio server
+	// process. They are merged on top of the current process environment.
+	// Env is only used by the stdio transport; HTTP transports ignore it.
+	Env map[string]string `json:"env,omitempty"`
+
 	// Common configuration.
 	Timeout time.Duration `json:"timeout,omitempty"`
 
