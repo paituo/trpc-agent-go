@@ -303,6 +303,7 @@ type mcpToolSetConfig struct {
 	Headers   map[string]string `yaml:"headers,omitempty"`
 	Command   string            `yaml:"command,omitempty"`
 	Args      []string          `yaml:"args,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"`
 	Timeout   time.Duration     `yaml:"timeout,omitempty"`
 
 	ToolFilter *mcpFilterConfig    `yaml:"tool_filter,omitempty"`
@@ -324,6 +325,7 @@ func newMCPToolSet(
 		Headers:   cfg.Headers,
 		Command:   strings.TrimSpace(cfg.Command),
 		Args:      cfg.Args,
+		Env:       cfg.Env,
 		Timeout:   cfg.Timeout,
 	}
 

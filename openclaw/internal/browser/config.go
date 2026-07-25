@@ -54,6 +54,7 @@ type ProfileConfig struct {
 	Headers          map[string]string `yaml:"headers,omitempty"`
 	Command          string            `yaml:"command,omitempty"`
 	Args             []string          `yaml:"args,omitempty"`
+	Env              map[string]string `yaml:"env,omitempty"`
 	Timeout          time.Duration     `yaml:"timeout,omitempty"`
 	Reconnect        *reconnectConfig  `yaml:"reconnect,omitempty"`
 }
@@ -217,6 +218,7 @@ func resolveProfile(
 		Headers:   cfg.Headers,
 		Command:   strings.TrimSpace(cfg.Command),
 		Args:      cfg.Args,
+		Env:       cfg.Env,
 		Timeout:   cfg.Timeout,
 	}
 	if strings.EqualFold(conn.Transport, transportStdio) &&

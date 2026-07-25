@@ -73,6 +73,9 @@ func normalizeConnectionConfig(cfg mcpcfg.ConnectionConfig, adHoc bool) (mcpcfg.
 			return mcpcfg.ConnectionConfig{}, "", fmt.Errorf("stdio MCP cannot specify headers")
 		}
 	case transportSSE, transportStreamable:
+		if len(cfg.Env) > 0 {
+			return mcpcfg.ConnectionConfig{}, "", fmt.Errorf("HTTP MCP cannot specify env")
+		}
 		if serverURL == "" {
 			return mcpcfg.ConnectionConfig{}, "", fmt.Errorf("HTTP MCP requires server_url")
 		}
@@ -99,6 +102,7 @@ func normalizeConnectionConfig(cfg mcpcfg.ConnectionConfig, adHoc bool) (mcpcfg.
 		Headers:     cloneStringMap(cfg.Headers),
 		Command:     command,
 		Args:        cloneStringSlice(cfg.Args),
+		Env:         cloneStringMap(cfg.Env),
 		Timeout:     cfg.Timeout,
 		Description: strings.TrimSpace(cfg.Description),
 		ClientInfo:  cfg.ClientInfo,
@@ -144,6 +148,7 @@ func normalizeTransport(raw string, hasCommand, hasURL, adHoc bool) (string, tra
 func cloneConnectionConfig(cfg mcpcfg.ConnectionConfig) mcpcfg.ConnectionConfig {
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.Args = cloneStringSlice(cfg.Args)
+	cfg.Env = cloneStringMap(cfg.Env)
 	return cfg
 }
 
