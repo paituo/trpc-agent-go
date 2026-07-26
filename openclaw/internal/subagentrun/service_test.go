@@ -39,12 +39,16 @@ const (
 	testProfilePrompt  = "profile instruction"
 	testProfileState   = "profile_state"
 	testProfileSystem  = "profile system prompt"
-	testProfileRoot    = "/tmp/openclaw-profile-root"
 	testProfileUserID  = "telegram:user"
 	testFinalizePath   = "/tmp/subagent-worktree"
 	testFinalizeBranch = "feature/kept-branch"
 	testSubagentRunID  = "subagent:test-run"
 )
+
+// testProfileRoot is a cross-platform absolute directory used as the runtime
+// profile workspace root. os.TempDir returns an absolute path on every OS, so
+// runtimeprofile.ResolveWorkdir accepts it (Windows rejects "/tmp/...").
+var testProfileRoot = filepath.Join(os.TempDir(), "openclaw-profile-root")
 
 type captureRunner struct {
 	mu        sync.Mutex
