@@ -467,7 +467,7 @@ func (m *Manager) startBackground(
 	if parent != nil {
 		stopParentCancellation = context.AfterFunc(parent, cancel)
 	}
-	cmd := shellCmdWithStartup(
+	cmd := shellCmd(
 		ctx,
 		params.Command,
 	)

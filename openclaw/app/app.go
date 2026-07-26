@@ -286,6 +286,7 @@ const (
 		"foreground non-interactive commands; write_stdin, kill_session, " +
 		"background execution, TTY allocation, and session continuation " +
 		"are unavailable. " +
+		"The sandbox does not automatically mount host paths. " +
 		openClawShellSharedGuidance +
 		"Use message to send to the current chat or an explicit " +
 		"target. "
@@ -1345,24 +1346,24 @@ func NewRuntimeWithOptions(
 			MaxLLMCalls:    opts.MaxLLMCalls,
 			DeadlineFinalizationWindow: opts.
 				DeadlineFinalizationWindow,
-			MaxToolIterations:     opts.MaxToolIterations,
-			PreloadMemory:         opts.PreloadMemory,
-			GenerationConfig:      opts.GenerationConfig,
-			PostToolPromptEnabled: postToolPromptEnabled,
-			Instruction:           prompts.Instruction,
-			SystemPrompt:          prompts.SystemPrompt,
-			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
-			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
-			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
-			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
-			ContextCompactionKeepRecentRequests:   opts.ContextCompactionKeepRecentRequests,
+			MaxToolIterations:                      opts.MaxToolIterations,
+			PreloadMemory:                          opts.PreloadMemory,
+			GenerationConfig:                       opts.GenerationConfig,
+			PostToolPromptEnabled:                  postToolPromptEnabled,
+			Instruction:                            prompts.Instruction,
+			SystemPrompt:                           prompts.SystemPrompt,
+			SessionSummaryInjectionMode:            opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                    opts.SyncSummaryIntraRun,
+			ContextCompactionThresholdRatio:        opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:   opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:    opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionKeepRecentToolResults: opts.ContextCompactionKeepRecentToolResults,
-			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
-			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
-			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
-			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
-			PlannerType:                          opts.PlannerType,
-			PlannerConfig:                        opts.PlannerConfig,
+			EnableDetailedContextMetrics:           opts.EnableDetailedContextMetrics,
+			EnableTokenCounterCalibration:          opts.EnableTokenCounterCalibration,
+			ContextCompactionForceCleanToolNames:   splitCSV(opts.ContextCompactionForceCleanToolNames),
+			ContextCompactionKeepToolNames:         splitCSV(opts.ContextCompactionKeepToolNames),
+			PlannerType:                            opts.PlannerType,
+			PlannerConfig:                          opts.PlannerConfig,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -1370,25 +1371,25 @@ func NewRuntimeWithOptions(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:            opts.SkillConfigs,
-			SkillConfigKeys:         resolveSkillConfigKeys(opts),
-			SkillsWatch:             opts.SkillsWatch,
-			SkillsWatchBundled:      opts.SkillsWatchBundled,
-			SkillsWatchDebounce:     opts.SkillsWatchDebounce,
-			SkillsSummaryCacheTTL:   opts.SkillsSummaryCacheTTL,
-			SkillsOverviewLimit:     opts.SkillsOverviewLimit,
-			SkillsOverviewPinned:    splitCSV(opts.SkillsOverviewPinned),
-			SkillsToolProfile:       opts.SkillsToolProfile,
-			SkillsLoadMode:          opts.SkillsLoadMode,
-			SkillsMaxLoaded:         opts.SkillsMaxLoaded,
-			SkillsToolResults:       opts.SkillsToolResults,
-			SkillsSkipFallback:      opts.SkillsSkipFallback,
-			SkillsToolingGuide:      opts.SkillsToolingGuide,
-			KnowledgesConfig:        opts.KnowledgesConfig,
-			EvolutionSkillScopeMode: opts.EvolutionSkillScopeMode,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsSummaryCacheTTL:        opts.SkillsSummaryCacheTTL,
+			SkillsOverviewLimit:          opts.SkillsOverviewLimit,
+			SkillsOverviewPinned:         splitCSV(opts.SkillsOverviewPinned),
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EvolutionSkillScopeMode:      opts.EvolutionSkillScopeMode,
 			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
-			StateDir:                resolvedStateDir,
-			MemoryFileStore:         fileMemoryStore,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
 
 			EnableLocalExec:      opts.EnableLocalExec,
 			CodeExecutor:         opts.CodeExecutor,
@@ -2206,24 +2207,24 @@ func run(
 			MaxLLMCalls:    opts.MaxLLMCalls,
 			DeadlineFinalizationWindow: opts.
 				DeadlineFinalizationWindow,
-			MaxToolIterations:     opts.MaxToolIterations,
-			PreloadMemory:         opts.PreloadMemory,
-			GenerationConfig:      opts.GenerationConfig,
-			PostToolPromptEnabled: postToolPromptEnabled,
-			Instruction:           prompts.Instruction,
-			SystemPrompt:          prompts.SystemPrompt,
-			SessionSummaryInjectionMode:          opts.SessionSummaryInjectionMode,
-			SyncSummaryIntraRun:                  opts.SyncSummaryIntraRun,
-			ContextCompactionThresholdRatio:      opts.ContextCompactionThresholdRatio,
-			ContextCompactionToolResultMaxTokens: opts.ContextCompactionToolResultMaxTokens,
-			ContextCompactionKeepRecentRequests:   opts.ContextCompactionKeepRecentRequests,
+			MaxToolIterations:                      opts.MaxToolIterations,
+			PreloadMemory:                          opts.PreloadMemory,
+			GenerationConfig:                       opts.GenerationConfig,
+			PostToolPromptEnabled:                  postToolPromptEnabled,
+			Instruction:                            prompts.Instruction,
+			SystemPrompt:                           prompts.SystemPrompt,
+			SessionSummaryInjectionMode:            opts.SessionSummaryInjectionMode,
+			SyncSummaryIntraRun:                    opts.SyncSummaryIntraRun,
+			ContextCompactionThresholdRatio:        opts.ContextCompactionThresholdRatio,
+			ContextCompactionToolResultMaxTokens:   opts.ContextCompactionToolResultMaxTokens,
+			ContextCompactionKeepRecentRequests:    opts.ContextCompactionKeepRecentRequests,
 			ContextCompactionKeepRecentToolResults: opts.ContextCompactionKeepRecentToolResults,
-			EnableDetailedContextMetrics:         opts.EnableDetailedContextMetrics,
-			EnableTokenCounterCalibration:        opts.EnableTokenCounterCalibration,
-			ContextCompactionForceCleanToolNames: splitCSV(opts.ContextCompactionForceCleanToolNames),
-			ContextCompactionKeepToolNames:       splitCSV(opts.ContextCompactionKeepToolNames),
-			PlannerType:                          opts.PlannerType,
-			PlannerConfig:                        opts.PlannerConfig,
+			EnableDetailedContextMetrics:           opts.EnableDetailedContextMetrics,
+			EnableTokenCounterCalibration:          opts.EnableTokenCounterCalibration,
+			ContextCompactionForceCleanToolNames:   splitCSV(opts.ContextCompactionForceCleanToolNames),
+			ContextCompactionKeepToolNames:         splitCSV(opts.ContextCompactionKeepToolNames),
+			PlannerType:                            opts.PlannerType,
+			PlannerConfig:                          opts.PlannerConfig,
 
 			SkillsRoot:      opts.SkillsRoot,
 			SkillsExtraDirs: splitCSV(opts.SkillsExtraDir),
@@ -2231,27 +2232,27 @@ func run(
 			SkillsAllowBundled: splitCSV(
 				opts.SkillsAllowBundled,
 			),
-			SkillConfigs:            opts.SkillConfigs,
-			SkillConfigKeys:         resolveSkillConfigKeys(opts),
-			SkillsWatch:             opts.SkillsWatch,
-			SkillsWatchBundled:      opts.SkillsWatchBundled,
-			SkillsWatchDebounce:     opts.SkillsWatchDebounce,
-			SkillsSummaryCacheTTL:   opts.SkillsSummaryCacheTTL,
-			SkillsOverviewLimit:     opts.SkillsOverviewLimit,
-			SkillsOverviewPinned:    splitCSV(opts.SkillsOverviewPinned),
-			SkillsToolProfile:       opts.SkillsToolProfile,
-			SkillsLoadMode:          opts.SkillsLoadMode,
-			SkillsMaxLoaded:         opts.SkillsMaxLoaded,
-			SkillsToolResults:       opts.SkillsToolResults,
-			SkillsSkipFallback:      opts.SkillsSkipFallback,
-			SkillsToolingGuide:      opts.SkillsToolingGuide,
-			KnowledgesConfig:        opts.KnowledgesConfig,
-			EvolutionSkillScopeMode: opts.EvolutionSkillScopeMode,
+			SkillConfigs:                 opts.SkillConfigs,
+			SkillConfigKeys:              resolveSkillConfigKeys(opts),
+			SkillsWatch:                  opts.SkillsWatch,
+			SkillsWatchBundled:           opts.SkillsWatchBundled,
+			SkillsWatchDebounce:          opts.SkillsWatchDebounce,
+			SkillsSummaryCacheTTL:        opts.SkillsSummaryCacheTTL,
+			SkillsOverviewLimit:          opts.SkillsOverviewLimit,
+			SkillsOverviewPinned:         splitCSV(opts.SkillsOverviewPinned),
+			SkillsToolProfile:            opts.SkillsToolProfile,
+			SkillsLoadMode:               opts.SkillsLoadMode,
+			SkillsMaxLoaded:              opts.SkillsMaxLoaded,
+			SkillsToolResults:            opts.SkillsToolResults,
+			SkillsSkipFallback:           opts.SkillsSkipFallback,
+			SkillsToolingGuide:           opts.SkillsToolingGuide,
+			KnowledgesConfig:             opts.KnowledgesConfig,
+			EvolutionSkillScopeMode:      opts.EvolutionSkillScopeMode,
 			EnableKnowledgeAgenticFilter: opts.EnableKnowledgeAgenticFilter,
-			StateDir:                resolvedStateDir,
-			MemoryFileStore:         fileMemoryStore,
-			EnableExecuteTools:      opts.EnableExecuteTools,
-			OpenClawToolingGuide:    opts.OpenClawToolingGuide,
+			StateDir:                     resolvedStateDir,
+			MemoryFileStore:              fileMemoryStore,
+			EnableExecuteTools:           opts.EnableExecuteTools,
+			OpenClawToolingGuide:         opts.OpenClawToolingGuide,
 
 			EnableLocalExec:          opts.EnableLocalExec,
 			CodeExecutor:             opts.CodeExecutor,
@@ -3634,6 +3635,22 @@ func buildOpenClawToolingGuidance(cfg agentConfig) string {
 		return strings.TrimSpace(*cfg.OpenClawToolingGuide)
 	}
 	base := strings.TrimSpace(openClawToolingGuidance)
+	if isSandboxCodeExecutor(cfg.CodeExecutor) {
+		base = strings.Replace(
+			base,
+			strings.TrimSpace(openClawHostShellGuidance),
+			strings.TrimSpace(openClawSandboxShellGuidance),
+			1,
+		)
+		// The tooling guidance repeats the host-only interactive phrase
+		// inline; in sandbox mode it must not mention host-exec tools.
+		base = strings.Replace(
+			base,
+			"For interactive follow-up input, use write_stdin and kill_session when needed. Use message to send to the current chat or an explicit target. ",
+			"For interactive follow-up input, use message to send to the current chat or an explicit target. ",
+			1,
+		)
+	}
 	if cfg.EnableExecuteTools {
 		exec := strings.TrimSpace(openClawExecToolingGuidance)
 		return base + "\n\n" + exec
@@ -3850,7 +3867,7 @@ type agentConfig struct {
 	EnableTokenCounterCalibration                 bool
 	ContextCompactionForceCleanToolNames          []string
 	ContextCompactionKeepToolNames                []string
-	ContextCompactionApproxRunesPerToken           float64
+	ContextCompactionApproxRunesPerToken          float64
 	PlannerType                                   string
 	PlannerConfig                                 map[string]any
 	GenerationConfig                              *model.GenerationConfig
@@ -3858,28 +3875,28 @@ type agentConfig struct {
 	Instruction                                   string
 	SystemPrompt                                  string
 
-	SkillsRoot              string
-	SkillsExtraDirs         []string
-	SkillsDebug             bool
-	SkillsAllowBundled      []string
-	SkillConfigs            map[string]ocskills.SkillConfig
-	SkillConfigKeys         []string
-	SkillsWatch             bool
-	SkillsWatchBundled      bool
-	SkillsWatchDebounce     time.Duration
-	SkillsSummaryCacheTTL   time.Duration
-	SkillsOverviewLimit     int
-	SkillsOverviewPinned    []string
-	SkillsToolProfile       string
-	SkillsLoadMode          string
-	SkillsMaxLoaded         int
-	SkillsToolResults       bool
-	SkillsSkipFallback      bool
-	SkillsToolingGuide      *string
-	KnowledgesConfig        []knowledgeEntry
-	EvolutionSkillScopeMode skill.SkillScopeMode
+	SkillsRoot                   string
+	SkillsExtraDirs              []string
+	SkillsDebug                  bool
+	SkillsAllowBundled           []string
+	SkillConfigs                 map[string]ocskills.SkillConfig
+	SkillConfigKeys              []string
+	SkillsWatch                  bool
+	SkillsWatchBundled           bool
+	SkillsWatchDebounce          time.Duration
+	SkillsSummaryCacheTTL        time.Duration
+	SkillsOverviewLimit          int
+	SkillsOverviewPinned         []string
+	SkillsToolProfile            string
+	SkillsLoadMode               string
+	SkillsMaxLoaded              int
+	SkillsToolResults            bool
+	SkillsSkipFallback           bool
+	SkillsToolingGuide           *string
+	KnowledgesConfig             []knowledgeEntry
+	EvolutionSkillScopeMode      skill.SkillScopeMode
 	EnableKnowledgeAgenticFilter bool
-	SkillRepositoryProvider skill.RepositoryProvider
+	SkillRepositoryProvider      skill.RepositoryProvider
 
 	StateDir string
 
@@ -4070,12 +4087,17 @@ func buildOpenClawTools(
 		conversationtool.NewTool(),
 		octool.NewReadDocumentTool(uploadStore),
 		octool.NewReadSpreadsheetTool(uploadStore),
-		octool.NewWriteStdinTool(mgr),
 		outbound.NewTool(router),
 		cronTool,
 	}
+	if mgr != nil {
+		tools = append(tools, octool.NewWriteStdinTool(mgr))
+	}
 	if enableExecuteTools {
-		tools = append(tools, execTool, octool.NewKillSessionTool(mgr))
+		tools = append(tools, execTool)
+		if mgr != nil {
+			tools = append(tools, octool.NewKillSessionTool(mgr))
+		}
 	}
 	if enableSubagentTools {
 		tools = append(tools, subagentTools.All()...)
@@ -4422,12 +4444,12 @@ func modelFromOptions(opts runOptions) (model.Model, error) {
 			opts.OpenAIMaxRetries,
 			opts.OpenAIMaxRetriesSet,
 		),
-		Headers:                       headers,
-		DebugRecorderEnabled:          opts.DebugRecorderEnabled,
-		Config:                        opts.ModelConfig,
-		ContextWindow:                 opts.ModelContextWindow,
-		EnableTokenTailoring:          opts.ModelTokenTailoringEnabled,
-		TailoringStrategy:             opts.ModelTokenTailoringStrategy,
+		Headers:                          headers,
+		DebugRecorderEnabled:             opts.DebugRecorderEnabled,
+		Config:                           opts.ModelConfig,
+		ContextWindow:                    opts.ModelContextWindow,
+		EnableTokenTailoring:             opts.ModelTokenTailoringEnabled,
+		TailoringStrategy:                opts.ModelTokenTailoringStrategy,
 		IncludeOutputSchemaInDescription: opts.ModelTokenTailoringIncludeOutputSchemaDesc,
 	}
 	mdl, err := f(spec)

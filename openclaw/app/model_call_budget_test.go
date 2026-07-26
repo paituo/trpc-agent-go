@@ -1914,6 +1914,13 @@ func (failingBudgetTokenCounter) CountTokensRange(
 	return 0, fmt.Errorf("count tokens range")
 }
 
+func (failingBudgetTokenCounter) RecordEstimate(
+	context.Context,
+	[]model.Message,
+) (int, error) {
+	return 0, fmt.Errorf("count tokens estimate")
+}
+
 type countingBudgetIterModel struct {
 	countingBudgetModel
 	iterCalls atomic.Int64

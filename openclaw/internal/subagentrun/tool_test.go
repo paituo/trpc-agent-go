@@ -80,7 +80,7 @@ func TestToolsSpawnListGetCancelWait(t *testing.T) {
 	require.Equal(t, openclawsubagent.StatusCanceling, canceled.Status)
 
 	// Wait for the subagent to finish
-	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	waitResult, err := tools.wait.Call(waitCtx, getArgs)
 	require.NoError(t, err)
@@ -161,7 +161,7 @@ func TestSpawnToolSyncModeAllowsMissingDeliveryTarget(t *testing.T) {
 		require.NoError(t, svc.Close())
 	})
 
-	tools := NewTools(svc)
+	tools := NewTools(svc, ToolsConfig{}, nil)
 	ctx := newInvocationContext("admin", "admin-session", nil)
 
 	syncedAny, err := tools.spawn.Call(

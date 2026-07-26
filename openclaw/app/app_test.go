@@ -63,11 +63,11 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/outbound"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/persona"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/subagentrun"
 	tgapi "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/telegram"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/uploads"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
-	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/subagentrun"
 	langfuseobs "trpc.group/trpc-go/trpc-agent-go/telemetry/langfuse"
 )
 
@@ -654,7 +654,7 @@ func TestFileMemoryStoreForBackend_FileOnly(t *testing.T) {
 func TestBuildOpenClawTools_HidesMemoryFileEnvWithoutFileBackend(t *testing.T) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil, 0, 0, 0, 0, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(
@@ -798,6 +798,10 @@ func TestBuildOpenClawTools_HostExecMaxIdleWait(t *testing.T) {
 
 	bundle := buildOpenClawTools(
 		true,
+		true,
+		false,
+		false,
+		subagentrun.ToolsConfig{},
 		t.TempDir(),
 		nil,
 		nil,
@@ -806,6 +810,7 @@ func TestBuildOpenClawTools_HostExecMaxIdleWait(t *testing.T) {
 		0,
 		0,
 		20*time.Second,
+		nil,
 	)
 	execTool := findTool(bundle.tools, "exec_command")
 	callable, ok := execTool.(tool.CallableTool)
@@ -828,7 +833,7 @@ func TestBuildOpenClawTools_ExposesMemoryFileEnvForFileBackend(t *testing.T) {
 	store, err := memoryfile.NewStore(root)
 	require.NoError(t, err)
 
-	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, store, nil, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, true, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, store, nil, 0, 0, 0, 0, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(t, decl.Description, "OPENCLAW_MEMORY_FILE")
@@ -845,7 +850,7 @@ func TestBuildOpenClawTools_UsesSandboxExecCommand(t *testing.T) {
 	t.Parallel()
 
 	engine := codeexecutor.NewEngine(nil, nil, nil)
-	bundle := buildOpenClawTools(true, true, false, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, engine, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, true, false, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, engine, 0, 0, 0, 0, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(t, decl.Description, "inside the configured sandbox")
@@ -873,7 +878,7 @@ func TestBuildOpenClawTools_UsesSandboxExecCommandWithMemoryFileStore(
 	require.NoError(t, err)
 
 	engine := codeexecutor.NewEngine(nil, nil, nil)
-	bundle := buildOpenClawTools(true, true, false, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, store, engine, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, true, false, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, store, engine, 0, 0, 0, 0, nil)
 	decl := findToolDeclaration(bundle.tools, "exec_command")
 	require.NotNil(t, decl)
 	require.Contains(t, decl.Description, "inside the configured sandbox")
@@ -892,7 +897,7 @@ func TestBuildOpenClawTools_IncludesConversationHistoryTool(
 ) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{}, t.TempDir(), nil, nil, nil, 0, 0, 0, 0, nil)
 	decl := findToolDeclaration(bundle.tools, "conversation_history")
 	require.NotNil(t, decl)
 	require.Contains(
@@ -905,7 +910,7 @@ func TestBuildOpenClawTools_IncludesConversationHistoryTool(
 func TestBuildOpenClawTools_IncludesSubagentTools(t *testing.T) {
 	t.Parallel()
 
-	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{EnableSessionAlias: true}, t.TempDir(), nil, nil, nil, 0, 0, 0, nil)
+	bundle := buildOpenClawTools(true, false, true, false, subagentrun.ToolsConfig{EnableSessionAlias: true}, t.TempDir(), nil, nil, nil, 0, 0, 0, 0, nil)
 	require.NotNil(
 		t,
 		findToolDeclaration(bundle.tools, "subagents_spawn"),
@@ -4492,7 +4497,12 @@ func TestResolveStateDir_Custom(t *testing.T) {
 
 func TestResolveStateDir_DefaultHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	// os.UserHomeDir honors HOME on Unix but USERPROFILE on Windows.
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	} else {
+		t.Setenv("HOME", home)
+	}
 
 	got, err := resolveStateDir("")
 	require.NoError(t, err)
@@ -6615,6 +6625,10 @@ func TestInProcGatewayClient_Cancel_Unsupported(t *testing.T) {
 func TestInProcGatewayClient_ForgetUser_DeletesState(t *testing.T) {
 	t.Parallel()
 
+	if runtime.GOOS == "windows" {
+		t.Skip("debug recorder keeps the events file open; Windows cannot delete an open file")
+	}
+
 	ctx := context.Background()
 
 	sessSvc := sessioninmemory.NewSessionService()
@@ -6947,6 +6961,10 @@ func TestInProcGatewayClient_ForgetUser_DeletesRuntimeProfileAppState(
 	t *testing.T,
 ) {
 	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("debug recorder keeps the events file open; Windows cannot delete an open file")
+	}
 
 	ctx := context.Background()
 	srv, err := gateway.New(&inProcGWTestRunner{})
@@ -7827,6 +7845,10 @@ func TestInProcGatewayClient_ForgetUser_ClearMemoriesError(t *testing.T) {
 
 func TestInProcGatewayClient_ForgetUser_DeleteDebugTracesError(t *testing.T) {
 	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("debug recorder keeps the events file open; Windows cannot delete an open file")
+	}
 
 	mode, err := debugrecorder.ParseMode("safe")
 	require.NoError(t, err)
