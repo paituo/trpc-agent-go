@@ -713,7 +713,12 @@ func TestContextCompactionSessionLoadRecoveryDerivedFromRequestTools(t *testing.
 func TestTruncateOversizedToolResultMessages_SkipsForceCleanForCurrentMessages(t *testing.T) {
 	p := NewContentRequestProcessor(
 		WithEnableContextCompaction(true),
-		WithContextCompactionOversizedToolResultMaxTokens(16),
+		// 48 > the recoverable truncation marker's lower-bound token cost
+		// (~33 tokens for this tool_call_id/tool_name/reason), so the binary
+		// search in truncateMiddleToTokenBudget can actually find a candidate
+		// that fits the budget. A budget below the marker floor makes the
+		// truncation degenerate to "no truncation" and fails the NotEqual check.
+		WithContextCompactionOversizedToolResultMaxTokens(48),
 		WithContextCompactionForceCleanToolNames("shell"),
 		WithContextCompactionKeepToolNames("session_load"),
 	)
@@ -742,7 +747,9 @@ func TestTruncateOversizedToolResultMessages_SkipsForceCleanForCurrentMessages(t
 func TestTruncateOversizedToolResultMessages_MissingToolNameSkipsNamedRules(t *testing.T) {
 	p := NewContentRequestProcessor(
 		WithEnableContextCompaction(true),
-		WithContextCompactionOversizedToolResultMaxTokens(16),
+		// 48 > the recoverable truncation marker's lower-bound token cost
+		// (~29 tokens when tool_name is empty) so truncation can succeed.
+		WithContextCompactionOversizedToolResultMaxTokens(48),
 		WithContextCompactionForceCleanToolNames("shell"),
 	)
 	messages := []model.Message{
@@ -1162,10 +1169,14 @@ func TestTruncateOversizedToolResultMessage_UsesConfiguredCounter(t *testing.T) 
 		"HEAD-"+strings.Repeat("middle-", 80)+"-TAIL",
 	)
 
+	// 160 > the recoverable truncation marker's lower-bound token cost under
+	// this counter (approxRunesPerToken=1 makes the marker ~134 tokens). A
+	// budget below the marker floor makes truncation degenerate to "no
+	// truncation" and fails the changed/savedTokens checks.
 	compacted, changed, savedTokens := truncateOversizedToolResultMessageWithCounter(
 		context.Background(),
 		msg,
-		80,
+		160,
 		counter,
 	)
 
@@ -1173,7 +1184,7 @@ func TestTruncateOversizedToolResultMessage_UsesConfiguredCounter(t *testing.T) 
 	require.Greater(t, savedTokens, 0)
 	tokens, err := counter.CountTokens(context.Background(), compacted)
 	require.NoError(t, err)
-	require.LessOrEqual(t, tokens, 80)
+	require.LessOrEqual(t, tokens, 160)
 	require.True(t, strings.HasPrefix(compacted.Content, "HEAD-"))
 	require.True(t, strings.HasSuffix(compacted.Content, "-TAIL"))
 }
