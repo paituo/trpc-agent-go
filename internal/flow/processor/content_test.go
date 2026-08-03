@@ -4155,7 +4155,7 @@ func TestContentRequestProcessor_getIncrementMessages_CurrentTurnSkipsResumeTail
 		at:          events[1].Timestamp,
 		lastEventID: events[1].ID,
 	}
-	messages := p.getIncrementMessagesAfterCutoff(
+	messages, _ := p.getIncrementMessagesWithCutoff(
 		inv,
 		nil,
 		cutoff,

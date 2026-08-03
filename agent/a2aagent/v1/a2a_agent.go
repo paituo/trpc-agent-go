@@ -228,6 +228,7 @@ func (r *A2AAgent) Run(ctx context.Context, invocation *agent.Invocation) (<-cha
 	)
 	if startedSpan {
 		itelemetry.TraceBeforeInvokeAgent(
+			ctx,
 			span,
 			invocation,
 			r.description,
