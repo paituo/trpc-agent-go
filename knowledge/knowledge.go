@@ -44,7 +44,8 @@ type SearchRequest struct {
 
 	// MaxResults limits the maximum number of results returned by a vector store,
 	// and the final number of results will be limited by Rerank (optional).
-	MaxResults int
+	MaxResults     int
+	SeedMaxResults int
 
 	// MinScore sets minimum relevance score threshold (optional).
 	MinScore float64
