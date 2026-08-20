@@ -366,7 +366,7 @@ func (dk *BuiltinKnowledge) loadSourceInternal(ctx context.Context, sources []so
 		_, err := dk.loadConcurrent(ctx, config, plan, sources)
 		return err
 	}
-	_, err := dk.loadSequential(ctx, config, plan, sources)
+	_, err = dk.loadSequential(ctx, config, plan, sources)
 	return err
 }
 

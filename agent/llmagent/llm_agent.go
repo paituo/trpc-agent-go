@@ -2567,5 +2567,15 @@ func contextCompactionTokenCounter(
 	if overrideCounter != nil {
 		return overrideCounter
 	}
-	return model.TokenCounterForModel(mdl)
+	// Nil-safe fallback: if the model has no TokenCounter (e.g. mock models
+	// in tests), create a default counter from the model name instead of
+	// panicking via model.TokenCounterForModel.
+	if mdl != nil && mdl.Info().TokenCounter != nil {
+		return mdl.Info().TokenCounter
+	}
+	name := ""
+	if mdl != nil {
+		name = mdl.Info().Name
+	}
+	return model.NewTokenCounter(name)
 }

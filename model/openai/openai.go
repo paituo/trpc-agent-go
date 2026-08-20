@@ -404,7 +404,6 @@ var variantConfigs = map[Variant]variantConfig{
 	VariantVLLM: {
 		// vLLM handles thinking via chat_template_kwargs in buildChatRequest.
 	},
-	},
 }
 
 // Model implements the model.Model interface for OpenAI API.
