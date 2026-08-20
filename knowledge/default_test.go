@@ -48,8 +48,9 @@ func TestConvertToIntIgnoresNilValues(t *testing.T) {
 
 // mockSource is a simple mock source for testing.
 type mockSource struct {
-	name     string
-	docCount int
+	name      string
+	docCount  int
+	readDelay time.Duration
 }
 
 func (m *mockSource) Name() string {
@@ -61,6 +62,13 @@ func (m *mockSource) Type() string {
 }
 
 func (m *mockSource) ReadDocuments(ctx context.Context) ([]*document.Document, error) {
+	if m.readDelay > 0 {
+		select {
+		case <-time.After(m.readDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	docs := make([]*document.Document, m.docCount)
 	for i := 0; i < m.docCount; i++ {
 		docs[i] = &document.Document{
@@ -2632,11 +2640,19 @@ func TestWithLoadProgressCallback_ConcurrentElapsedAndETA(t *testing.T) {
 // failAfterNVectorStore fails the Add call after n successful invocations.
 type failAfterNVectorStore struct {
 	stubVectorStore
-	n     int
-	count atomic.Int64
+	n        int
+	count    atomic.Int64
+	addDelay time.Duration
 }
 
 func (f *failAfterNVectorStore) Add(ctx context.Context, doc *document.Document, emb []float64) error {
+	if f.addDelay > 0 {
+		select {
+		case <-time.After(f.addDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if int(f.count.Add(1)) > f.n {
 		return fmt.Errorf("simulated add failure")
 	}
@@ -2696,8 +2712,10 @@ func TestWithLoadProgressCallback_SequentialErrorHasElapsed(t *testing.T) {
 	var mu sync.Mutex
 	var errorEvents []LoadProgressEvent
 
-	kb := New(WithSources([]source.Source{&mockSource{name: "src1", docCount: docCount}}))
-	kb.vectorStore = &failAfterNVectorStore{n: failAfter}
+	kb := New(WithSources([]source.Source{&mockSource{
+		name: "src1", docCount: docCount, readDelay: time.Millisecond,
+	}}))
+	kb.vectorStore = &failAfterNVectorStore{n: failAfter, addDelay: time.Millisecond}
 	kb.embedder = stubEmbedder{}
 
 	ctx := context.Background()

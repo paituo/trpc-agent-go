@@ -501,11 +501,7 @@ func (t *RunTool) Call(
 		}
 	}
 	if err != nil {
-		return runOutput{
-			Stdout:   rr.Stdout,
-			Stderr:   err.Error(),
-			ExitCode: -1,
-		}, nil
+		return nil, err
 	}
 
 	ws := prepared.handle.Workspace

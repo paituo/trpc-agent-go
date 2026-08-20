@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -335,6 +336,9 @@ func TestLLMAgent_WorkspaceSaveArtifactOmittedWithoutInvocationCapability(
 func TestLLMAgent_InvocationWorkspaceRegistry_NoSessionIsNotShared(
 	t *testing.T,
 ) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell commands (mkdir -p/printf/cat)")
+	}
 	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(localexec.New()))
 
 	inv1 := agent.NewInvocation(
@@ -357,6 +361,9 @@ func TestLLMAgent_InvocationWorkspaceRegistry_NoSessionIsNotShared(
 func TestLLMAgent_InvocationWorkspaceRegistry_ReusesSameSessionExecutor(
 	t *testing.T,
 ) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell commands (mkdir -p/printf/cat)")
+	}
 	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(localexec.New()))
 
 	inv1 := agent.NewInvocation(
@@ -381,6 +388,9 @@ func TestLLMAgent_InvocationWorkspaceRegistry_ReusesSameSessionExecutor(
 func TestLLMAgent_InvocationWorkspaceRegistry_IsolatedByExecutor(
 	t *testing.T,
 ) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell commands (mkdir -p/printf/cat)")
+	}
 	defaultExec := localexec.New()
 	overrideExec := localexec.New()
 	a := New("tester", WithModel(&extDummyModel{}), WithCodeExecutor(defaultExec))
@@ -700,6 +710,9 @@ func TestLLMAgent_SkillRunToolExecutes(t *testing.T) {
 }
 
 func TestLLMAgent_SkillRun_OutputLimits_Configurable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell commands (mkdir -p/printf/cat)")
+	}
 	root := createTestSkill(t)
 	repo, err := skill.NewFSRepository(root)
 	require.NoError(t, err)
@@ -795,7 +808,10 @@ func (m *stubMgr) CreateWorkspace(
 	ctx context.Context, id string,
 	pol codeexecutor.WorkspacePolicy,
 ) (codeexecutor.Workspace, error) {
-	return codeexecutor.Workspace{ID: id, Path: "/tmp/x"}, nil
+	return codeexecutor.Workspace{
+		ID:   id,
+		Path: filepath.Join(os.TempDir(), "stub-ws-"+id),
+	}, nil
 }
 func (m *stubMgr) Cleanup(ctx context.Context,
 	ws codeexecutor.Workspace) error {
@@ -807,17 +823,49 @@ type stubFS struct{}
 func (f *stubFS) PutFiles(ctx context.Context,
 	ws codeexecutor.Workspace,
 	files []codeexecutor.PutFile) error {
+	for _, file := range files {
+		p := filepath.Join(ws.Path, filepath.FromSlash(file.Path))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(p, file.Content, os.FileMode(file.Mode)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 func (f *stubFS) StageDirectory(ctx context.Context,
 	ws codeexecutor.Workspace,
 	src, to string, opt codeexecutor.StageOptions) error {
-	return nil
+	dest := filepath.Join(ws.Path, filepath.FromSlash(to))
+	return copyDir(src, dest)
 }
 func (f *stubFS) Collect(ctx context.Context,
 	ws codeexecutor.Workspace,
 	patterns []string) ([]codeexecutor.File, error) {
-	return nil, nil
+	var out []codeexecutor.File
+	for _, pat := range patterns {
+		matches, err := filepath.Glob(filepath.Join(ws.Path, filepath.FromSlash(pat)))
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range matches {
+			data, err := os.ReadFile(m)
+			if err != nil {
+				return nil, err
+			}
+			rel, err := filepath.Rel(ws.Path, m)
+			if err != nil {
+				rel = m
+			}
+			out = append(out, codeexecutor.File{
+				Name:      filepath.ToSlash(rel),
+				Content:   string(data),
+				SizeBytes: int64(len(data)),
+			})
+		}
+	}
+	return out, nil
 }
 
 func (f *stubFS) StageInputs(
@@ -834,6 +882,35 @@ func (f *stubFS) CollectOutputs(
 	spec codeexecutor.OutputSpec,
 ) (codeexecutor.OutputManifest, error) {
 	return codeexecutor.OutputManifest{}, nil
+}
+
+// copyDir recursively copies a directory tree from src to dest.
+func copyDir(src, dest string) error {
+	return filepath.WalkDir(src, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, p)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
 }
 
 type stubRunner struct{ s *stubExec }
@@ -1013,6 +1090,9 @@ func TestLLMAgent_WorkspaceExec_DeniedCommands_Enforced(t *testing.T) {
 }
 
 func TestLLMAgent_WorkspaceExec_OutputLimits_Configurable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell command (printf)")
+	}
 	const maxBytes = 40
 	a := New(
 		"tester",
@@ -1514,6 +1594,9 @@ func TestLLMAgent_WithAllowedSkillTools_RunWithoutLoadAllowedWhenRequireDisabled
 }
 
 func TestLLMAgent_SkillRun_DeniedCommands_Enforced(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires Unix shell command (ls)")
+	}
 	root := createTestSkill(t)
 	repo, err := skill.NewFSRepository(root)
 	require.NoError(t, err)
