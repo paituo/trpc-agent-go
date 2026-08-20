@@ -23,6 +23,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
+	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
@@ -109,6 +110,21 @@ func transformSpan(span *tracepb.Span) {
 	// Prefix match for summarize spans (operation name is "summarize <name>")
 	if strings.HasPrefix(operationName, itelemetry.OperationSummarize) {
 		transformSummarize(span)
+		return
+	}
+
+	// Workspace lifecycle spans are created directly with atrace.Tracer.Start and
+	// carry no gen_ai.operation.name, so they are not matched by the operation-name
+	// switch below. Match them by span name and build observation input/output from
+	// their existing attributes so Langfuse can display them.
+	switch span.Name {
+	case codeexecutor.SpanWorkspaceCreate,
+		codeexecutor.SpanWorkspaceCollect,
+		codeexecutor.SpanWorkspaceStageDir,
+		codeexecutor.SpanWorkspaceStageFiles,
+		codeexecutor.SpanWorkspaceRun,
+		codeexecutor.SpanWorkspaceCleanup:
+		transformWorkspace(span)
 		return
 	}
 
@@ -714,6 +730,64 @@ func transformExecuteTool(span *tracepb.Span) {
 	}
 
 	// Replace span attributes
+	span.Attributes = newAttributes
+}
+
+// transformWorkspace transforms workspace lifecycle spans for Langfuse.
+//
+// These spans (workspace.create/collect/stage.dir/stage.files/run/cleanup) are
+// created directly with atrace.Tracer.Start and carry no gen_ai.operation.name,
+// so they are not matched by the operation-name switch in transformSpan. They
+// are matched by span name instead. This function builds observation input and
+// output from the span's existing attributes so Langfuse can display them
+// instead of showing undefined.
+func transformWorkspace(span *tracepb.Span) {
+	var newAttributes []*commonpb.KeyValue
+
+	newAttributes = append(newAttributes, &commonpb.KeyValue{
+		Key: observationType,
+		Value: &commonpb.AnyValue{
+			Value: &commonpb.AnyValue_StringValue{StringValue: observationTypeTool},
+		},
+	})
+
+	var inputParts, outputParts []string
+	for _, attr := range span.Attributes {
+		switch attr.Key {
+		case codeexecutor.AttrCmd:
+			inputParts = append(inputParts, "cmd="+attr.Value.GetStringValue())
+		case codeexecutor.AttrCwd:
+			inputParts = append(inputParts, "cwd="+attr.Value.GetStringValue())
+		case codeexecutor.AttrExecID:
+			inputParts = append(inputParts, "exec_id="+attr.Value.GetStringValue())
+		case codeexecutor.AttrHostPath:
+			inputParts = append(inputParts, "host_path="+attr.Value.GetStringValue())
+		case codeexecutor.AttrTo:
+			inputParts = append(inputParts, "to="+attr.Value.GetStringValue())
+		case codeexecutor.AttrCount:
+			inputParts = append(inputParts, fmt.Sprintf("count=%d", attr.Value.GetIntValue()))
+		case codeexecutor.AttrPatterns:
+			inputParts = append(inputParts, fmt.Sprintf("patterns=%d", attr.Value.GetIntValue()))
+		case codeexecutor.AttrExitCode:
+			outputParts = append(outputParts, fmt.Sprintf("exit_code=%d", attr.Value.GetIntValue()))
+		case codeexecutor.AttrTimedOut:
+			outputParts = append(outputParts, fmt.Sprintf("timed_out=%v", attr.Value.GetBoolValue()))
+		default:
+			newAttributes = append(newAttributes, attr)
+		}
+	}
+
+	if len(inputParts) > 0 {
+		newAttributes = append(newAttributes, stringKV(observationInput, strings.Join(inputParts, ", ")))
+	} else {
+		newAttributes = append(newAttributes, stringKV(observationInput, "N/A"))
+	}
+	if len(outputParts) > 0 {
+		newAttributes = append(newAttributes, stringKV(observationOutput, strings.Join(outputParts, ", ")))
+	} else {
+		newAttributes = append(newAttributes, stringKV(observationOutput, "N/A"))
+	}
+
 	span.Attributes = newAttributes
 }
 

@@ -23,6 +23,7 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
+	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	itelemetry "trpc.group/trpc-go/trpc-agent-go/internal/telemetry"
 	"trpc.group/trpc-go/trpc-agent-go/model"
 	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
@@ -889,6 +890,126 @@ func TestTransformExecuteTool(t *testing.T) {
 			for _, attr := range tt.input.Attributes {
 				assert.NotEqual(t, semconvtrace.KeyGenAIToolCallArguments, attr.Key, "tool args attribute should be removed")
 				assert.NotEqual(t, semconvtrace.KeyGenAIToolCallResult, attr.Key, "tool response attribute should be removed")
+			}
+		})
+	}
+}
+
+func TestTransformWorkspace(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *tracepb.Span
+		expected map[string]string
+	}{
+		{
+			name: "workspace run with command and exit code",
+			input: &tracepb.Span{
+				Name: codeexecutor.SpanWorkspaceRun,
+				Attributes: []*commonpb.KeyValue{
+					{
+						Key: codeexecutor.AttrCmd,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_StringValue{StringValue: "python main.py"},
+						},
+					},
+					{
+						Key: codeexecutor.AttrCwd,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_StringValue{StringValue: "/work"},
+						},
+					},
+					{
+						Key: codeexecutor.AttrExitCode,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_IntValue{IntValue: 1},
+						},
+					},
+					{
+						Key: codeexecutor.AttrTimedOut,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_BoolValue{BoolValue: false},
+						},
+					},
+				},
+			},
+			expected: map[string]string{
+				observationType:   "tool",
+				observationInput:  "cmd=python main.py, cwd=/work",
+				observationOutput: "exit_code=1, timed_out=false",
+			},
+		},
+		{
+			name: "workspace stage files with count",
+			input: &tracepb.Span{
+				Name: codeexecutor.SpanWorkspaceStageFiles,
+				Attributes: []*commonpb.KeyValue{
+					{
+						Key: codeexecutor.AttrCount,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_IntValue{IntValue: 3},
+						},
+					},
+				},
+			},
+			expected: map[string]string{
+				observationType:   "tool",
+				observationInput:  "count=3",
+				observationOutput: "N/A",
+			},
+		},
+		{
+			name: "workspace collect with patterns",
+			input: &tracepb.Span{
+				Name: codeexecutor.SpanWorkspaceCollect,
+				Attributes: []*commonpb.KeyValue{
+					{
+						Key: codeexecutor.AttrPatterns,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_IntValue{IntValue: 2},
+						},
+					},
+				},
+			},
+			expected: map[string]string{
+				observationType:   "tool",
+				observationInput:  "patterns=2",
+				observationOutput: "N/A",
+			},
+		},
+		{
+			name: "workspace create with exec id",
+			input: &tracepb.Span{
+				Name: codeexecutor.SpanWorkspaceCreate,
+				Attributes: []*commonpb.KeyValue{
+					{
+						Key: codeexecutor.AttrExecID,
+						Value: &commonpb.AnyValue{
+							Value: &commonpb.AnyValue_StringValue{StringValue: "exec-1"},
+						},
+					},
+				},
+			},
+			expected: map[string]string{
+				observationType:   "tool",
+				observationInput:  "exec_id=exec-1",
+				observationOutput: "N/A",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transformWorkspace(tt.input)
+
+			attrMap := make(map[string]string)
+			for _, attr := range tt.input.Attributes {
+				attrMap[attr.Key] = attr.Value.GetStringValue()
+			}
+
+			for key, expectedValue := range tt.expected {
+				actualValue, exists := attrMap[key]
+				assert.True(t, exists, "attribute %s should exist", key)
+				assert.Equal(t, expectedValue, actualValue, "attribute %s value mismatch", key)
 			}
 		})
 	}
