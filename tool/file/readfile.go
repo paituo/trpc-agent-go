@@ -492,6 +492,7 @@ func (f *fileToolSet) readFileTool() tool.CallableTool {
 		"Read a text file under base_directory. "+
 			"Prefer relative paths (e.g. \"dir/file.txt\") over absolute paths. "+
 			"Supports workspace:// and artifact:// refs. "+
+			"It also supports absolute paths under base_directory or configured read-only roots. "+
 			"Optional start_line and num_lines select line ranges. "+
 			"Optional max_chars limits the number of characters returned. "+
 			"NOTE: Default max_chars is %dKB (%d chars). "+

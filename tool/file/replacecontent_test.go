@@ -14,6 +14,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -182,6 +183,9 @@ func TestFileTool_ReplaceContent_RejectsFileRef(t *testing.T) {
 }
 
 func TestFileTool_ReplaceContent_PreservePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	// Prepare test file.
 	tempDir := t.TempDir()
 	fts := &fileToolSet{baseDir: tempDir}

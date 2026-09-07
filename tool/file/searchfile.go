@@ -172,7 +172,7 @@ func (f *fileToolSet) searchFile(
 			// Skip entries that can't be stat.
 			continue
 		}
-		relativePath := filepath.Join(reqPath, match)
+		relativePath := filepath.ToSlash(filepath.Join(reqPath, match))
 		if stat.IsDir() {
 			rsp.Folders = append(rsp.Folders, relativePath)
 		} else {

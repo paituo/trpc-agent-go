@@ -364,7 +364,11 @@ func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
 		}
 		return "", fmt.Errorf(
 			"invalid path - absolute path outside base directory "+
-				"(base: %s): %s",
+				"(base: %s): %s. Use a relative path under base_directory. "+
+				"If exec_command wrote an absolute temp path, fs_read_file can "+
+				"read it only when that path is under base_directory or a "+
+				"configured read-only root; otherwise have exec_command print "+
+				"the needed data directly.",
 			f.baseDir,
 			relativePath,
 		)

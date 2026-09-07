@@ -753,6 +753,9 @@ func TestFileTool_ReadFile_FromRef_ParseError(t *testing.T) {
 }
 
 func TestFileTool_ReadFile_FromSkillRunCache(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("this test runs a real skill with POSIX shell commands")
+	}
 	skillRoot := t.TempDir()
 	const skillName = "demo"
 	skillDir := filepath.Join(skillRoot, skillName)

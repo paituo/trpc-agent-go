@@ -12,6 +12,7 @@ package file
 
 import (
 	"context"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -29,17 +30,21 @@ func buildWorkspaceIndex(ctx context.Context) workspaceIndex {
 	seenDirs := make(map[string]struct{})
 	files := make([]string, 0)
 
+	// Workspace paths are logical POSIX-relative paths: exported skill_run
+	// output names and workspace refs always use "/" regardless of the host
+	// platform, so normalize with path.Clean (never filepath, which would
+	// convert separators to "\" on Windows and break ref lookups).
 	for _, f := range fileref.WorkspaceFiles(ctx) {
-		name := filepath.Clean(strings.TrimSpace(f.Name))
+		name := path.Clean(strings.TrimSpace(f.Name))
 		if name == "" || name == "." {
 			continue
 		}
 		files = append(files, name)
 
-		dir := filepath.Dir(name)
+		dir := path.Dir(name)
 		for dir != "." && dir != "" {
 			seenDirs[dir] = struct{}{}
-			next := filepath.Dir(dir)
+			next := path.Dir(dir)
 			if next == dir {
 				break
 			}
@@ -65,8 +70,8 @@ func matchWorkspacePaths(
 	if strings.TrimSpace(pattern) == "" {
 		return nil, nil, nil
 	}
-	sep := string(filepath.Separator)
-	base := filepath.Clean(strings.TrimSpace(dir))
+	const sep = "/"
+	base := path.Clean(strings.TrimSpace(dir))
 	if base == "." {
 		base = ""
 	}

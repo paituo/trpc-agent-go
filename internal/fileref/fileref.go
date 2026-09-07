@@ -17,7 +17,6 @@ package fileref
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -189,13 +188,16 @@ func cleanRelPath(p string) (string, error) {
 		)
 	}
 
-	clean := filepath.Clean(s)
+	// Workspace refs are logical POSIX-relative paths (skill_run output names
+	// and workspace refs always use "/"), so normalize with path.Clean rather
+	// than filepath.Clean: the latter would convert separators to "\" on
+	// Windows and break cache-key lookups for exported skill_run outputs.
+	clean := path.Clean(s)
 	if clean == "." {
 		return "", nil
 	}
 	parent := ".."
-	sep := string(os.PathSeparator)
-	if clean == parent || strings.HasPrefix(clean, parent+sep) {
+	if clean == parent || strings.HasPrefix(clean, parent+"/") {
 		return "", fmt.Errorf(
 			"path traversal is not allowed: %s",
 			p,

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -144,9 +145,28 @@ func (f *fileToolSet) searchContentByFilePatternRef(
 		path = fileref.WorkspaceRef(ref.Path)
 	}
 
-	match := searchTextContent(path, content, re)
+	searchable := content
+	if f != nil && f.maxFileSize > 0 && int64(len(content)) > f.maxFileSize {
+		searchable = content[:f.maxFileSize]
+	}
+	match := searchTextContent(path, searchable, re)
 	if len(match.Matches) == 0 {
+		if len(searchable) != len(content) {
+			match.Message = fmt.Sprintf(
+				"partial search of '%s' (file exceeds max file size)",
+				path,
+			)
+			return []*fileMatch{match}, true, nil
+		}
 		return []*fileMatch{}, true, nil
+	}
+	if len(searchable) != len(content) {
+		match.Message = fmt.Sprintf(
+			"partial search of '%s': found %d matches",
+			path,
+			len(match.Matches),
+		)
+		return []*fileMatch{match}, true, nil
 	}
 	match.Message = fmt.Sprintf(
 		"Found %d matches in file '%s'",
@@ -240,7 +260,7 @@ func (f *fileToolSet) searchContentLocal(
 	)
 	for _, file := range files {
 		fullPath := filepath.Join(targetPath, file)
-		relPath := filepath.Join(reqPath, file)
+		relPath := filepath.ToSlash(filepath.Join(reqPath, file))
 		stat, err := os.Stat(fullPath)
 		if err != nil {
 			continue
@@ -361,7 +381,7 @@ func (f *fileToolSet) searchSkillCache(
 		return nil, false
 	}
 	if reqPath != "" && !strings.ContainsAny(candidate, `/\`) {
-		candidate = filepath.Join(reqPath, candidate)
+		candidate = filepath.ToSlash(filepath.Join(reqPath, candidate))
 	}
 
 	content, _, ok := toolcache.LookupSkillRunOutputFileFromContext(
@@ -393,8 +413,8 @@ func (f *fileToolSet) searchWorkspaceContent(
 		return []*fileMatch{}
 	}
 
-	sep := string(filepath.Separator)
-	base := filepath.Clean(strings.TrimSpace(dir))
+	const sep = "/"
+	base := path.Clean(strings.TrimSpace(dir))
 	if base == "." {
 		base = ""
 	}
@@ -405,7 +425,7 @@ func (f *fileToolSet) searchWorkspaceContent(
 
 	var out []*fileMatch
 	for _, entry := range fileref.WorkspaceFiles(ctx) {
-		full := filepath.Clean(strings.TrimSpace(entry.Name))
+		full := path.Clean(strings.TrimSpace(entry.Name))
 		if full == "" || full == "." {
 			continue
 		}

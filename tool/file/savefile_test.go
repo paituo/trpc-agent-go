@@ -14,6 +14,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -136,6 +137,9 @@ func TestFileTool_SaveFile_RejectsFileRef(t *testing.T) {
 }
 
 func TestFileTool_SaveFile_CustomPermissionsForFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	// Create a temporary directory for testing.
 	tempDir := t.TempDir()
 	// Test with custom permissions
@@ -190,6 +194,9 @@ func TestFileTool_SaveFile_WithDirectory(t *testing.T) {
 }
 
 func TestFileTool_SaveFile_CustomPermissionsForDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not meaningful on Windows")
+	}
 	// Create a temporary directory for testing.
 	tempDir := t.TempDir()
 	// Test with custom permissions
