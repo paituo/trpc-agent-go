@@ -656,7 +656,8 @@ func TestRunnerCompletion_GraphRunCapturesComplexExecutionPredecessors(t *testin
 		stepIDToNodeID[step.StepID] = step.NodeID
 		stepsByNodeID[step.NodeID] = append(stepsByNodeID[step.NodeID], step)
 		require.NotEmpty(t, step.StepID)
-		require.NotEqual(t, step.StartedAt, step.EndedAt)
+		require.False(t, step.EndedAt.Before(step.StartedAt),
+			"step %q ended before it started", step.NodeID)
 		require.NotNil(t, step.Input)
 		assert.Empty(t, step.Error)
 	}

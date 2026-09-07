@@ -225,13 +225,32 @@ type multiResponseModel struct {
 
 func (m *multiResponseModel) GenerateContent(ctx context.Context, req *model.Request) (<-chan *model.Response, error) {
 	ch := make(chan *model.Response, len(m.responses))
-	for _, response := range m.responses {
-		if m.delay > 0 {
-			time.Sleep(m.delay)
+	// Deliver responses asynchronously so that response-timing observations
+	// (first token / reasoning duration) measure real elapsed time between the
+	// stream start and each chunk, mirroring a live streaming model. Sleeping
+	// synchronously before returning the channel would record the delay before
+	// the tracker's start timestamp and yield zero durations on coarse clocks.
+	go func() {
+		defer close(ch)
+		for _, response := range m.responses {
+			if m.delay > 0 {
+				timer := time.NewTimer(m.delay)
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					return
+				}
+			}
+			select {
+			case ch <- response:
+			case <-ctx.Done():
+				return
+			}
 		}
-		ch <- response
-	}
-	close(ch)
+	}()
 	return ch, nil
 }
 
