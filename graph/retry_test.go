@@ -619,6 +619,9 @@ func TestNodeRetry_MaxElapsedBudget(t *testing.T) {
 	var attempts int32
 	unstable := func(ctx context.Context, state State) (any, error) {
 		atomic.AddInt32(&attempts, 1)
+		// Ensure wall-clock progress past the nanosecond budget even on coarse
+		// clocks; otherwise elapsed stays zero and the budget check never trips.
+		time.Sleep(2 * time.Millisecond)
 		return nil, fmt.Errorf("always fail budget")
 	}
 
