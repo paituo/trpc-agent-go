@@ -332,6 +332,10 @@ func (m *semanticMounter) dumpRerankJSON(
 	input []*reranker.Result,
 	output []*reranker.Result,
 ) {
+	// 调试转储仅在显式开启时写盘，避免运行期/测试在工作目录留下产物。
+	if os.Getenv("FRAGMENT_DEBUG_RERANK") == "" {
+		return
+	}
 	type debugDoc struct {
 		ID      string  `json:"id"`
 		Name    string  `json:"name,omitempty"`
