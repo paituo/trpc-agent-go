@@ -315,7 +315,7 @@ func (m *semanticMounter) rerankKeywordCandidates(
 			kwScore: cos,
 			rrScore: r.Score,
 			mt:      mt,
-			src:     kwNameByID[id],
+			src:     "semantic:keyword+rerank",
 		})
 	}
 	if len(out) == 0 {
@@ -451,7 +451,7 @@ func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string)
 			kwScore: ns.maxCos, // keyword-only path: reranker not used, carry cosine as rrScore
 			rrScore: 0,
 			mt:      mt,
-			src:     ns.bestKw,
+			src:     "semantic:keyword",
 		}
 	}
 	return out
