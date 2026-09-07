@@ -264,9 +264,6 @@ func (gk *BuiltinGraphKnowledge) graphSearch(
 			Score: seed.score,
 		})
 	}
-	if max := req.MaxResults; max > 0 && len(docResults) > max {
-		docResults = docResults[:max]
-	}
 
 	top := docResults[0]
 	return &SearchResult{
@@ -298,7 +295,7 @@ func (gk *BuiltinGraphKnowledge) LoadGraphSource(
 	if err != nil {
 		return err
 	}
-	truncateGraphDataContent(data)
+	//truncateGraphDataContent(data)
 	if err := gk.storeGraphData(ctx, data, config); err != nil {
 		return err
 	}
@@ -590,7 +587,7 @@ func (gk *BuiltinGraphKnowledge) HybridSearch(
 		return nil, fmt.Errorf("locate graph nodes: %w", err)
 	}
 	if len(seeds) == 0 {
-		return nil, errors.New("no relevant information found")
+		return nil, errors.New("no relevant graph nodes found")
 	}
 
 	// Step 2: Traverse to get child nodes
@@ -687,9 +684,6 @@ func (gk *BuiltinGraphKnowledge) vectorSearchOnNodes(
 			Document: scored.Document,
 			Score:    scored.Score,
 		})
-	}
-	if max := req.MaxResults; max > 0 && len(documents) > max {
-		documents = documents[:max]
 	}
 	if len(documents) == 0 {
 		return nil, errors.New("no relevant documents found")

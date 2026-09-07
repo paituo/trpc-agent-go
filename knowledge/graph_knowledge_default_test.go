@@ -386,7 +386,10 @@ func TestGraphSeedEmbeddingTextUsesStructuredFieldsAndTruncatesContent(t *testin
 	}
 }
 
-func TestBuiltinGraphKnowledge_LoadGraphSourceTruncatesStoredContent(t *testing.T) {
+// TestBuiltinGraphKnowledge_LoadGraphSourceKeepsFullContent verifies that graph
+// source content is stored verbatim (full oversized content is preserved) and
+// is fed to the embedder unchanged.
+func TestBuiltinGraphKnowledge_LoadGraphSourceKeepsFullContent(t *testing.T) {
 	store := &stubGraphStore{}
 	vectorStore := inmemory.New()
 	embedder := &recordingGraphEmbedder{}
@@ -410,21 +413,19 @@ func TestBuiltinGraphKnowledge_LoadGraphSourceTruncatesStoredContent(t *testing.
 	if len(store.nodes) != 1 {
 		t.Fatalf("stored nodes = %d, want 1", len(store.nodes))
 	}
-	if !strings.HasSuffix(store.nodes[0].Content, "...<truncated>") {
-		t.Fatalf("stored graph content was not truncated")
-	}
-	if strings.Contains(store.nodes[0].Content, longContent) {
-		t.Fatalf("stored graph content contains full oversized content")
+	if store.nodes[0].Content != longContent {
+		t.Fatalf("stored graph content was altered; expected full original content")
 	}
 	doc, _, err := vectorStore.Get(context.Background(), "node-1")
 	if err != nil {
 		t.Fatalf("vectorStore.Get() error = %v", err)
 	}
-	if !strings.HasSuffix(doc.Content, "...<truncated>") {
-		t.Fatalf("vector document content was not truncated")
+	if doc.Content != longContent {
+		t.Fatalf("vector document content was altered; expected full original content")
 	}
+	// 存储与向量文档保留全文；embedding 文本按默认上限截断以控制 token 成本。
 	if len(embedder.texts) != 1 || !strings.HasSuffix(embedder.texts[0], "...<truncated>") {
-		t.Fatalf("embedding texts = %+v, want truncated content", embedder.texts)
+		t.Fatalf("embedding texts = %+v, want truncated embedding content", embedder.texts)
 	}
 }
 
@@ -969,8 +970,8 @@ func TestBuiltinGraphKnowledge_SearchEmptyResults(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty search results")
 	}
-	if !strings.Contains(err.Error(), "no relevant information found") {
-		t.Fatalf("error = %v, want 'no relevant information found'", err)
+	if !strings.Contains(err.Error(), "no relevant graph nodes found") {
+		t.Fatalf("error = %v, want 'no relevant graph nodes found'", err)
 	}
 }
 
@@ -984,8 +985,8 @@ func TestBuiltinGraphKnowledge_SearchNilVectorStoreResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nil search result")
 	}
-	if !strings.Contains(err.Error(), "no relevant information found") {
-		t.Fatalf("error = %v, want 'no relevant information found'", err)
+	if !strings.Contains(err.Error(), "no relevant graph nodes found") {
+		t.Fatalf("error = %v, want 'no relevant graph nodes found'", err)
 	}
 }
 
@@ -1793,7 +1794,7 @@ func TestBuiltinGraphKnowledge_AddGraphEdgesLowConcurrencyProgress(t *testing.T)
 
 // --- Search with MaxResults custom value ---
 
-func TestBuiltinGraphKnowledge_SearchRespectsMaxResults(t *testing.T) {
+func TestBuiltinGraphKnowledge_SearchDocSetCappedBySeedDefault(t *testing.T) {
 	gk := NewGraphKnowledge(
 		WithGraphStore(&stubGraphStore{}),
 		WithGraphVectorStore(inmemory.New()),
@@ -1812,8 +1813,9 @@ func TestBuiltinGraphKnowledge_SearchRespectsMaxResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search() error = %v", err)
 	}
-	if len(result.Documents) > 3 {
-		t.Fatalf("Documents = %d, want <= 3", len(result.Documents))
+	// 图检索最终文档集合受种子默认上限约束（MaxResults 作用于检索环节而非结果合并）。
+	if len(result.Documents) > defaultGraphSearchMaxSeeds {
+		t.Fatalf("Documents = %d, want <= %d", len(result.Documents), defaultGraphSearchMaxSeeds)
 	}
 }
 

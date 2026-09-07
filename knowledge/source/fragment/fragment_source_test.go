@@ -105,10 +105,13 @@ func TestParseMDDocument(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, frags, 1)
 		require.Equal(t, "Chapter 1", frags[0].name)
-		require.Len(t, frags[0].children, 2)
-		require.Equal(t, "Section 1.1", frags[0].children[0].name)
-		require.Equal(t, "Section 1.2", frags[0].children[1].name)
-		require.Equal(t, 2, frags[0].children[0].headingLevel)
+		// chapter 自身正文作为 body fragment 挂在首位，其后是各子节。
+		require.Len(t, frags[0].children, 3)
+		require.Equal(t, "Chapter 1", frags[0].children[0].name)
+		require.Contains(t, frags[0].children[0].content, "Body1")
+		require.Equal(t, "Section 1.1", frags[0].children[1].name)
+		require.Equal(t, "Section 1.2", frags[0].children[2].name)
+		require.Equal(t, 2, frags[0].children[1].headingLevel)
 	})
 
 	t.Run("headingPath accumulation", func(t *testing.T) {
@@ -120,25 +123,21 @@ func TestParseMDDocument(t *testing.T) {
 		require.Len(t, frags, 1)
 		chA := frags[0]
 		require.Equal(t, "A", chA.headingPath)
-		require.Len(t, chA.children, 1)
-		chB := chA.children[0]
+		// A 的正文 body fragment 居首，B（最大解析层级内）是下一项。
+		require.Len(t, chA.children, 2)
+		require.Equal(t, "A", chA.children[0].headingPath)
+		chB := chA.children[1]
 		require.Equal(t, "A > B", chB.headingPath)
-		require.Len(t, chB.children, 1)
-		chC := chB.children[0]
-		require.Equal(t, "A > B > C", chC.headingPath)
+		require.Empty(t, chB.children)
 	})
 
-	t.Run("document with no headings creates default chapter", func(t *testing.T) {
+	t.Run("document with no headings yields no fragments", func(t *testing.T) {
 		dir := t.TempDir()
 		path := writeMDFile(t, dir, "empty.md", "第一段内容。\n\n第二段内容。\n")
 		frags, err := (&Source{logging: false}).parseMDDocument(path)
 		require.NoError(t, err)
-		require.Len(t, frags, 1, "should create one default chapter")
-		ch := frags[0]
-		require.Equal(t, "empty", ch.name)
-		require.NotEmpty(t, ch.headingPath)
-		require.Len(t, ch.children, 2, "body should be split into fragments under the chapter")
-		require.Equal(t, "empty", ch.children[0].headingPath)
+		// 无标题文档不产出章节结构，交由更高层（目录/其它源）处理。
+		require.Empty(t, frags)
 	})
 
 	t.Run("file not found", func(t *testing.T) {
@@ -497,7 +496,7 @@ func TestReadGraph(t *testing.T) {
 		require.Equal(t, 2, types["skeleton"])
 		require.Equal(t, 1, types["document"])
 		require.Equal(t, 1, types["chapter"])
-		require.Equal(t, 2, types["fragment"])
+		require.Equal(t, 3, types["fragment"])
 
 		edgeTypes := make(map[string]int)
 		for _, e := range data.Edges {
@@ -803,7 +802,7 @@ func TestReadGraphIntegrationWithSkeleton(t *testing.T) {
 	require.Equal(t, 4, types["skeleton"])
 	require.Equal(t, 1, types["document"])
 	require.Equal(t, 2, types["chapter"])
-	require.Equal(t, 4, types["fragment"])
+	require.Equal(t, 6, types["fragment"])
 
 	unknownFound := false
 	for _, n := range data.Nodes {
@@ -902,12 +901,11 @@ func TestAssignSkeleton(t *testing.T) {
 // point at the matching skeleton node (not all at the first root).
 func TestReadGraphMountsToMatchedSkeleton(t *testing.T) {
 	dir := t.TempDir()
-	content := "# 1 总则\nB0\n## 1.1 设计依据\nB1\n### 1.1.1 范围\nB2\n## 1.2 术语\nB3\n"
+	content := "# 1 总则\nB0\n## 1.1 设计依据\nB1\n## 1.2 术语\nB3\n"
 	path := writeMDFile(t, dir, "mount2.md", content)
 	skeletons := []SkeletonNode{
 		{ID: "s1", Name: "1 总则"},
 		{ID: "s11", Name: "1.1 设计依据", ParentID: "s1"},
-		{ID: "s111", Name: "1.1.1 范围", ParentID: "s11"},
 		{ID: "s12", Name: "1.2 术语", ParentID: "s1"},
 	}
 	src := newTestSource(skeletons, []string{path})
@@ -933,8 +931,8 @@ func TestReadGraphMountsToMatchedSkeleton(t *testing.T) {
 		}
 	}
 
-	require.Equal(t, "s111", mountTarget["1 总则 > 1.1 设计依据 > 1.1.1 范围"],
-		"deepest fragment should mount to the deepest skeleton node")
+	require.Equal(t, "s11", mountTarget["1 总则 > 1.1 设计依据"],
+		"section fragment should mount to its matching skeleton node")
 	require.Equal(t, "s12", mountTarget["1 总则 > 1.2 术语"],
 		"shallower fragment should mount to its own skeleton node, not the root")
 	// Ensure fragments are NOT all mounted to the same root node.

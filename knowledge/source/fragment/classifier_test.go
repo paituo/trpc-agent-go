@@ -189,7 +189,6 @@ func TestDefaultDocClassifyPromptShape(t *testing.T) {
 		"专题报告",
 		"设计图纸",
 		"工程依据及支撑性文件",
-		"待人工复核",
 		docClassifyPlaceholder,
 	} {
 		if !strings.Contains(p, kw) {

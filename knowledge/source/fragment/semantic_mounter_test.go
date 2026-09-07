@@ -120,11 +120,12 @@ func TestSemanticMounter_SingleNode(t *testing.T) {
 		name     string
 		fragText string
 		want     string
+		kw       string // MatchSource 记录命中的业务关键词
 	}{
-		{"tower", "1.1 杆塔型式 本工程采用角钢塔，呼高与根开见下表", "TowerDesign"},
-		{"foundation", "2.3 基础型式 采用挖孔基础与灌注桩", "FoundationDesign"},
-		{"conductor", "3 导地线选型 导线型号JLHA1/G1A，地线采用OPGW", "ConductorAndGroundWire"},
-		{"overview", "前言 工程概况 线路路径长度与电压等级", "EngineeringOverview"},
+		{"tower", "1.1 杆塔型式 本工程采用角钢塔，呼高与根开见下表", "TowerDesign", "杆塔"},
+		{"foundation", "2.3 基础型式 采用挖孔基础与灌注桩", "FoundationDesign", "基础"},
+		{"conductor", "3 导地线选型 导线型号JLHA1/G1A，地线采用OPGW", "ConductorAndGroundWire", "导地线"},
+		{"overview", "前言 工程概况 线路路径长度与电压等级", "EngineeringOverview", "概况"},
 	}
 
 	for _, c := range cases {
@@ -133,7 +134,7 @@ func TestSemanticMounter_SingleNode(t *testing.T) {
 			require.Len(t, targets, 1, "should mount to exactly one skeleton node")
 			require.Equal(t, c.want, targets[0].SkeletonID)
 			require.Equal(t, "direct", targets[0].MountType)
-			require.Equal(t, "semantic:keyword+rerank", targets[0].MatchSource)
+			require.Equal(t, c.kw, targets[0].MatchSource)
 		})
 	}
 }
@@ -182,7 +183,7 @@ func TestSemanticMounter_RerankerUnavailable(t *testing.T) {
 	require.Len(t, targets, 1)
 	require.Equal(t, "TowerDesign", targets[0].SkeletonID)
 	require.Equal(t, "direct", targets[0].MountType)
-	require.Equal(t, "semantic:keyword", targets[0].MatchSource)
+	require.Equal(t, "杆塔", targets[0].MatchSource)
 }
 
 func TestSource_MountFragmentDeterministicFallback(t *testing.T) {

@@ -76,7 +76,7 @@ const defaultSourceName = "Fragment Source"
 // trpcAstMetaPrefix is the prefix for all metadata keys written by fragment source,
 // consistent with codeast.TrpcAstMetaPrefix used by repo source.
 const trpcAstMetaPrefix = "trpc_ast_"
-const max_output_level = 6 // 最大输出层级，超过该层级的不拆分
+const max_output_level = 2 // 最大输出层级，超过该层级的不拆分
 // SkeletonNode describes a skeleton node from an engineering skeleton definition.
 type SkeletonNode struct {
 	ID            string
@@ -483,17 +483,6 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 		})
 	}
 
-	// 无任何标题：创建默认章节，承载全部正文（按 5.4 口径 B 建模为 chapter + body fragment）
-	noHeadings := len(headings) == 0
-	defaultChapterTitle := defaultChapterName(docPath)
-	if noHeadings {
-		headings = append(headings, heading{
-			lineNum: 1,
-			level:   1,
-			title:   defaultChapterTitle,
-		})
-	}
-
 	// 如果第一个非空行不是标题，添加一个虚拟标题，避免前面的内容丢失
 	if len(headings) > 0 {
 		firstNonEmptyLine := -1
@@ -552,55 +541,33 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 
 			// 使用 splitBodyByCharLimit 按1500字符切割
 			bodySegments := splitBodyByCharLimit(bodyLines, contentStart, maxFragmentChars)
-			if noHeadings {
-				// 无标题文档的默认章节：按段落切分 body fragment
-				bodySegments = splitBodyByParagraphs(bodyLines, contentStart)
-			}
 
-			// 5.4 口径（B）：
-			//   - 顶层且自身没有子标题的标题 → chapter，正文切为 body fragment
-			//     挂到该 chapter 下（避免沦为 document 级 fragment）；
-			//   - 带子标题的标题（顶层或嵌套）→ chapter/容器，其自身正文并入
-			//     chapter content（作为引言），不再产生额外的 body fragment，
-			//     使子标题保持为其直接子节点。
-			hasSubHeadings := len(children) > 0
-			if parentLevel == 0 || hasSubHeadings {
+			// 5.4 修复（口径 B）：顶层、且自身没有子标题的标题，
+			// 建模为 chapter，并将其正文作为一个 fragment 挂到该 chapter 下，
+			// 避免它沦为 document 级 fragment（与真正的 chapter 类型不一致）。
+			if parentLevel == 0 || len(children) > 0 {
 				chapterID := fmt.Sprintf("h_%d_%d", h.lineNum, h.level)
-				chapterContent := strings.TrimSpace(lines[h.lineNum-1]) // 标题行，作为章节头
-				if noHeadings {
-					// 默认章节没有真实标题：正文只存在于 body fragment，章节头留空
-					chapterContent = ""
-				}
 				var bodyFragments []fragment
-				if parentLevel == 0 && !hasSubHeadings {
-					for segIdx, seg := range bodySegments {
-						bodyFragID := fmt.Sprintf("%s_body_%d", chapterID, segIdx)
-						bodyFragments = append(bodyFragments, fragment{
-							id:           bodyFragID,
-							name:         h.title,
-							content:      seg.content,
-							headingLevel: h.level,
-							headingPath:  headingPath,
-							startLine:    seg.startLine,
-							endLine:      seg.endLine,
-							tables:       seg.tables,
-							images:       seg.images,
-							docCategory:  docCat,
-						})
-					}
-				} else if len(bodySegments) > 0 {
-					parts := make([]string, 0, len(bodySegments)+1)
-					parts = append(parts, chapterContent)
-					for _, seg := range bodySegments {
-						parts = append(parts, seg.content)
-					}
-					chapterContent = strings.Join(parts, "\n")
+				for segIdx, seg := range bodySegments {
+					bodyFragID := fmt.Sprintf("%s_body_%d", chapterID, segIdx)
+					bodyFragments = append(bodyFragments, fragment{
+						id:           bodyFragID,
+						name:         h.title,
+						content:      seg.content,
+						headingLevel: h.level,
+						headingPath:  headingPath,
+						startLine:    seg.startLine,
+						endLine:      seg.endLine,
+						tables:       seg.tables,
+						images:       seg.images,
+						docCategory:  docCat,
+					})
 				}
 				children = append(bodyFragments, children...)
 				result = append(result, fragment{
 					id:           chapterID,
 					name:         h.title,
-					content:      chapterContent,
+					content:      strings.TrimSpace(lines[h.lineNum-1]), // 仅标题行，作为章节头
 					headingLevel: h.level,
 					headingPath:  headingPath,
 					startLine:    contentStart,
@@ -1282,40 +1249,6 @@ func splitBodyByCharLimit(bodyLines []string, contentStart int, maxChars int) []
 		})
 	}
 
-	return result
-}
-
-// splitBodyByParagraphs 将正文按空行分隔的段落切分为多个 body 片段，
-// 用于无标题文档的默认章节，使每个段落独立成为一个 fragment。
-func splitBodyByParagraphs(bodyLines []string, contentStart int) []bodySegment {
-	var result []bodySegment
-	start := -1
-	flush := func(end int) {
-		if start < 0 {
-			return
-		}
-		segStart := start
-		text := strings.TrimSpace(strings.Join(bodyLines[segStart:end], "\n"))
-		start = -1
-		if text == "" {
-			return
-		}
-		result = append(result, bodySegment{
-			content:   text,
-			startLine: segStart + contentStart, // bodyLines[0] 对应文档第 contentStart 行
-			endLine:   end - 1 + contentStart,
-		})
-	}
-	for i, ln := range bodyLines {
-		if strings.TrimSpace(ln) == "" {
-			flush(i)
-			continue
-		}
-		if start < 0 {
-			start = i
-		}
-	}
-	flush(len(bodyLines))
 	return result
 }
 
