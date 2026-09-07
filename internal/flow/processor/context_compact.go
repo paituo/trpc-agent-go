@@ -297,7 +297,7 @@ func normalizeContextCompactionConfig(
 		cfg.OversizedToolResultMaxTokens = 0
 	}
 	if cfg.TokenCounter == nil {
-		log.WarnfContext(context.Background(),
+		log.DebugfContext(context.Background(),
 			"token-counter-fallback: normalizeContextCompactionConfig using default SimpleTokenCounter(4.0), "+
 				"configure WithContextCompactionTokenCounter for Chinese text accuracy",
 		)

@@ -244,6 +244,49 @@ func TestToolActivationSkillLoadUpdatesNextModelRequestTools(t *testing.T) {
 	require.Contains(t, requests[1].Tools, "browser_open")
 }
 
+func TestToolActivationOriginalToolNames(t *testing.T) {
+	repo, err := skill.NewFSRepository(
+		createNamedTestSkill(t, "research", "research skill"),
+	)
+	require.NoError(t, err)
+	mockModel := &activationSequenceModel{
+		responses: []*model.Response{
+			activationToolCallResponse(t, "call-1", "research"),
+			activationFinalResponse("done"),
+		},
+	}
+	agt := New(
+		"agent",
+		WithModel(mockModel),
+		WithSkills(repo),
+		WithActivatableToolSets([]tool.ToolSet{
+			activationToolSet{
+				name:  "github",
+				tools: []tool.Tool{activationTool{name: "search"}},
+			},
+		}),
+		WithToolSetToolNameMode("github", tool.ToolSetToolNameModeOriginal),
+		WithToolActivationOnSkillLoad("research", []string{"github"}),
+	)
+
+	inv := &agent.Invocation{
+		InvocationID: "inv",
+		Session:      session.NewSession("app", "user", "session"),
+		Message:      model.NewUserMessage("load research"),
+	}
+	events, err := agt.Run(context.Background(), inv)
+	require.NoError(t, err)
+	for range events {
+	}
+
+	requests := mockModel.Requests()
+	require.Len(t, requests, 2)
+	require.NotContains(t, requests[0].Tools, "search")
+	require.NotContains(t, requests[0].Tools, "github_search")
+	require.Contains(t, requests[1].Tools, "search")
+	require.NotContains(t, requests[1].Tools, "github_search")
+}
+
 func TestToolActivationSessionLifetimeVisibleInNextInvocation(t *testing.T) {
 	repo, err := skill.NewFSRepository(
 		createNamedTestSkill(t, "research", "research skill"),
@@ -478,6 +521,7 @@ func TestToolActivationIncludeReplacesExternalToolWithSameName(t *testing.T) {
 				tools: []tool.Tool{activationTool{name: "browse"}},
 			},
 		},
+		nil,
 		nil,
 		nil,
 	)
@@ -867,6 +911,7 @@ func TestToolActivationExpansionSkipsDuplicatesAndFilteredTools(t *testing.T) {
 		func(_ context.Context, tl tool.Tool) bool {
 			return toolActivationToolName(tl) != "safe_skip"
 		},
+		nil,
 	)
 	require.Len(t, tools, 1)
 	require.Equal(t, "safe_browse", toolActivationToolName(tools[0]))
@@ -879,11 +924,13 @@ func TestToolActivationExpansionSkipsDuplicatesAndFilteredTools(t *testing.T) {
 		},
 		accepted,
 		nil,
+		nil,
 	))
 	require.Empty(t, expandOneToolActivationSet(
 		ctx,
 		activationToolSet{name: "empty"},
 		map[string]bool{},
+		nil,
 		nil,
 	))
 }
