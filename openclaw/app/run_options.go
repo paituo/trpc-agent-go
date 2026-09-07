@@ -25,9 +25,9 @@ import (
 	ia2a "trpc.group/trpc-go/trpc-agent-go/internal/a2a"
 	"trpc.group/trpc-go/trpc-agent-go/internal/skillprofile"
 	"trpc.group/trpc-go/trpc-agent-go/model"
+	"trpc.group/trpc-go/trpc-agent-go/openclaw/admin"
 	ocskills "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/skills"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/runtimeprofile"
-	"trpc.group/trpc-go/trpc-agent-go/openclaw/admin"
 	"trpc.group/trpc-go/trpc-agent-go/skill"
 )
 
@@ -101,22 +101,21 @@ const (
 	flagPreloadMemory                                 = "preload-memory"
 	flagToolCallArgumentsJSONRepair                   = "tool-call-arguments-json-repair"
 
-	flagSessionSummaryInjectionMode            = "session-summary-injection-mode"
-	flagSyncSummaryIntraRun                    = "sync-summary-intra-run"
-	flagContextCompactionThresholdRatio        = "context-compaction-threshold-ratio"
-	flagContextCompactionToolResultMaxTokens   = "context-compaction-tool-result-max-tokens"
-	flagContextCompactionKeepRecentRequests    = "context-compaction-keep-recent-requests"
-	flagContextCompactionKeepRecentToolResults = "context-compaction-keep-recent-tool-results"
-	flagEnableDetailedContextMetrics           = "enable-detailed-context-metrics"
-	flagEnableTokenCounterCalibration          = "enable-token-counter-calibration"
-	flagContextCompactionForceCleanToolNames   = "context-compaction-force-clean-tool-names"
-	flagContextCompactionKeepToolNames         = "context-compaction-keep-tool-names"
-	flagContextWindow                          = "context-window"
-	flagSkillsProjectAgentsRoot                = "skills-project-agents-root"
-	flagSkillsPersonalAgentsRoot               = "skills-personal-agents-root"
-	flagSkillsManagedRoot                      = "skills-managed-root"
-	flagPlannerType                            = "agent-planner-type"
-	flagPlannerConfig                          = "agent-planner-config"
+	flagSessionSummaryInjectionMode          = "session-summary-injection-mode"
+	flagSyncSummaryIntraRun                  = "sync-summary-intra-run"
+	flagContextCompactionThresholdRatio      = "context-compaction-threshold-ratio"
+	flagContextCompactionToolResultMaxTokens = "context-compaction-tool-result-max-tokens"
+	flagContextCompactionKeepRecentRequests  = "context-compaction-keep-recent-requests"
+	flagEnableDetailedContextMetrics         = "enable-detailed-context-metrics"
+	flagEnableTokenCounterCalibration        = "enable-token-counter-calibration"
+	flagContextCompactionForceCleanToolNames = "context-compaction-force-clean-tool-names"
+	flagContextCompactionKeepToolNames       = "context-compaction-keep-tool-names"
+	flagContextWindow                        = "context-window"
+	flagSkillsProjectAgentsRoot              = "skills-project-agents-root"
+	flagSkillsPersonalAgentsRoot             = "skills-personal-agents-root"
+	flagSkillsManagedRoot                    = "skills-managed-root"
+	flagPlannerType                          = "agent-planner-type"
+	flagPlannerConfig                        = "agent-planner-config"
 
 	flagAgentInstruction       = "agent-instruction"
 	flagAgentInstructionFiles  = "agent-instruction-files"
@@ -135,9 +134,9 @@ const (
 	flagAgentRalphLoopVerifyTimeout     = "agent-ralph-verify-timeout"
 	flagAgentRalphLoopVerifyEnv         = "agent-ralph-verify-env"
 
-	flagEnableParallelTools     = "enable-parallel-tools"
-	flagEnableContextBudget     = "enable-context-budget"
-	flagMaxContextBudgetWindow  = "max-context-budget-window"
+	flagEnableParallelTools    = "enable-parallel-tools"
+	flagEnableContextBudget    = "enable-context-budget"
+	flagMaxContextBudgetWindow = "max-context-budget-window"
 
 	flagSkillsAllowBundled    = "skills-allow-bundled"
 	flagSkillsWatch           = "skills-watch"
@@ -235,7 +234,6 @@ type runOptions struct {
 	ContextCompactionThresholdRatio            float64
 	ContextCompactionToolResultMaxTokens       int
 	ContextCompactionKeepRecentRequests        int
-	ContextCompactionKeepRecentToolResults     int
 	EnableDetailedContextMetrics               bool
 	EnableTokenCounterCalibration              bool
 	ContextCompactionForceCleanToolNames       string
@@ -377,7 +375,7 @@ type runOptions struct {
 	HostExecMaxTimeout                 time.Duration
 	HostExecMaxYield                   time.Duration
 	HostExecMaxIdleWait                time.Duration
-	Subagent            subagentRunOptions
+	Subagent                           subagentRunOptions
 
 	enableOpenClawToolsExplicit  bool
 	deferToolSurfaceModeExplicit bool
@@ -427,12 +425,12 @@ func parseRunOptions(args []string) (runOptions, error) {
 
 		MemoryAutoPolicy: summaryPolicyAny,
 
-	ToolCallArgumentsJSONRepair: true,
+		ToolCallArgumentsJSONRepair: true,
 
-	DeferToolSurfaceMode:               deferToolSurfaceModeOff,
-	DeferToolSurfaceDefaultDirectTools: true,
+		DeferToolSurfaceMode:               deferToolSurfaceModeOff,
+		DeferToolSurfaceDefaultDirectTools: true,
 
-	MaxContextBudgetWindow: -1,
+		MaxContextBudgetWindow: -1,
 	}
 
 	fs.StringVar(
@@ -630,12 +628,6 @@ func parseRunOptions(args []string) (runOptions, error) {
 		flagContextCompactionKeepRecentRequests,
 		0,
 		"Number of recent requests to keep during compaction",
-	)
-	fs.IntVar(
-		&opts.ContextCompactionKeepRecentToolResults,
-		flagContextCompactionKeepRecentToolResults,
-		0,
-		"Number of recent tool results within current request to preserve from compaction (Pass 1.5)",
 	)
 	fs.BoolVar(
 		&opts.EnableDetailedContextMetrics,
@@ -1464,7 +1456,6 @@ type agentRunConfig struct {
 	ContextCompactionThresholdRatio               *float64 `yaml:"context_compaction_threshold_ratio,omitempty"`
 	ContextCompactionToolResultMaxTokens          *int     `yaml:"context_compaction_tool_result_max_tokens,omitempty"`
 	ContextCompactionKeepRecentRequests           *int     `yaml:"context_compaction_keep_recent_requests,omitempty"`
-	ContextCompactionKeepRecentToolResults        *int     `yaml:"context_compaction_keep_recent_tool_results,omitempty"`
 	ContextCompactionOversizedToolResultMaxTokens *int     `yaml:"context_compaction_oversized_tool_result_max_tokens,omitempty"`
 	MaxHistoryRuns                                *int     `yaml:"max_history_runs,omitempty"`
 	// MaxLLMCalls limits agent-facing model calls per invocation. Auxiliary
@@ -2189,10 +2180,6 @@ func (cfg *fileConfig) apply(
 		if cfg.Agent.ContextCompactionKeepRecentRequests != nil &&
 			!flagWasSet(set, flagContextCompactionKeepRecentRequests) {
 			opts.ContextCompactionKeepRecentRequests = *cfg.Agent.ContextCompactionKeepRecentRequests
-		}
-		if cfg.Agent.ContextCompactionKeepRecentToolResults != nil &&
-			!flagWasSet(set, flagContextCompactionKeepRecentToolResults) {
-			opts.ContextCompactionKeepRecentToolResults = *cfg.Agent.ContextCompactionKeepRecentToolResults
 		}
 		if cfg.Agent.EnableDetailedContextMetrics != nil &&
 			!flagWasSet(set, flagEnableDetailedContextMetrics) {

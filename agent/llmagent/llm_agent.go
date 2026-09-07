@@ -461,9 +461,6 @@ func buildRequestProcessorsWithAgent(a *LLMAgent, options *Options) []flow.Reque
 		processor.WithContextCompactionKeepRecentRequests(
 			options.ContextCompactionKeepRecentRequests,
 		),
-		processor.WithContextCompactionKeepRecentToolResults(
-			options.ContextCompactionKeepRecentToolResults,
-		),
 		processor.WithContextCompactionToolResultMaxTokens(
 			options.ContextCompactionToolResultMaxTokens,
 		),
@@ -1880,12 +1877,12 @@ func (a *LLMAgent) wrapEventChannelWithTelemetry(
 				&responseErrorType,
 			); trackedEvent != nil {
 				fullRespEvent = trackedEvent
-			if traceLease.Owns {
-				traceOutput = llmAgentTraceOutputSnapshot(trackedEvent)
-			}
-			// Calibrate the token counter using actual prompt_tokens
-			// from the API response.
-			a.calibrateTokenCounter(trackedEvent)
+				if traceLease.Owns {
+					traceOutput = llmAgentTraceOutputSnapshot(trackedEvent)
+				}
+				// Calibrate the token counter using actual prompt_tokens
+				// from the API response.
+				a.calibrateTokenCounter(trackedEvent)
 			}
 			if err := event.EmitEvent(ctx, wrappedChan, evt); err != nil {
 				runErr = err
