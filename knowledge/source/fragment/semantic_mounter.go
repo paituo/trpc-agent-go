@@ -10,14 +10,19 @@ package fragment
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/document"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
-	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore/inmemory"
 )
 
@@ -33,6 +38,8 @@ type mountTarget struct {
 	// (vector retrieval + reranker), or "semantic:vector-only"
 	// (reranker unavailable, cosine fallback).
 	MatchSource string
+	kwScore     float64
+	rrScore     float64
 }
 
 // semanticMounter mounts fragments onto skeleton nodes using a vector model
@@ -51,12 +58,6 @@ type semanticMounter struct {
 	unknownID string
 	built     bool
 
-	// topK is the number of skeleton candidates retrieved per fragment.
-	topK int
-	// minCosine is the absolute cosine gate: a candidate is only
-	// considered when its vector similarity clears this floor, so clearly
-	// unrelated fragments never mount even if the reranker scale is odd.
-	minCosine float64
 	// partialThreshold / directThreshold are applied to the reranker
 	// score normalized to [0,1] across the K candidates.
 	partialThreshold float64
@@ -74,12 +75,25 @@ type semanticMounter struct {
 	// plus Chinese terms parsed from its description) used to
 	// disambiguate near-tie candidates via the fragment's parent
 	// heading path.
-	keywordsByID map[string][]string
+	keywordsByID   map[string][]string
+	docCatalogByID map[string][]string
 	// mutexBand: two accepted candidates whose normalized scores are
 	// within this distance of the top candidate are "near-ties"; when the
 	// fragment's heading path disambiguates them, only the heading-
 	// matching candidates are kept.
 	mutexBand float64
+
+	// keywordVecs maps skeleton node ID -> keyword text -> embedding vector.
+	// Built lazily by ensureIndex so every keyword is available for
+	// independent cosine matching against a fragment embedding.
+	keywordVecs map[string]map[string][]float64
+	// keywordMatchThreshold is the per-keyword cosine floor used to
+	// decide whether a skeleton node is a candidate. Each keyword of a
+	// node is matched independently; the node's final score is the
+	// maximum keyword cosine. Only nodes whose max keyword cosine clears
+	// this threshold enter the candidate pool.
+	keywordMatchThreshold float64
+	rerankMatchThreshold  float64
 }
 
 // newSemanticMounter builds a mounter from the user skeleton nodes
@@ -91,21 +105,25 @@ func newSemanticMounter(
 	rk reranker.Reranker,
 	unknownID string,
 	skeletons []SkeletonNode,
+	keywordMatchThreshold float64,
+	rerankMatchThreshold float64,
 ) *semanticMounter {
 	m := &semanticMounter{
-		embedder:         emb,
-		reranker:         rk,
-		store:            inmemory.New(),
-		docs:             make(map[string]*document.Document),
-		unknownID:        unknownID,
-		topK:             5,
-		minCosine:        0.10,
-		partialThreshold: 0.20,
-		directThreshold:  0.60,
-		multiNodeDelta:   0.12,
-		parentByID:       make(map[string]string),
-		keywordsByID:     make(map[string][]string),
-		mutexBand:        0.15,
+		embedder:              emb,
+		reranker:              rk,
+		store:                 inmemory.New(),
+		docs:                  make(map[string]*document.Document),
+		unknownID:             unknownID,
+		partialThreshold:      0.20,
+		directThreshold:       0.60,
+		multiNodeDelta:        0.12,
+		parentByID:            make(map[string]string),
+		keywordsByID:          make(map[string][]string),
+		docCatalogByID:        make(map[string][]string),
+		mutexBand:             0.15,
+		keywordVecs:           make(map[string]map[string][]float64),
+		keywordMatchThreshold: keywordMatchThreshold,
+		rerankMatchThreshold:  rerankMatchThreshold,
 	}
 	for _, sk := range skeletons {
 		if sk.ID == "" || sk.ID == unknownID {
@@ -127,12 +145,15 @@ func newSemanticMounter(
 			m.parentByID[sk.ID] = sk.ParentID
 		}
 		m.keywordsByID[sk.ID] = skeletonKeywords(sk)
+		m.docCatalogByID[sk.ID] = sk.SourceCatalog
 	}
 	return m
 }
 
 // ensureIndex embeds every skeleton node once and adds it to the vector
-// store. It is idempotent and uses the request context for the embedder.
+// store. It also embeds every keyword for each skeleton node independently
+// so that Mount can do per-keyword cosine matching. It is idempotent and
+// uses the request context for the embedder.
 func (m *semanticMounter) ensureIndex(ctx context.Context) error {
 	if m.built {
 		return nil
@@ -143,17 +164,39 @@ func (m *semanticMounter) ensureIndex(ctx context.Context) error {
 		if err != nil || len(vec) == 0 {
 			log.Printf("[fragment-mount] skip skeleton %s (embed failed: %v)", id, err)
 			delete(m.docs, id)
+			delete(m.keywordVecs, id)
 			continue
 		}
 		if err := m.store.Add(ctx, doc, vec); err != nil {
 			log.Printf("[fragment-mount] add skeleton %s failed: %v", id, err)
 			delete(m.docs, id)
+			delete(m.keywordVecs, id)
+		}
+	}
+	// Embed each keyword independently.
+	for id, kws := range m.keywordsByID {
+		m.keywordVecs[id] = make(map[string][]float64, len(kws))
+		for _, kw := range kws {
+			if kw == "" {
+				continue
+			}
+			vec, err := m.embedder.GetEmbedding(ctx, kw)
+			if err != nil || len(vec) == 0 {
+				log.Printf("[fragment-mount] keyword embed failed for %s/%q: %v", id, kw, err)
+				continue
+			}
+			m.keywordVecs[id][kw] = vec
 		}
 	}
 	return nil
 }
 
 // Mount decides which skeleton node(s) a leaf fragment mounts to.
+// It embeds the fragment once and then performs per-keyword cosine
+// matching against every keyword of every skeleton node. The maximum
+// keyword cosine per skeleton node is the node's score; nodes that
+// clear keywordMatchThreshold enter the candidate pool and are then
+// optionally refined by a reranker.
 func (m *semanticMounter) Mount(ctx context.Context, f fragment) []mountTarget {
 	if err := m.ensureIndex(ctx); err != nil {
 		return m.unknown()
@@ -166,57 +209,18 @@ func (m *semanticMounter) Mount(ctx context.Context, f fragment) []mountTarget {
 		return m.unknown()
 	}
 
-	res, err := m.store.Search(ctx, &vectorstore.SearchQuery{
-		SearchMode: vectorstore.SearchModeVector,
-		Vector:     fragVec,
-		Limit:      m.topK,
-		MinScore:   0,
-	})
-	if err != nil || res == nil || len(res.Results) == 0 {
+	// Per-keyword matching: each skeleton node's score is the max cosine
+	// across its keywords.
+	accepted := m.matchByKeywords(fragVec, f.docCategory)
+
+	if len(accepted) == 0 {
 		return m.unknown()
 	}
 
-	cands := make([]candidate, 0, len(res.Results))
-	cosineByID := make(map[string]float64)
-	for _, sd := range res.Results {
-		if sd.Document == nil {
-			continue
-		}
-		cands = append(cands, candidate{id: sd.Document.ID, cosine: sd.Score})
-		cosineByID[sd.Document.ID] = sd.Score
-	}
-	if len(cands) == 0 {
-		return m.unknown()
-	}
-
-	// 送重排模型，得到 relevance 排序。
-	rerankIn := make([]*reranker.Result, len(cands))
-	for i, c := range cands {
-		d := m.docs[c.id]
-		content := ""
-		if d != nil {
-			content = d.Content
-		}
-		rerankIn[i] = &reranker.Result{
-			Document: &document.Document{ID: c.id, Name: c.id, Content: content},
-			Score:    c.cosine,
-		}
-	}
-	q := &reranker.Query{Text: queryText, FinalQuery: queryText}
-
-	var accepted []scoredTarget
-	if m.reranker == nil {
-		// 未配置重排模型 -> 直接按余弦排序兜底（仍用向量模型+向量库）。
-		accepted = m.acceptByCosine(cands)
-	} else {
-		reranked, rerr := m.reranker.Rerank(ctx, q, rerankIn)
-		if rerr != nil || len(reranked) == 0 {
-			// 重排不可用 -> 退回按余弦排序的兜底逻辑（仍用向量模型+向量库）。
-			log.Printf("[fragment-mount] reranker unavailable (%v); falling back to cosine ordering", rerr)
-			accepted = m.acceptByCosine(cands)
-		} else {
-			accepted = m.acceptByRerank(reranked, cosineByID)
-		}
+	// Optional: send the keyword-matched candidates through the reranker
+	// for a second round of ordering when the reranker is configured.
+	if m.reranker != nil {
+		accepted = m.rerankKeywordCandidates(ctx, queryText, accepted)
 	}
 
 	if len(accepted) == 0 {
@@ -230,6 +234,155 @@ func (m *semanticMounter) Mount(ctx context.Context, f fragment) []mountTarget {
 	return refined
 }
 
+// rerankKeywordCandidates sends the keyword-matched candidates through
+// the reranker for a second ordering pass. It returns the reranked
+// scoredTargets on success or the original keyword scores when the
+// reranker is unavailable or fails.
+func (m *semanticMounter) rerankKeywordCandidates(
+	ctx context.Context,
+	queryText string,
+	keywordMatched []scoredTarget,
+) []scoredTarget {
+	if len(keywordMatched) == 0 {
+		return keywordMatched
+	}
+
+	rerankIn := make([]*reranker.Result, len(keywordMatched))
+	for i, st := range keywordMatched {
+		d := m.docs[st.id]
+		content := ""
+		if d != nil {
+			content = d.Content
+		}
+		rerankIn[i] = &reranker.Result{
+			Document: &document.Document{ID: st.id, Name: st.id, Content: content},
+			Score:    st.kwScore,
+		}
+	}
+	q := &reranker.Query{Text: queryText, FinalQuery: queryText}
+
+	reranked, rerr := m.reranker.Rerank(ctx, q, rerankIn)
+	if rerr != nil || len(reranked) == 0 {
+		log.Printf("[fragment-mount] keyword rerank unavailable (err=%v, rerankedLen=%d); using keyword scores", rerr, len(reranked))
+		m.dumpRerankJSON(queryText, rerankIn, reranked)
+		return keywordMatched
+	}
+
+	// Dump rerank input/output JSON to disk for debugging.
+	m.dumpRerankJSON(queryText, rerankIn, reranked)
+
+	// Convert reranker output back to scoredTarget, preserving the
+	// original cosine from keyword matching for direct/partial gating.
+	cosineByID := make(map[string]float64, len(keywordMatched))
+	kwNameByID := make(map[string]string, len(keywordMatched))
+	for _, st := range keywordMatched {
+		cosineByID[st.id] = st.kwScore
+		kwNameByID[st.id] = st.src
+	}
+
+	scores := make([]float64, len(reranked))
+	for i, r := range reranked {
+		scores[i] = r.Score
+	}
+	//minS, maxS := minMax(scores)
+	// norm := func(v float64) float64 {
+	// 	if maxS == minS {
+	// 		return 0.5
+	// 	}
+	// 	return (v - minS) / (maxS - minS)
+	// }
+
+	var out []scoredTarget
+	for _, r := range reranked {
+		if r.Document == nil {
+			continue
+		}
+		id := r.Document.ID
+		cos := cosineByID[id]
+		if r.Score < m.rerankMatchThreshold {
+			continue
+		}
+		//n := norm(r.Score)
+		mt := "partial"
+		// 用 keyword cosine（而非 reranker 归一化分）判定 direct/partial：
+		// reranker 只负责排序，唯一候选时 min-max 归一化恒为 0.5，
+		// 会错误地把 keyword cosine=1.0 的强匹配标成 partial。
+		if cos >= m.directThreshold {
+			mt = "direct"
+		}
+		out = append(out, scoredTarget{
+			id:      id,
+			kwScore: cos,
+			rrScore: r.Score,
+			mt:      mt,
+			src:     kwNameByID[id],
+		})
+	}
+	if len(out) == 0 {
+		return keywordMatched
+	}
+	return out
+}
+
+// dumpRerankJSON writes the rerank request (query + input docs) and
+// response (reranked docs with scores) to a timestamped JSON file under
+// .fragment-debug/ in the current working directory for offline inspection.
+func (m *semanticMounter) dumpRerankJSON(
+	queryText string,
+	input []*reranker.Result,
+	output []*reranker.Result,
+) {
+	type debugDoc struct {
+		ID      string  `json:"id"`
+		Name    string  `json:"name,omitempty"`
+		Score   float64 `json:"score,omitempty"`
+		Content string  `json:"content,omitempty"`
+	}
+	type debugEntry struct {
+		InputDocs  []debugDoc `json:"input_docs"`
+		OutputDocs []debugDoc `json:"output_docs"`
+	}
+
+	entry := debugEntry{}
+	for _, r := range input {
+		d := debugDoc{Score: r.Score}
+		if r.Document != nil {
+			d.ID = r.Document.ID
+			d.Name = r.Document.Name
+			d.Content = r.Document.Content
+		}
+		entry.InputDocs = append(entry.InputDocs, d)
+	}
+	for _, r := range output {
+		d := debugDoc{Score: r.Score}
+		if r.Document != nil {
+			d.ID = r.Document.ID
+			d.Name = r.Document.Name
+			d.Content = r.Document.Content
+		}
+		entry.OutputDocs = append(entry.OutputDocs, d)
+	}
+
+	payload := map[string]any{
+		"query":    queryText,
+		"rerank":   entry,
+		"datetime": time.Now().Format(time.RFC3339),
+	}
+	b, _ := json.MarshalIndent(payload, "", "  ")
+
+	dir := filepath.Join(".", ".fragment-debug")
+	_ = os.MkdirAll(dir, 0o755)
+	p := filepath.Join(dir, "rerank.jsonl")
+	line := append(b, '\n')
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Printf("[fragment-mount] write rerank debug json failed: %v", err)
+	} else {
+		_, _ = f.Write(line)
+		_ = f.Close()
+	}
+}
+
 // unknown returns a single "unknown data" mounting so unmatched content
 // stays grouped under the auto skeleton node (preserves coverage).
 func (m *semanticMounter) unknown() []mountTarget {
@@ -237,101 +390,99 @@ func (m *semanticMounter) unknown() []mountTarget {
 		SkeletonID:  m.unknownID,
 		MountType:   "unknown",
 		MatchSource: "semantic",
+		kwScore:     0,
+		rrScore:     0,
 	}}
 }
 
-type candidate struct {
-	id     string
-	cosine float64
-}
-
-// acceptByRerank turns the reranker ordering into intermediate scored
-// targets. The reranker score is min-max normalized across the K
-// candidates to make the decision invariant to the backend's raw score
-// scale, then gated by partialThreshold (with a cosine safety floor)
-// and used for multi-node. Specificity / heading-context disambiguation
-// is applied later in refine.
-func (m *semanticMounter) acceptByRerank(
-	reranked []*reranker.Result,
-	cosineByID map[string]float64,
-) []scoredTarget {
-	// 单候选：唯一匹配即视为 direct。否则 min-max 归一化在
-	// max==min 时会退化为恒 0.5，被 directThreshold 误判为 partial，
-	// 丢失「唯一强匹配 = 直接覆盖」的语义。
-	if len(reranked) == 1 {
-		r := reranked[0]
-		if r.Document == nil {
-			return nil
-		}
-		id := r.Document.ID
-		if cosineByID[id] < m.minCosine {
-			return nil
-		}
-		return []scoredTarget{{
-			id:     id,
-			norm:   1.0,
-			cosine: cosineByID[id],
-			mt:     "direct",
-			src:    "semantic:vector+rerank",
-		}}
+// matchByKeywords performs per-keyword cosine matching between the
+// fragment embedding and every keyword vector in keywordVecs. For each
+// skeleton node the maximum keyword cosine is taken as the node's score;
+// nodes whose max cosine clears keywordMatchThreshold are returned as
+// scoredTargets, sorted by cosine descending.
+func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string) []scoredTarget {
+	if len(fragVec) == 0 {
+		return nil
 	}
 
-	scores := make([]float64, len(reranked))
-	for i, r := range reranked {
-		scores[i] = r.Score
+	type nodeScore struct {
+		id     string
+		maxCos float64
+		bestKw string // keyword that achieved maxCos
 	}
-	minS, maxS := minMax(scores)
-	norm := func(v float64) float64 {
-		if maxS == minS {
-			return 0.5
-		}
-		return (v - minS) / (maxS - minS)
-	}
+	var ranked []nodeScore
 
-	var out []scoredTarget
-	firstNorm := -1.0
-	for i, r := range reranked {
-		if r.Document == nil {
-			continue
+	for id, kwVecs := range m.keywordVecs {
+		best := 0.0
+		bestKw := ""
+		if m.docCatalogByID[id] != nil && docCategory != "" {
+			if !slices.Contains(m.docCatalogByID[id], docCategory) {
+				//log.Printf("[排除][id]: %s [docCategory]: %s)", id, docCategory)
+				continue
+			}
 		}
-		id := r.Document.ID
-		cos := cosineByID[id]
-		n := norm(r.Score)
-		// reranked 已按分降序；首个不达标即可停止。
-		if n < m.partialThreshold || cos < m.minCosine {
-			break
+
+		for kw, vec := range kwVecs {
+			c := cosineSimilarity(fragVec, vec)
+			if c > best {
+				best = c
+				bestKw = kw
+			}
 		}
-		// 各自按归一化分判定 direct/partial，而非盲目把第二个标 partial。
+		if best >= m.keywordMatchThreshold {
+			ranked = append(ranked, nodeScore{id: id, maxCos: best, bestKw: bestKw})
+		}
+	}
+	if len(ranked) == 0 {
+		return nil
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		return ranked[i].maxCos > ranked[j].maxCos
+	})
+
+	out := make([]scoredTarget, len(ranked))
+	for i, ns := range ranked {
 		mt := "partial"
-		if n >= m.directThreshold {
+		if ns.maxCos >= m.directThreshold {
 			mt = "direct"
 		}
-		if firstNorm < 0 {
-			firstNorm = n
+		out[i] = scoredTarget{
+			id:      ns.id,
+			kwScore: ns.maxCos, // keyword-only path: reranker not used, carry cosine as rrScore
+			rrScore: 0,
+			mt:      mt,
+			src:     ns.bestKw,
 		}
-		// 多节点：与首个归一化分距超过 delta 的额外候选停止计入。
-		if i > 0 && (firstNorm-n) > m.multiNodeDelta {
-			break
-		}
-		out = append(out, scoredTarget{
-			id:     id,
-			norm:   n,
-			cosine: cos,
-			mt:     mt,
-			src:    "semantic:vector+rerank",
-		})
 	}
 	return out
+}
+
+// cosineSimilarity returns the cosine similarity between two vectors.
+// Returns 0 when either vector is empty.
+func cosineSimilarity(a, b []float64) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0
+	}
+	var dot, na, nb float64
+	for i := range a {
+		dot += a[i] * b[i]
+		na += a[i] * a[i]
+		nb += b[i] * b[i]
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(na) * math.Sqrt(nb))
 }
 
 // scoredTarget is an intermediate mount decision carrying the scores
 // refine needs for specificity / heading-context disambiguation.
 type scoredTarget struct {
-	id     string
-	norm   float64 // reranker score min-max normalized to [0,1]
-	cosine float64
-	mt     string // "direct" | "partial"
-	src    string // match source label
+	id      string
+	kwScore float64 // keyword vector cosine similarity (direct/partial gating)
+	rrScore float64 // reranker score min-max normalized to [0,1]
+	mt      string  // "direct" | "partial"
+	src     string  // match source label
 }
 
 // refine applies two specificity rules on top of the reranker/cosine
@@ -345,7 +496,7 @@ type scoredTarget struct {
 //     导/塔/金具/接地 just because those domains co-occur in text.
 func (m *semanticMounter) refine(in []scoredTarget, f fragment) []mountTarget {
 	kept := append([]scoredTarget(nil), in...)
-	sort.SliceStable(kept, func(i, j int) bool { return kept[i].norm > kept[j].norm })
+	sort.SliceStable(kept, func(i, j int) bool { return kept[i].rrScore > kept[j].rrScore })
 
 	// 1) ancestor suppression: drop any ancestor whose descendant is kept.
 	n := 0
@@ -369,10 +520,10 @@ func (m *semanticMounter) refine(in []scoredTarget, f fragment) []mountTarget {
 
 	// 2) heading-context mutex among near-ties (within mutexBand of top).
 	if len(kept) >= 2 {
-		top := kept[0].norm
+		top := kept[0].rrScore
 		tie := make(map[string]bool)
 		for _, k := range kept {
-			if top-k.norm <= m.mutexBand {
+			if top-k.rrScore <= m.mutexBand {
 				tie[k.id] = true
 			}
 		}
@@ -400,7 +551,7 @@ func (m *semanticMounter) refine(in []scoredTarget, f fragment) []mountTarget {
 
 	out := make([]mountTarget, 0, len(kept))
 	for _, k := range kept {
-		out = append(out, mountTarget{SkeletonID: k.id, MountType: k.mt, MatchSource: k.src})
+		out = append(out, mountTarget{SkeletonID: k.id, MountType: k.mt, MatchSource: k.src, kwScore: k.kwScore, rrScore: k.rrScore})
 	}
 	return out
 }
@@ -440,9 +591,6 @@ func (m *semanticMounter) headingMatch(id, headingPath string) bool {
 // its (English) Name plus the Chinese business terms in its description.
 func skeletonKeywords(sk SkeletonNode) []string {
 	kws := make([]string, 0, 8)
-	if sk.Name != "" {
-		kws = append(kws, sk.Name)
-	}
 	kws = append(kws, splitKeywords(sk.Content)...)
 	return kws
 }
@@ -467,22 +615,6 @@ func splitKeywords(s string) []string {
 		}
 	}
 	return out
-}
-
-// acceptByCosine is the fallback used when the reranker is unavailable.
-// It trusts the in-memory vector store's cosine ordering: the top candidate
-// (if it clears the cosine floor) is mounted as "direct".
-func (m *semanticMounter) acceptByCosine(cands []candidate) []scoredTarget {
-	if len(cands) == 0 || cands[0].cosine < m.minCosine {
-		return nil
-	}
-	return []scoredTarget{{
-		id:     cands[0].id,
-		norm:   cands[0].cosine,
-		cosine: cands[0].cosine,
-		mt:     "direct",
-		src:    "semantic:vector-only",
-	}}
 }
 
 // buildMountQuery builds the fragment representation from the three fields

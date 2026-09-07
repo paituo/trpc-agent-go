@@ -9,6 +9,47 @@
 
 // Package fragment provides a graph source that parses Markdown documents into
 // a four-layer graph structure: skeleton → document → chapter → fragment.
+//
+// # 切片逻辑说明
+//
+// 本包实现了基于 Lua 脚本 batch_extract_outline_v2.lua 的文档切片逻辑，
+// 将 Markdown 文档按 1500 字符限制切割为多个 fragment，同时保留表格和图片的完整性。
+//
+// ## 核心流程
+//
+// 1. **标题识别**：扫描文档中的 Markdown 标题行（# 开头），记录行号、层级和标题文本
+// 2. **行块划分**：将文档行划分为 lineBlock 列表，识别以下类型：
+//   - Markdown 表格（| 开头的行）
+//   - HTML 表格（<table> 标签）
+//   - 普通文本行（含图片引用 ![alt](url)）
+//
+// 3. **按字符限制切割**：使用 splitBlocksByCharLimit 函数，按 1500 字符限制切割：
+//   - 保证不拆行：切割点只在行边界
+//   - 保证不拆表：表格整体归属一个 fragment
+//   - 保证不拆图：图片整体归属一个 fragment
+//   - 如果单个块超过限制，单独作为一个片段
+//
+// 4. **关联表格/图片**：每个 fragment 记录其包含的表格（tableInfo）和图片（imageInfo）
+//
+// ## 表格识别
+//
+// - Markdown 表格：识别 | 开头的行，解析表头和数据行
+// - HTML 表格：识别 <table>...</table> 标签对
+// - 表格信息包括：起始行、结束行、行数、列数、预览文本
+//
+// ## 图片识别
+//
+// - 匹配 ![alt](url) 格式的图片引用
+// - 记录图片的 alt 文本和 URL
+//
+// ## 与 Lua 脚本的对应关系
+//
+// | Lua 脚本 | Go 实现 |
+// |---------|--------|
+// | pass1_candidate_scan | buildLineBlocks |
+// | build_fragments_from_outline | splitBlocksByCharLimit |
+// | slim_table | tableInfo |
+// | extract_images | extractImagesFromLine |
 package fragment
 
 import (
@@ -27,6 +68,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/graph"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
 const defaultSourceName = "Fragment Source"
@@ -34,14 +76,15 @@ const defaultSourceName = "Fragment Source"
 // trpcAstMetaPrefix is the prefix for all metadata keys written by fragment source,
 // consistent with codeast.TrpcAstMetaPrefix used by repo source.
 const trpcAstMetaPrefix = "trpc_ast_"
-
+const max_output_level = 2 // 最大输出层级，超过该层级的不拆分
 // SkeletonNode describes a skeleton node from an engineering skeleton definition.
 type SkeletonNode struct {
-	ID       string
-	Name     string
-	Content  string
-	ParentID string
-	Metadata map[string]any
+	ID            string
+	Name          string
+	Content       string
+	SourceCatalog []string
+	ParentID      string
+	Metadata      map[string]any
 }
 
 type fragment struct {
@@ -54,7 +97,29 @@ type fragment struct {
 	endLine       int
 	children      []fragment
 	documentID    string
+	docCategory   string
 	fragmentIndex int
+	// tables 记录该 fragment 关联的表格信息
+	tables []tableInfo
+	// images 记录该 fragment 关联的图片信息
+	images []imageInfo
+}
+
+// tableInfo 描述一个表格的位置和基本信息
+type tableInfo struct {
+	title     string
+	startLine int
+	endLine   int
+	rowCount  int
+	colCount  int
+	preview   string
+}
+
+// imageInfo 描述一个图片的位置和信息
+type imageInfo struct {
+	alt     string
+	url     string
+	lineNum int
 }
 
 type relation struct {
@@ -84,6 +149,26 @@ type Source struct {
 	embedder embedder.Embedder
 	reranker reranker.Reranker
 	mounter  *semanticMounter
+
+	// keywordMatchThreshold is the per-keyword cosine floor used by the
+	// semantic mounter's keyword matching path. When non-zero it is
+	// forwarded to the mounter; the mounter default (0.30) is used
+	// otherwise.
+	keywordMatchThreshold float64
+	rerankMatchThreshold  float64
+	rerankTopN            int
+
+	// llm is the optional LLM used for batch document classification.
+	// When nil, classification is skipped and no doc_category metadata
+	// is written.
+	llm model.Model
+	// docClassifyPrompt overrides the default classification prompt.
+	// An empty value means the default prompt is used.
+	docClassifyPrompt string
+	// docCategories maps docPath → category after LLM classification.
+	// Populated lazily by classifyDocPaths.
+	docCategories map[string]string
+	sourceDir     string // optional source directory for resolving relative docPaths
 }
 
 // skeletonTreeNode is a node in the in-memory skeleton tree built from
@@ -106,7 +191,8 @@ func New(skeletons []SkeletonNode, docPaths []string, opts ...Option) *Source {
 		opt(s)
 	}
 	if s.embedder != nil && s.reranker != nil {
-		s.mounter = newSemanticMounter(s.embedder, s.reranker, defaultUnknownSkeletonID, skeletons)
+		m := newSemanticMounter(s.embedder, s.reranker, defaultUnknownSkeletonID, skeletons, s.keywordMatchThreshold, s.rerankMatchThreshold)
+		s.mounter = m
 	}
 	return s
 }
@@ -127,6 +213,19 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 
 	nodeMap := make(map[string]*graph.Node)
 	edgeMap := make(map[string]*graph.Edge)
+
+	// LLM-based batch classification of docPaths.
+	// If LLM is configured and classification succeeds, the result is stored
+	// and attached as metadata to each document node.
+	if s.llm != nil {
+		cats, err := s.classifyDocPaths(ctx)
+		if err != nil {
+			s.logf("classifyDocPaths failed (non-fatal): %v", err)
+		} else {
+			s.docCategories = cats
+			s.logf("classifyDocPaths done: %d docs classified", len(cats))
+		}
+	}
 
 	var allLeaves []fragment
 
@@ -177,18 +276,39 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 		docID := "doc:" + docPath
 		leaves, chapters, relations := flattenFragments(frags, docID)
 		allLeaves = append(allLeaves, leaves...)
-		s.logf("Parsed doc %s: headings→tree ok, leaves=%d chapters=%d relations=%d",
-			filepath.Base(docPath), len(leaves), len(chapters), len(relations))
+
+		docCat := ""
+		if s.docCategories != nil {
+			if cat, ok := s.docCategories[docPath]; ok {
+				docCat = cat
+			}
+		}
+		// 计算当前文档最大片段内容大小
+		maxFragSize := 0
+		var maxFragName string
+		for _, leaf := range leaves {
+			size := len(leaf.content)
+			if size > maxFragSize {
+				maxFragSize = size
+				maxFragName = leaf.name
+			}
+		}
+		s.logf("Parsed doc %s: headings→tree ok, leaves=%d chapters=%d relations=%d maxFragmentSize=%d maxFragmentName=%q",
+			filepath.Base(docPath), len(leaves), len(chapters), len(relations), maxFragSize, maxFragName)
+
+		// Build document node metadata; include LLM classification if available.
+		docMeta := map[string]any{
+			trpcAstMetaPrefix + "type":         "document",
+			trpcAstMetaPrefix + "scope":        "document",
+			trpcAstMetaPrefix + "file_path":    docPath,
+			trpcAstMetaPrefix + "doc_category": docCat,
+		}
 
 		nodeMap[docID] = &graph.Node{
-			ID:      docID,
-			Name:    docPath,
-			Content: "",
-			Metadata: map[string]any{
-				trpcAstMetaPrefix + "type":      "document",
-				trpcAstMetaPrefix + "scope":     "document",
-				trpcAstMetaPrefix + "file_path": docPath,
-			},
+			ID:       docID,
+			Name:     docPath,
+			Content:  "",
+			Metadata: docMeta,
 		}
 
 		for _, ch := range chapters {
@@ -199,6 +319,7 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 				trpcAstMetaPrefix + "heading_level": ch.headingLevel,
 				trpcAstMetaPrefix + "heading_path":  ch.headingPath,
 				trpcAstMetaPrefix + "document_id":   docID,
+				trpcAstMetaPrefix + "doc_category":  docCat,
 			}
 			nodeMap[chNodeID] = &graph.Node{
 				ID:       chNodeID,
@@ -237,7 +358,7 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 		}
 	}
 
-	for _, leaf := range allLeaves {
+	for index, leaf := range allLeaves {
 		if leaf.id == "" {
 			continue
 		}
@@ -253,6 +374,9 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 			trpcAstMetaPrefix + "start_line":     leaf.startLine,
 			trpcAstMetaPrefix + "end_line":       leaf.endLine,
 			trpcAstMetaPrefix + "fragment_index": leaf.fragmentIndex,
+			trpcAstMetaPrefix + "chunk_index":    index,
+			trpcAstMetaPrefix + "chunk_size":     len(leaf.content),
+			trpcAstMetaPrefix + "doc_category":   leaf.docCategory,
 		}
 
 		// 语义挂接：配置了 embedder+reranker 时用向量召回+重排，
@@ -316,6 +440,12 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fragment: read file %s: %w", docPath, err)
 	}
+	docCat := ""
+	if s.docCategories != nil {
+		if cat, ok := s.docCategories[docPath]; ok {
+			docCat = cat
+		}
+	}
 	content := string(data)
 	lines := strings.Split(content, "\n")
 	s.logf("parseMDDocument %s: %d lines", filepath.Base(docPath), len(lines))
@@ -339,7 +469,7 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 				break
 			}
 		}
-		if level <= 0 || level > 6 {
+		if level <= 0 || level > max_output_level {
 			continue
 		}
 		title := strings.TrimSpace(trimmed[level:])
@@ -353,11 +483,25 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 		})
 	}
 
-	if len(headings) == 0 {
-		// 文档没有任何标题：创建一个默认 chapter，并把正文分段挂到该 chapter 下，
-		// 而不是挂在 document 下。
-		return s.buildDefaultChapter(docPath, content, lines), nil
+	// 如果第一个非空行不是标题，添加一个虚拟标题，避免前面的内容丢失
+	if len(headings) > 0 {
+		firstNonEmptyLine := -1
+		for i, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				firstNonEmptyLine = i + 1 // 1-based
+				break
+			}
+		}
+		if firstNonEmptyLine > 0 && headings[0].lineNum > firstNonEmptyLine {
+			docName := defaultChapterName(docPath)
+			headings = append([]heading{{
+				lineNum: firstNonEmptyLine,
+				level:   1,
+				title:   docName,
+			}}, headings...)
+		}
 	}
+
 	s.logf("parseMDDocument %s: found %d headings, building tree", filepath.Base(docPath), len(headings))
 
 	var buildTree func(start, end int, parentLevel int, parentPath string) []fragment
@@ -386,28 +530,40 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 			if i+1 < len(headings) {
 				contentEnd = headings[i+1].lineNum - 1
 			}
+
+			// 按1500字符限制切割正文内容，保证不拆行、不拆表、不拆图
 			var bodyLines []string
 			for k := contentStart; k <= contentEnd && k-1 < len(lines); k++ {
 				if k-1 >= 0 && k-1 < len(lines) {
 					bodyLines = append(bodyLines, lines[k-1])
 				}
 			}
-			bodyText := strings.TrimSpace(strings.Join(bodyLines, "\n"))
+
+			// 使用 splitBodyByCharLimit 按1500字符切割
+			bodySegments := splitBodyByCharLimit(bodyLines, contentStart, maxFragmentChars)
 
 			// 5.4 修复（口径 B）：顶层、且自身没有子标题的标题，
 			// 建模为 chapter，并将其正文作为一个 fragment 挂到该 chapter 下，
 			// 避免它沦为 document 级 fragment（与真正的 chapter 类型不一致）。
-			if parentLevel == 0 && len(children) == 0 {
+			if parentLevel == 0 || len(children) > 0 {
 				chapterID := fmt.Sprintf("h_%d_%d", h.lineNum, h.level)
-				bodyFragment := fragment{
-					id:           chapterID + "_body",
-					name:         h.title,
-					content:      bodyText,
-					headingLevel: h.level,
-					headingPath:  headingPath,
-					startLine:    contentStart,
-					endLine:      contentEnd,
+				var bodyFragments []fragment
+				for segIdx, seg := range bodySegments {
+					bodyFragID := fmt.Sprintf("%s_body_%d", chapterID, segIdx)
+					bodyFragments = append(bodyFragments, fragment{
+						id:           bodyFragID,
+						name:         h.title,
+						content:      seg.content,
+						headingLevel: h.level,
+						headingPath:  headingPath,
+						startLine:    seg.startLine,
+						endLine:      seg.endLine,
+						tables:       seg.tables,
+						images:       seg.images,
+						docCategory:  docCat,
+					})
 				}
+				children = append(bodyFragments, children...)
 				result = append(result, fragment{
 					id:           chapterID,
 					name:         h.title,
@@ -416,29 +572,32 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 					headingPath:  headingPath,
 					startLine:    contentStart,
 					endLine:      contentEnd,
-					children:     []fragment{bodyFragment},
+					children:     children,
+					docCategory:  docCat,
 				})
-				i = j
-				continue
+			} else {
+				for segIdx, seg := range bodySegments {
+					result = append(result, fragment{
+						id:           fmt.Sprintf("h_%d_%d_seg_%d", h.lineNum, h.level, segIdx),
+						name:         h.title,
+						content:      seg.content,
+						headingLevel: h.level,
+						headingPath:  headingPath,
+						startLine:    contentStart,
+						endLine:      contentEnd,
+						children:     children,
+						docCategory:  docCat,
+					})
+				}
 			}
 
-			result = append(result, fragment{
-				id:           fmt.Sprintf("h_%d_%d", h.lineNum, h.level),
-				name:         h.title,
-				content:      bodyText,
-				headingLevel: h.level,
-				headingPath:  headingPath,
-				startLine:    contentStart,
-				endLine:      contentEnd,
-				children:     children,
-			})
 			i = j
 		}
 		return result
 	}
 
+	// 构建文档根节点，将所有顶层 fragment 挂载到该根节点下
 	result := buildTree(0, len(headings), 0, "")
-	s.logf("parseMDDocument %s: tree built, %d top-level fragments", filepath.Base(docPath), len(result))
 	return result, nil
 }
 
@@ -513,98 +672,18 @@ func flattenFragments(frags []fragment, docID string) ([]fragment, []fragment, [
 	return leaves, chapters, relations
 }
 
+// headingInfo 描述文档中的一个标题行
+type headingInfo struct {
+	lineNum int
+	level   int
+	title   string
+}
+
 // textBlock 是正文切分后的一个段落块。
 type textBlock struct {
 	text      string
 	startLine int
 	endLine   int
-}
-
-// buildDefaultChapter 处理“文档无标题”的情况：创建一个默认 chapter，
-// 并把正文按段落切分为 fragment 挂到该 chapter 之下，而不是挂在 document 之下。
-func (s *Source) buildDefaultChapter(docPath, content string, lines []string) []fragment {
-	chapterName := defaultChapterName(docPath)
-	chapterID := docScopedID(docPath, "chapter")
-	chapterPath := chapterName
-
-	blocks := splitIntoBlocks(content)
-	if len(blocks) == 0 {
-		s.logf("parseMDDocument %s: no headings and empty body, skipping", filepath.Base(docPath))
-		return nil
-	}
-
-	children := make([]fragment, 0, len(blocks))
-	for _, b := range blocks {
-		children = append(children, fragment{
-			id:           docScopedID(docPath, fmt.Sprintf("block_%d", b.startLine)),
-			name:         firstLineSnippet(b.text, 40),
-			content:      strings.TrimSpace(b.text),
-			headingLevel: 2,
-			headingPath:  chapterPath,
-			startLine:    b.startLine,
-			endLine:      b.endLine,
-		})
-	}
-
-	chapter := fragment{
-		id:           chapterID,
-		name:         chapterName,
-		content:      strings.TrimSpace(content),
-		headingLevel: 1,
-		headingPath:  chapterPath,
-		startLine:    1,
-		endLine:      len(lines),
-		children:     children,
-	}
-	s.logf("parseMDDocument %s: no headings, created default chapter %q with %d fragments",
-		filepath.Base(docPath), chapterName, len(children))
-	return []fragment{chapter}
-}
-
-// splitIntoBlocks 按空行把正文切分为段落块。
-func splitIntoBlocks(content string) []textBlock {
-	lines := strings.Split(content, "\n")
-	var blocks []textBlock
-	start := -1
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			if start >= 0 {
-				blocks = append(blocks, textBlock{
-					text:      strings.Join(lines[start:i], "\n"),
-					startLine: start + 1,
-					endLine:   i,
-				})
-				start = -1
-			}
-			continue
-		}
-		if start < 0 {
-			start = i
-		}
-	}
-	if start >= 0 {
-		blocks = append(blocks, textBlock{
-			text:      strings.Join(lines[start:], "\n"),
-			startLine: start + 1,
-			endLine:   len(lines),
-		})
-	}
-	return blocks
-}
-
-// firstLineSnippet 取文本首个非空行作为片段名，超长截断。
-func firstLineSnippet(text string, limit int) string {
-	for _, line := range strings.Split(text, "\n") {
-		t := strings.TrimSpace(line)
-		if t != "" {
-			runes := []rune(t)
-			if len(runes) > limit {
-				return string(runes[:limit]) + "…"
-			}
-			return t
-		}
-	}
-	return "片段"
 }
 
 // defaultChapterName 用文档基名（去扩展名）作为默认 chapter 名。
@@ -617,12 +696,6 @@ func defaultChapterName(docPath string) string {
 		return "正文"
 	}
 	return base
-}
-
-// docScopedID 生成与文档路径绑定的稳定 ID，避免不同文档之间节点 ID 冲突。
-func docScopedID(docPath, local string) string {
-	sum := sha1.Sum([]byte(docPath + "|" + local))
-	return hex.EncodeToString(sum[:8])
 }
 
 func generateNodeID(key string) string {
@@ -780,3 +853,412 @@ var (
 	)
 	reCollapseSpace = regexp.MustCompile(`\s+`)
 )
+
+// ============================================================
+// 表格/图片识别 + 按字符限制切割的辅助函数
+// ============================================================
+
+const (
+	// maxFragmentChars 每个 fragment 的最大字符数（按行边界切割，不拆表/图/行）
+	maxFragmentChars = 1500
+)
+
+// reMDTableSeparator 匹配 Markdown 表格分隔行，如 "| --- | --- |"
+var reMDTableSeparator = regexp.MustCompile(`^\s*\|[\s\-:|]+\|\s*$`)
+
+// reImageRef 匹配 Markdown 图片引用 ![alt](url)
+var reImageRef = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+
+// reHTMLTableStart 匹配 HTML 表格开始标签
+var reHTMLTableStart = regexp.MustCompile(`(?i)<table[\s>]`)
+
+// reHTMLTableEnd 匹配 HTML 表格结束标签
+var reHTMLTableEnd = regexp.MustCompile(`(?i)</table>`)
+
+// isMDTableSeparator 判断一行是否为 Markdown 表格分隔行
+func isMDTableSeparator(line string) bool {
+	return reMDTableSeparator.MatchString(strings.TrimSpace(line))
+}
+
+// isMDTableRow 判断一行是否为 Markdown 表格数据行（以 | 开头）
+func isMDTableRow(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "|")
+}
+func is3LevelTocRow(line string) bool {
+	return strings.HasPrefix(strings.TrimSpace(line), "### ")
+}
+
+// extractImagesFromLine 从一行中提取所有图片引用
+func extractImagesFromLine(line string) []imageInfo {
+	var images []imageInfo
+	matches := reImageRef.FindAllStringSubmatch(line, -1)
+	for _, m := range matches {
+		images = append(images, imageInfo{
+			alt: m[1],
+			url: m[2],
+		})
+	}
+	return images
+}
+func parse3LevelTocBlock(lines []string, startIdx int) (lineBlock, int) {
+	var block lineBlock
+	block.startLine = startIdx + 1 // 转为 1-based
+
+	i := startIdx + 1
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+		if is3LevelTocRow(trimmed) {
+			break
+		}
+		i++
+	}
+	block.endLine = i - 1
+	return block, i - 1
+}
+
+// mdTableBlock 描述一个 Markdown 表格块
+type mdTableBlock struct {
+	startLine int // 1-based
+	endLine   int // 1-based
+	headers   []string
+	rows      [][]string
+	preview   string
+	rowCount  int
+	colCount  int
+}
+
+// parseMDTableBlock 从 lines 中解析一个 Markdown 表格块
+// startIdx 是表格第一行的索引（0-based），返回表格块和结束行索引
+func parseMDTableBlock(lines []string, startIdx int) (mdTableBlock, int) {
+	var block mdTableBlock
+	block.startLine = startIdx + 1 // 转为 1-based
+
+	var tableLines []string
+	i := startIdx
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || !isMDTableRow(trimmed) {
+			break
+		}
+		tableLines = append(tableLines, trimmed)
+		i++
+	}
+
+	if len(tableLines) == 0 {
+		return block, startIdx
+	}
+
+	// 解析表头
+	headerLine := tableLines[0]
+	block.headers = parseMDTableCells(headerLine)
+
+	// 跳过分隔行
+	sepIdx := 1
+	if sepIdx < len(tableLines) && isMDTableSeparator(tableLines[sepIdx]) {
+		sepIdx++
+	}
+
+	// 解析数据行
+	for r := sepIdx; r < len(tableLines); r++ {
+		cells := parseMDTableCells(tableLines[r])
+		block.rows = append(block.rows, cells)
+	}
+
+	block.endLine = startIdx + len(tableLines) // 1-based
+	block.rowCount = len(block.rows)
+	block.colCount = len(block.headers)
+
+	// 生成 preview
+	var parts []string
+	if len(block.headers) > 0 {
+		parts = append(parts, "表头: "+strings.Join(block.headers, " | "))
+	}
+	previewRows := 3
+	if len(block.rows) < previewRows {
+		previewRows = len(block.rows)
+	}
+	for r := 0; r < previewRows; r++ {
+		parts = append(parts, strings.Join(block.rows[r], " | "))
+	}
+	block.preview = strings.Join(parts, "\n")
+
+	return block, i - 1
+}
+
+// parseMDTableCells 解析一行 Markdown 表格的单元格
+func parseMDTableCells(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "|")
+	line = strings.TrimSuffix(line, "|")
+	parts := strings.Split(line, "|")
+	var cells []string
+	for _, p := range parts {
+		cells = append(cells, strings.TrimSpace(p))
+	}
+	return cells
+}
+
+// htmlTableBlock 描述一个 HTML 表格块
+type htmlTableBlock struct {
+	startLine int // 1-based
+	endLine   int // 1-based
+	preview   string
+}
+
+// parseHTMLTableBlock 从 lines 中解析一个 HTML 表格块
+// startIdx 是 <table> 行的索引（0-based），返回表格块和结束行索引
+func parseHTMLTableBlock(lines []string, startIdx int) (htmlTableBlock, int) {
+	var block htmlTableBlock
+	block.startLine = startIdx + 1 // 转为 1-based
+
+	i := startIdx
+	for i < len(lines) {
+		if reHTMLTableEnd.MatchString(lines[i]) {
+			block.endLine = i + 1 // 1-based
+			// 简单 preview：取表格前几行
+			var previewLines []string
+			for j := startIdx; j <= i && j < len(lines); j++ {
+				previewLines = append(previewLines, strings.TrimSpace(lines[j]))
+			}
+			preview := strings.Join(previewLines, " ")
+			if len(preview) > 200 {
+				preview = preview[:200]
+			}
+			block.preview = preview
+			return block, i
+		}
+		i++
+	}
+
+	// 未找到结束标签，表格延伸到文档末尾
+	block.endLine = len(lines)
+	block.preview = "(HTML表格未闭合)"
+	return block, len(lines) - 1
+}
+
+// lineBlock 描述文档中一个连续的行块（用于切割）
+type lineBlock struct {
+	startLine int    // 1-based
+	endLine   int    // 1-based
+	charCount int    // 该块的字符数
+	blockType string // "text", "md_table", "html_table", "image_line","3level_toc"
+	tables    []tableInfo
+	images    []imageInfo
+}
+
+// buildLineBlocks 将文档行划分为 lineBlock 列表
+// 识别 Markdown 表格、HTML 表格、图片行，其余为普通文本行
+// buildLineBlocks 将文档行划分为 lineBlock 列表
+// 识别 Markdown 表格、HTML 表格、图片行，其余为普通文本行
+// detect3Level 控制是否检测 ### 层级目录块，递归拆分时设为 false 避免死循环
+func buildLineBlocks(lines []string) []lineBlock {
+	return buildLineBlocksInternal(lines, true)
+}
+
+// buildLineBlocksInternal 内部实现，detect3Level 控制是否检测 ### 层级目录
+func buildLineBlocksInternal(lines []string, detect3Level bool) []lineBlock {
+	var blocks []lineBlock
+	i := 0
+	for i < len(lines) {
+		trimmed := strings.TrimSpace(lines[i])
+		if detect3Level && is3LevelTocRow(trimmed) {
+			block, endIdx := parse3LevelTocBlock(lines, i)
+			charCount := 0
+			for j := i; j <= endIdx && j < len(lines); j++ {
+				charCount += len([]rune(lines[j]))
+			}
+
+			// 如果 ### 块内容超过 maxFragmentChars，递归拆分
+			if charCount > maxFragmentChars {
+				// 提取该块的内容行（从 ### 行到下一个 ### 行之前）
+				subLines := make([]string, 0, endIdx-i+1)
+				for j := i; j <= endIdx && j < len(lines); j++ {
+					subLines = append(subLines, lines[j])
+				}
+				// 递归调用，detect3Level=false 避免死循环
+				subBlocks := buildLineBlocksInternal(subLines, false)
+				// 将递归结果合并到当前 blocks 列表中
+				blocks = append(blocks, subBlocks...)
+			} else {
+				blocks = append(blocks, lineBlock{
+					startLine: block.startLine,
+					endLine:   block.endLine,
+					charCount: charCount,
+					blockType: "3level_toc",
+					tables:    []tableInfo{},
+				})
+			}
+			i = endIdx + 1
+			continue
+		}
+		// 检测 Markdown 表格
+		if isMDTableRow(trimmed) {
+			block, endIdx := parseMDTableBlock(lines, i)
+			charCount := 0
+			for j := i; j <= endIdx && j < len(lines); j++ {
+				charCount += len([]rune(lines[j]))
+			}
+			blocks = append(blocks, lineBlock{
+				startLine: block.startLine,
+				endLine:   block.endLine,
+				charCount: charCount,
+				blockType: "md_table",
+				tables: []tableInfo{{
+					title:     "",
+					startLine: block.startLine,
+					endLine:   block.endLine,
+					rowCount:  block.rowCount,
+					colCount:  block.colCount,
+					preview:   block.preview,
+				}},
+			})
+			i = endIdx + 1
+			continue
+		}
+
+		// 检测 HTML 表格
+		if reHTMLTableStart.MatchString(trimmed) {
+			block, endIdx := parseHTMLTableBlock(lines, i)
+			charCount := 0
+			for j := i; j <= endIdx && j < len(lines); j++ {
+				charCount += len([]rune(lines[j]))
+			}
+			blocks = append(blocks, lineBlock{
+				startLine: block.startLine,
+				endLine:   block.endLine,
+				charCount: charCount,
+				blockType: "html_table",
+				tables: []tableInfo{{
+					title:     "",
+					startLine: block.startLine,
+					endLine:   block.endLine,
+					preview:   block.preview,
+				}},
+			})
+			i = endIdx + 1
+			continue
+		}
+
+		// 普通文本行（含可能的图片）
+		images := extractImagesFromLine(lines[i])
+		blocks = append(blocks, lineBlock{
+			startLine: i + 1, // 1-based
+			endLine:   i + 1,
+			charCount: len([]rune(lines[i])),
+			blockType: "text",
+			images:    images,
+		})
+		i++
+	}
+	return blocks
+}
+
+// splitBlocksByCharLimit 将 lineBlock 列表按字符限制切割为多个片段
+// 每个片段不超过 maxChars 字符，保证不拆行、不拆表、不拆图
+func splitBlocksByCharLimit(blocks []lineBlock, maxChars int) [][]lineBlock {
+	var segments [][]lineBlock
+	var currentSegment []lineBlock
+	currentChars := 0
+
+	for _, block := range blocks {
+		// 如果当前块本身超过限制，单独作为一个片段
+		if block.charCount > maxChars {
+			// 先保存当前片段
+			if len(currentSegment) > 0 {
+				segments = append(segments, currentSegment)
+				currentSegment = nil
+				currentChars = 0
+			}
+			// 大块单独成段
+			segments = append(segments, []lineBlock{block})
+			continue
+		}
+
+		// 如果加入当前块会超过限制，先保存当前片段
+		if currentChars+block.charCount > maxChars && len(currentSegment) > 0 {
+			segments = append(segments, currentSegment)
+			currentSegment = nil
+			currentChars = 0
+		}
+
+		currentSegment = append(currentSegment, block)
+		currentChars += block.charCount
+	}
+
+	// 保存最后一个片段
+	if len(currentSegment) > 0 {
+		segments = append(segments, currentSegment)
+	}
+
+	return segments
+}
+
+// collectTablesAndImages 从 lineBlock 列表中收集表格和图片信息
+func collectTablesAndImages(blocks []lineBlock) ([]tableInfo, []imageInfo) {
+	var tables []tableInfo
+	var images []imageInfo
+	for _, b := range blocks {
+		tables = append(tables, b.tables...)
+		images = append(images, b.images...)
+	}
+	return tables, images
+}
+
+// bodySegment 描述正文切割后的一个片段
+type bodySegment struct {
+	content   string
+	startLine int // 1-based
+	endLine   int // 1-based
+	tables    []tableInfo
+	images    []imageInfo
+}
+
+// splitBodyByCharLimit 将正文内容按字符限制切割为多个片段
+// 保证不拆行、不拆表、不拆图
+func splitBodyByCharLimit(bodyLines []string, contentStart int, maxChars int) []bodySegment {
+	// 先将 bodyLines 划分为 lineBlock 列表
+	blocks := buildLineBlocks(bodyLines)
+
+	// 按字符限制切割
+	segments := splitBlocksByCharLimit(blocks, maxChars)
+
+	// 转换为 bodySegment 列表
+	var result []bodySegment
+	for _, segBlocks := range segments {
+		tables, images := collectTablesAndImages(segBlocks)
+
+		// 计算行号范围（转换为 1-based 绝对行号）
+		startLine := segBlocks[0].startLine + contentStart - 1
+		endLine := segBlocks[len(segBlocks)-1].endLine + contentStart - 1
+
+		// 构建内容
+		var allLines []string
+		for _, b := range segBlocks {
+			for i := b.startLine - 1; i < b.endLine && i < len(bodyLines); i++ {
+				allLines = append(allLines, bodyLines[i])
+			}
+		}
+		content := strings.TrimSpace(strings.Join(allLines, "\n"))
+
+		result = append(result, bodySegment{
+			content:   content,
+			startLine: startLine,
+			endLine:   endLine,
+			tables:    tables,
+			images:    images,
+		})
+	}
+
+	return result
+}
+
+// buildContentFromBlocks 从 lineBlock 列表构建文本内容
+func buildContentFromBlocks(blocks []lineBlock, lines []string) string {
+	var allLines []string
+	for _, b := range blocks {
+		for i := b.startLine - 1; i < b.endLine && i < len(lines); i++ {
+			allLines = append(allLines, lines[i])
+		}
+	}
+	return strings.TrimSpace(strings.Join(allLines, "\n"))
+}

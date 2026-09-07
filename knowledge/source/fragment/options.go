@@ -12,6 +12,7 @@ package fragment
 import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
+	"trpc.group/trpc-go/trpc-agent-go/model"
 )
 
 // Option represents a functional option for configuring fragment sources.
@@ -66,5 +67,54 @@ func WithEmbedder(e embedder.Embedder) Option {
 func WithReranker(r reranker.Reranker) Option {
 	return func(s *Source) {
 		s.reranker = r
+	}
+}
+
+// WithKeywordMatchThreshold sets the per-keyword cosine floor used by the
+// keyword-based semantic mounter. Each fragment is matched against the
+// keywords of each skeleton node independently; a node is a candidate
+// when any of its keyword cosines reaches this threshold. Default is 0.30.
+func WithKeywordMatchThreshold(threshold float64) Option {
+	return func(s *Source) {
+		s.keywordMatchThreshold = threshold
+	}
+}
+
+func WithRerankMatchThreshold(threshold float64) Option {
+	return func(s *Source) {
+		s.rerankMatchThreshold = threshold
+	}
+}
+
+func WithRerankTopN(n int) Option {
+	return func(s *Source) {
+		s.rerankTopN = n
+	}
+}
+
+// WithModel sets the LLM used for batch document classification.
+// When set, ReadGraph will call the LLM to classify all docPaths into
+// predefined categories and attach the result as trpc_ast_doc_category
+// metadata on each document node.
+//
+// If not set, no classification is performed.
+func WithModel(llm model.Model) Option {
+	return func(s *Source) {
+		s.llm = llm
+	}
+}
+
+// WithDocClassifyPrompt overrides the default document classification prompt.
+// The placeholder "[在此处粘贴你的文件列表]" will be replaced with the actual
+// docPaths at runtime. If empty, the built-in default prompt is used.
+func WithDocClassifyPrompt(prompt string) Option {
+	return func(s *Source) {
+		s.docClassifyPrompt = prompt
+	}
+}
+
+func WithSourceDir(dir string) Option {
+	return func(s *Source) {
+		s.sourceDir = dir
 	}
 }

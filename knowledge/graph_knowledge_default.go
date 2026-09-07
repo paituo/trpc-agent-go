@@ -11,6 +11,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -27,9 +28,11 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/graph"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/graphstore"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/internal/codeast"
+	"trpc.group/trpc-go/trpc-agent-go/knowledge/retriever"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/source"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/vectorstore"
 	"trpc.group/trpc-go/trpc-agent-go/log"
+	semconvtrace "trpc.group/trpc-go/trpc-agent-go/telemetry/semconv/trace"
 )
 
 const (
@@ -69,6 +72,7 @@ type BuiltinGraphKnowledge struct {
 	store       graphstore.Store
 	vectorStore vectorstore.VectorStore
 	embedder    embedder.Embedder
+	retriever   retriever.Retriever
 }
 
 // NewGraphKnowledge creates a new BuiltinGraphKnowledge.
@@ -101,6 +105,13 @@ func WithGraphEmbedder(e embedder.Embedder) GraphKnowledgeOption {
 	}
 }
 
+// WithGraphRetriever sets the retriever used for vector search.
+func WithGraphRetriever(r retriever.Retriever) GraphKnowledgeOption {
+	return func(gk *BuiltinGraphKnowledge) {
+		gk.retriever = r
+	}
+}
+
 // WithGraphLoadProgress enables or disables progress logging during graph source load.
 func WithGraphLoadProgress(show bool) GraphLoadOption {
 	return func(config *graphLoadConfig) {
@@ -129,7 +140,9 @@ func WithGraphLoadReadGraphOpts(opts ...source.ReadGraphOption) GraphLoadOption 
 	}
 }
 
-// Search implements Knowledge by using graph-native retrieval.
+// Search implements Knowledge by using graph-native retrieval with optional vector search.
+// If a retriever is configured, it will be used for vector search; otherwise, graph-native
+// retrieval is used.
 func (gk *BuiltinGraphKnowledge) Search(
 	ctx context.Context,
 	req *SearchRequest,
@@ -141,6 +154,96 @@ func (gk *BuiltinGraphKnowledge) Search(
 		return nil, errors.New("search query cannot be empty")
 	}
 
+	return gk.HybridSearch(ctx, req)
+	// // If retriever is configured, use vector search
+	// if gk.retriever != nil {
+	// 	return gk.vectorSearch(ctx, req)
+	// }
+
+	// // Otherwise, use graph-native retrieval
+	// return gk.graphSearch(ctx, req)
+}
+
+// vectorSearch performs vector-based search using the configured retriever.
+func (gk *BuiltinGraphKnowledge) vectorSearch(
+	ctx context.Context,
+	req *SearchRequest,
+) (*SearchResult, error) {
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeSearchSpanName())
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationKnowledgeSearch),
+			attribute.String(semconvtrace.KeyKnowledgeSearchInput, req.Query),
+			attribute.Int("knowledge.search.max_results", req.MaxResults),
+			attribute.Float64("knowledge.search.min_score", req.MinScore),
+		)
+	}
+
+	minScore := req.MinScore
+	if minScore < 0 {
+		minScore = 0.0
+	}
+
+	searchMode := req.SearchMode
+	if req.Query == "" && hasSearchFilter(req.SearchFilter) {
+		log.DebugfContext(ctx, "knowledge search: empty query with filter, switching search mode to filter")
+		searchMode = vectorstore.SearchModeFilter
+	}
+
+	retrieverReq := &retriever.Query{
+		Text:       req.Query,
+		History:    req.History,
+		UserID:     req.UserID,
+		SessionID:  req.SessionID,
+		Filter:     graphConvertQueryFilter(req.SearchFilter),
+		Limit:      req.MaxResults,
+		MinScore:   minScore,
+		SearchMode: searchMode,
+	}
+
+	result, err := gk.retriever.Retrieve(ctx, retrieverReq)
+	if err != nil {
+		if started {
+			span.SetAttributes(attribute.String("knowledge.search.error", err.Error()))
+		}
+		return nil, fmt.Errorf("retrieval failed: %w", err)
+	}
+
+	if len(result.Documents) == 0 {
+		return nil, errors.New("no relevant documents found")
+	}
+
+	bestDoc := result.Documents[0]
+	documents := make([]*Result, 0, len(result.Documents))
+	for _, doc := range result.Documents {
+		documents = append(documents, &Result{
+			Document: doc.Document,
+			Score:    doc.Score,
+		})
+	}
+
+	if started {
+		outputJSON := graphBuildSearchOutputJSON(documents)
+		span.SetAttributes(
+			attribute.Int("knowledge.search.result_count", len(documents)),
+			attribute.String(semconvtrace.KeyKnowledgeSearchOutput, outputJSON),
+		)
+	}
+
+	return &SearchResult{
+		Document:  bestDoc.Document,
+		Score:     bestDoc.Score,
+		Text:      bestDoc.Document.Content,
+		Documents: documents,
+	}, nil
+}
+
+// graphSearch performs graph-native retrieval.
+func (gk *BuiltinGraphKnowledge) graphSearch(
+	ctx context.Context,
+	req *SearchRequest,
+) (*SearchResult, error) {
 	seeds, err := gk.retrieveSeedNodes(ctx, req)
 	if err != nil {
 		return nil, err
@@ -192,7 +295,7 @@ func (gk *BuiltinGraphKnowledge) LoadGraphSource(
 	if err != nil {
 		return err
 	}
-	truncateGraphDataContent(data)
+	//truncateGraphDataContent(data)
 	if err := gk.storeGraphData(ctx, data, config); err != nil {
 		return err
 	}
@@ -455,6 +558,163 @@ func (gk *BuiltinGraphKnowledge) FindPaths(
 	return gk.store.FindPaths(ctx, query)
 }
 
+// HybridSearch performs hybrid retrieval: first locates graph nodes, then
+// performs vector search on their child nodes' content.
+// This is useful for scenarios like "find a specific module and search its sub-components".
+func (gk *BuiltinGraphKnowledge) HybridSearch(
+	ctx context.Context,
+	req *SearchRequest,
+) (*SearchResult, error) {
+	if req == nil {
+		return nil, errors.New("search request cannot be nil")
+	}
+	if strings.TrimSpace(req.Query) == "" && !hasSearchFilter(req.SearchFilter) {
+		return nil, errors.New("search query cannot be empty")
+	}
+
+	ctx, span, started := itrace.StartSpan(ctx, nil, itelemetry.NewKnowledgeSearchSpanName()+"_hybrid")
+	if started {
+		defer span.End()
+		span.SetAttributes(
+			attribute.String(semconvtrace.KeyGenAIOperationName, itelemetry.OperationKnowledgeSearch),
+			attribute.String(semconvtrace.KeyKnowledgeSearchInput, req.Query),
+		)
+	}
+
+	// Step 1: Locate target graph nodes using graph-native retrieval
+	seeds, err := gk.retrieveSeedNodes(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("locate graph nodes: %w", err)
+	}
+	if len(seeds) == 0 {
+		return nil, errors.New("no relevant graph nodes found")
+	}
+
+	// Step 2: Traverse to get child nodes
+	childNodes, err := gk.traverseChildNodes(ctx, seeds)
+	if err != nil {
+		return nil, fmt.Errorf("traverse child nodes: %w", err)
+	}
+	if len(childNodes) == 0 {
+		// Fallback to graph search results if no children found
+		return gk.graphSearch(ctx, req)
+	}
+
+	// Step 3: Perform vector search on child nodes' content
+	return gk.vectorSearchOnNodes(ctx, req, childNodes)
+}
+
+// traverseChildNodes traverses from seed nodes to get their child nodes.
+func (gk *BuiltinGraphKnowledge) traverseChildNodes(
+	ctx context.Context,
+	seeds []*graphSeed,
+) ([]*graph.Node, error) {
+	if gk.store == nil {
+		return nil, errors.New("graph store is not configured")
+	}
+
+	startIDs := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		if seed.node != nil && seed.node.ID != "" {
+			startIDs = append(startIDs, seed.node.ID)
+		}
+	}
+	if len(startIDs) == 0 {
+		return nil, nil
+	}
+
+	result, err := gk.store.Traverse(ctx, &graph.TraverseQuery{
+		StartIDs:  startIDs,
+		Direction: graph.DirectionOut,
+		MaxDepth:  1,
+		MaxNodes:  100,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, nil
+	}
+	return result.Nodes, nil
+}
+
+// vectorSearchOnNodes performs vector search on the given nodes' content.
+func (gk *BuiltinGraphKnowledge) vectorSearchOnNodes(
+	ctx context.Context,
+	req *SearchRequest,
+	nodes []*graph.Node,
+) (*SearchResult, error) {
+	if gk.vectorStore == nil {
+		return nil, errors.New("graph vector store is not configured")
+	}
+	if gk.embedder == nil {
+		return nil, errors.New("graph embedder is not configured")
+	}
+
+	// Generate embedding for the query
+	query := strings.TrimSpace(req.Query)
+	embedding, err := gk.embedder.GetEmbedding(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("generate embedding: %w", err)
+	}
+
+	// Search vector store with the embedding
+	result, err := gk.vectorStore.Search(ctx, &vectorstore.SearchQuery{
+		Query:    query,
+		Vector:   embedding,
+		Limit:    req.MaxResults,
+		MinScore: req.MinScore,
+		Filter: &vectorstore.SearchFilter{
+			IDs: getNodeIDs(nodes),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vector search: %w", err)
+	}
+	if result == nil || len(result.Results) == 0 {
+		return nil, errors.New("no relevant documents found in child nodes")
+	}
+
+	documents := make([]*Result, 0, len(result.Results))
+	for _, scored := range result.Results {
+		if scored == nil || scored.Document == nil {
+			continue
+		}
+		documents = append(documents, &Result{
+			Document: scored.Document,
+			Score:    scored.Score,
+		})
+	}
+	if len(documents) == 0 {
+		return nil, errors.New("no relevant documents found")
+	}
+
+	bestDoc := documents[0]
+	return &SearchResult{
+		Document:  bestDoc.Document,
+		Score:     bestDoc.Score,
+		Text:      bestDoc.Document.Content,
+		Documents: documents,
+	}, nil
+}
+
+// getNodeIDs extracts unique node IDs from the given nodes.
+func getNodeIDs(nodes []*graph.Node) []string {
+	seen := make(map[string]struct{}, len(nodes))
+	ids := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		if node == nil || node.ID == "" {
+			continue
+		}
+		if _, ok := seen[node.ID]; ok {
+			continue
+		}
+		seen[node.ID] = struct{}{}
+		ids = append(ids, node.ID)
+	}
+	return ids
+}
+
 func (gk *BuiltinGraphKnowledge) retrieveSeedNodes(
 	ctx context.Context,
 	req *SearchRequest,
@@ -462,7 +722,7 @@ func (gk *BuiltinGraphKnowledge) retrieveSeedNodes(
 	if gk.vectorStore == nil {
 		return nil, errors.New("graph vector store is not configured")
 	}
-	maxSeeds := resolvePositiveInt(req.MaxResults, defaultGraphSearchMaxSeeds)
+	maxSeeds := resolvePositiveInt(req.SeedMaxResults, defaultGraphSearchMaxSeeds)
 
 	query := strings.TrimSpace(req.Query)
 	var embedding []float64
@@ -773,4 +1033,37 @@ func cloneMetadata(metadata map[string]any) map[string]any {
 		cloned[k] = v
 	}
 	return cloned
+}
+
+// graphConvertQueryFilter converts knowledge.SearchFilter to retriever.QueryFilter.
+func graphConvertQueryFilter(qf *SearchFilter) *retriever.QueryFilter {
+	if qf == nil {
+		return nil
+	}
+	return &retriever.QueryFilter{
+		DocumentIDs:     qf.DocumentIDs,
+		Metadata:        qf.Metadata,
+		FilterCondition: qf.FilterCondition,
+	}
+}
+
+// graphBuildSearchOutputJSON builds a compact JSON string of search results for telemetry.
+func graphBuildSearchOutputJSON(results []*Result) string {
+	type resultSummary struct {
+		ID    string  `json:"id"`
+		Name  string  `json:"name"`
+		Score float64 `json:"score"`
+	}
+	summaries := make([]resultSummary, 0, len(results))
+	for _, r := range results {
+		if r.Document != nil {
+			summaries = append(summaries, resultSummary{
+				ID:    r.Document.ID,
+				Name:  r.Document.Name,
+				Score: r.Score,
+			})
+		}
+	}
+	b, _ := json.Marshal(summaries)
+	return string(b)
 }

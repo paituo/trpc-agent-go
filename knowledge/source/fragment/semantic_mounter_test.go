@@ -114,7 +114,7 @@ func testSkeletons() []SkeletonNode {
 func TestSemanticMounter_SingleNode(t *testing.T) {
 	emb := &oneHotEmbedder{vocab: vocab}
 	rk := &oneHotReranker{vocab: vocab}
-	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons())
+	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons(), 0.30, 0.30)
 
 	cases := []struct {
 		name     string
@@ -133,7 +133,7 @@ func TestSemanticMounter_SingleNode(t *testing.T) {
 			require.Len(t, targets, 1, "should mount to exactly one skeleton node")
 			require.Equal(t, c.want, targets[0].SkeletonID)
 			require.Equal(t, "direct", targets[0].MountType)
-			require.Equal(t, "semantic:vector+rerank", targets[0].MatchSource)
+			require.Equal(t, "semantic:keyword+rerank", targets[0].MatchSource)
 		})
 	}
 }
@@ -141,7 +141,7 @@ func TestSemanticMounter_SingleNode(t *testing.T) {
 func TestSemanticMounter_MultiNode(t *testing.T) {
 	emb := &oneHotEmbedder{vocab: vocab}
 	rk := &oneHotReranker{vocab: vocab}
-	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons())
+	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons(), 0.30, 0.30)
 
 	// 同时含「杆塔」与「基础」业务概念 -> 应挂接到两个骨架节点。
 	text := "4 杆塔与基础 本工程杆塔采用角钢塔，基础采用挖孔基础"
@@ -161,7 +161,7 @@ func TestSemanticMounter_MultiNode(t *testing.T) {
 func TestSemanticMounter_UnmatchedToUnknown(t *testing.T) {
 	emb := &oneHotEmbedder{vocab: vocab}
 	rk := &oneHotReranker{vocab: vocab}
-	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons())
+	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, testSkeletons(), 0.30, 0.30)
 
 	// 不含任何业务词表词 -> 无法匹配 -> 回退 unknown 节点。
 	text := "气象条件 最大设计风速与覆冰厚度统计如下"
@@ -175,14 +175,14 @@ func TestSemanticMounter_RerankerUnavailable(t *testing.T) {
 	emb := &oneHotEmbedder{vocab: vocab}
 	// 传 nil reranker 走余弦兜底路径：Mount 内会触发 rerank 错误 -> 退回
 	// acceptByCosine。这里直接用 nil 调 newSemanticMounter 验证兜底仍可命中。
-	m := newSemanticMounter(emb, nil, defaultUnknownSkeletonID, testSkeletons())
+	m := newSemanticMounter(emb, nil, defaultUnknownSkeletonID, testSkeletons(), 0.30, 0.30)
 
 	text := "1.1 杆塔型式 本工程采用角钢塔"
 	targets := m.Mount(context.Background(), fragment{name: "章节", content: text})
 	require.Len(t, targets, 1)
 	require.Equal(t, "TowerDesign", targets[0].SkeletonID)
 	require.Equal(t, "direct", targets[0].MountType)
-	require.Equal(t, "semantic:vector-only", targets[0].MatchSource)
+	require.Equal(t, "semantic:keyword", targets[0].MatchSource)
 }
 
 func TestSource_MountFragmentDeterministicFallback(t *testing.T) {
@@ -214,7 +214,7 @@ func TestSemanticMounter_AncestorSuppression(t *testing.T) {
 		{ID: "Proj", Name: "Proj", Content: "杆塔 整体工程", ParentID: ""},
 		{ID: "Tower", Name: "Tower", Content: "杆塔 铁塔 杆塔型式", ParentID: "Proj"},
 	}
-	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, sk)
+	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, sk, 0.30, 0.30)
 	targets := m.Mount(context.Background(), fragment{
 		name:        "章节",
 		content:     "杆塔型式 本工程杆塔采用角钢塔",
@@ -234,7 +234,7 @@ func TestSemanticMounter_HeadingContextMutex(t *testing.T) {
 		{ID: "CTower", Name: "CTower", Content: "杆塔 铁塔 杆塔型式 跨越", ParentID: ""},
 		{ID: "DCond", Name: "DCond", Content: "导地线 导线选型 跨越", ParentID: ""},
 	}
-	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, sk)
+	m := newSemanticMounter(emb, rk, defaultUnknownSkeletonID, sk, 0.30, 0.30)
 	targets := m.Mount(context.Background(), fragment{
 		name:        "章节",
 		content:     "本段论述跨越与导地线相关内容",
