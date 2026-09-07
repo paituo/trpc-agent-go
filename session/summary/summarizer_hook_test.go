@@ -288,7 +288,11 @@ type panicGenerateModel struct {
 }
 
 func (m *panicGenerateModel) Info() model.Info {
-	return model.NewTestInfo("panic-generate")
+	return model.Info{
+		Name:          "panic-generate",
+		ContextWindow: m.contextWindow,
+		TokenCounter:  model.NewTokenCounter("panic-generate"),
+	}
 }
 
 func (m *panicGenerateModel) GenerateContent(
