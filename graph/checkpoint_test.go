@@ -275,7 +275,10 @@ func TestCreateCheckpoint_SkipsUnsafeKeys(t *testing.T) {
 }
 
 // minimal in-memory saver mock for manager.put test
-type mockSaver struct{ byID map[string]*CheckpointTuple }
+type mockSaver struct {
+	byID  map[string]*CheckpointTuple
+	order []string // key insertion order, used to disambiguate latest when timestamps tie
+}
 
 func newMockSaver() *mockSaver { return &mockSaver{byID: map[string]*CheckpointTuple{}} }
 
@@ -313,6 +316,7 @@ func (m *mockSaver) Put(_ context.Context, req PutRequest) (map[string]any, erro
 	ns := GetNamespace(req.Config)
 	key := lineage + ":" + ns + ":" + req.Checkpoint.ID
 	m.byID[key] = &CheckpointTuple{Config: CreateCheckpointConfig(lineage, req.Checkpoint.ID, ns), Checkpoint: req.Checkpoint, Metadata: req.Metadata}
+	m.order = append(m.order, key)
 	return CreateCheckpointConfig(lineage, req.Checkpoint.ID, ns), nil
 }
 func (m *mockSaver) PutWrites(_ context.Context, _ PutWritesRequest) error { return nil }

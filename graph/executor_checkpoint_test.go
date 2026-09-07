@@ -1758,6 +1758,32 @@ func latestInterruptTuple(
 ) *CheckpointTuple {
 	t.Helper()
 
+	// Prefer deterministic write order over timestamps: rapid consecutive
+	// checkpoints can share the same time.Now() tick (especially on Windows,
+	// where the clock granularity can be ~15ms), which makes a pure
+	// timestamp comparison unable to distinguish them.
+	if len(saver.order) > 0 {
+		for i := len(saver.order) - 1; i >= 0; i-- {
+			key := saver.order[i]
+			if !strings.HasPrefix(key, lineageID+":") {
+				continue
+			}
+			tuple := saver.byID[key]
+			if tuple == nil || tuple.Metadata == nil || tuple.Checkpoint == nil {
+				continue
+			}
+			if tuple.Metadata.Source != CheckpointSourceInterrupt {
+				continue
+			}
+			if tuple.Checkpoint.InterruptState == nil {
+				continue
+			}
+			return tuple
+		}
+		require.FailNowf(t, "no interrupt tuple found for lineage %q", lineageID)
+		return nil
+	}
+
 	var latest *CheckpointTuple
 	var latestTime time.Time
 
