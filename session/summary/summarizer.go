@@ -1377,6 +1377,12 @@ func (s *sessionSummarizer) generateSummary(
 		}
 	}
 
+	// Count summary-request budgets against the summarization model rather than
+	// the agent's model, so a dedicated (smaller) summary model is never
+	// over-budgeted. Downstream helpers only receive ctx, so carry the counter
+	// on it.
+	ctx = withSummaryTokenCounter(ctx, s.model)
+
 	// Get or create timing info from invocation (only record first LLM call).
 	timingInfo := invocation.GetOrCreateTimingInfo()
 	taskType := itelemetry.NewSummarizeTaskType(s.name)
@@ -2086,7 +2092,7 @@ func countSummaryRequestTokens(
 	if request == nil {
 		return 0, nil
 	}
-	counter := getTokenCounter()
+	counter := resolveSummaryTokenCounter(ctx)
 	tokens := 0
 	if len(request.Messages) > 0 {
 		var err error
@@ -2133,7 +2139,7 @@ func summaryToolPayloadCandidates(
 	ctx context.Context,
 	messages []model.Message,
 ) ([]summaryPayloadCandidate, error) {
-	counter := getTokenCounter()
+	counter := resolveSummaryTokenCounter(ctx)
 	candidates := make([]summaryPayloadCandidate, 0, len(messages))
 	for i, message := range messages {
 		replacement, ok := compactSummaryToolPayload(message)
@@ -2283,7 +2289,7 @@ func estimateRequestPromptTokens(ctx context.Context, request *model.Request) in
 	if request == nil || len(request.Messages) == 0 {
 		return 0
 	}
-	counter := getTokenCounter()
+	counter := resolveSummaryTokenCounter(ctx)
 	tokens, err := counter.CountTokensRange(ctx, request.Messages, 0, len(request.Messages))
 	if err == nil {
 		return tokens
