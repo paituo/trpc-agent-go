@@ -2804,7 +2804,7 @@ func finalizeSummaryView(
 		return
 	}
 	if counter == nil {
-		counter = model.NewSimpleTokenCounter()
+		counter = summarytoken.Get()
 	}
 	tokens, err := counter.CountTokensRange(
 		ctx,

@@ -2554,7 +2554,7 @@ func (a *LLMAgent) tokenCounterForCompaction(options *Options) model.TokenCounte
 		options.TokenCounterOverride,
 		a.model,
 	)
-	if !options.EnableTokenCounterCalibration {
+	if base == nil || !options.EnableTokenCounterCalibration {
 		return base
 	}
 	cc := model.NewCalibratingTokenCounter(base)
@@ -2565,7 +2565,14 @@ func (a *LLMAgent) tokenCounterForCompaction(options *Options) model.TokenCounte
 // contextCompactionTokenCounter returns a model-aware TokenCounter for context compaction.
 // When an explicit counter is provided, it is used directly.
 // When an override counter is provided, it is used next (bypassing model-name routing).
-// Otherwise, the counter is auto-detected from the model via model.TokenCounterForModel.
+// Otherwise, the counter is auto-detected from the model when the model exposes one.
+//
+// Returning nil here is intentional and preserves the upstream contract: a nil
+// processor counter makes downstream estimates (context compaction and the
+// model-visible request size used to trigger summaries) fall back to the shared
+// summarytoken default, so an agent without an explicit counter still observes
+// summary.SetTokenCounter. Inventing a counter from the model name would
+// silently override that default.
 func contextCompactionTokenCounter(
 	explicitCounter model.TokenCounter,
 	overrideCounter model.TokenCounter,
@@ -2577,15 +2584,8 @@ func contextCompactionTokenCounter(
 	if overrideCounter != nil {
 		return overrideCounter
 	}
-	// Nil-safe fallback: if the model has no TokenCounter (e.g. mock models
-	// in tests), create a default counter from the model name instead of
-	// panicking via model.TokenCounterForModel.
 	if mdl != nil && mdl.Info().TokenCounter != nil {
 		return mdl.Info().TokenCounter
 	}
-	name := ""
-	if mdl != nil {
-		name = mdl.Info().Name
-	}
-	return model.NewTokenCounter(name)
+	return nil
 }
