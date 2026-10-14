@@ -609,6 +609,10 @@ func (s *Server) resolveRunOptions(
 	// Handle ToolCallContext: inject assistant tool_call + tool result
 	// from a previous EndInvocation run so the LLM sees the full context.
 	if len(run.toolCallContext) > 0 {
+		// Invoke hook for tool_call_context processing (e.g., confirm_form write-back).
+		if toolCallContextHook != nil {
+			toolCallContextHook(ctx, run.sessionID, run.toolCallContext)
+		}
 		extra = append(extra, toolCallContextRunOptions(run.toolCallContext)...)
 	}
 
@@ -1195,4 +1199,17 @@ func toolCallContextRunOptions(
 	}
 
 	return opts
+}
+
+// toolCallContextHook is called after tool_call_context items are processed.
+// Plugins can set this via SetToolCallContextHook to intercept tool_call_context
+// processing (e.g., for confirm_form write-back).
+var toolCallContextHook func(ctx context.Context, sessionID string, items []gwproto.ToolCallContextItem)
+
+// SetToolCallContextHook sets the hook for tool_call_context processing.
+// The hook is called after tool_call_context items are processed but before
+// the run options are built. This allows plugins to intercept and process
+// tool_call_context items (e.g., for confirm_form write-back).
+func SetToolCallContextHook(hook func(ctx context.Context, sessionID string, items []gwproto.ToolCallContextItem)) {
+	toolCallContextHook = hook
 }
