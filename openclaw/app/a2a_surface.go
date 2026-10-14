@@ -145,7 +145,7 @@ func buildRuntimeHTTPHandler(
 		return nil, errors.New("gateway handler is nil")
 	}
 	if surface.Handler == nil {
-		return gatewayHandler, nil
+		return withCORS(gatewayHandler), nil
 	}
 
 	mux := http.NewServeMux()
@@ -153,7 +153,25 @@ func buildRuntimeHTTPHandler(
 	if err := mountA2ASurface(mux, surface); err != nil {
 		return nil, err
 	}
-	return mux, nil
+	return withCORS(mux), nil
+}
+
+// withCORS wraps an HTTP handler so the gateway can be called from a
+// cross-origin browser host (the local Vite dev server on :5173 or the
+// desktop WebView) which talks to the gateway served on a different origin
+// (:19998). Without these headers the browser rejects the cross-origin
+// POST/SSE responses. Local development only; origins are opened with "*".
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func mountA2ASurface(
