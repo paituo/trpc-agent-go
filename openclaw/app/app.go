@@ -921,6 +921,33 @@ func (r *Runtime) AppName() string {
 	return strings.TrimSpace(r.appName)
 }
 
+// Tools returns the tool instances assembled for the runtime from
+// openclaw.yaml `tools.providers` (plus knowledge/skill-list extras), i.e. the
+// same tools the native default agent was built with. They are already built at
+// startup (see Runtime.tools, populated via ownedToolsSink inside newAgent).
+// Downstream distributions that build their own agents (e.g. bowei custom
+// smart agents) can reuse these to ensure openclaw.yaml tool providers (such as
+// bowei-compile's cost_* family) are present on every agent, not just the
+// default "assistant". The returned slice must not be mutated.
+func (r *Runtime) Tools() []tool.Tool {
+	if r == nil {
+		return nil
+	}
+	return r.tools
+}
+
+// ToolSets returns the tool sets assembled for the runtime from openclaw.yaml
+// `tools.toolsets` (e.g. bowei_mcp, lua), i.e. the same tool sets the native
+// default agent was configured with. Downstream distributions that build their
+// own agents can reuse these to inherit openclaw.yaml tool sets. The returned
+// slice must not be mutated.
+func (r *Runtime) ToolSets() []tool.ToolSet {
+	if r == nil {
+		return nil
+	}
+	return r.toolSets
+}
+
 func (r *Runtime) SessionService() session.Service {
 	if r == nil {
 		return nil
@@ -2665,6 +2692,13 @@ func run(
 		hubRT.subagent = subagentSvc
 		hubRT.Gateway = Gateway{Handler: gwSrv.Handler()}
 		hubRT.appName = opts.AppName
+		// 把默认智能体（原生 assistant）装配好的全部 tools/toolsets 一并交给 ready
+		// hook，使宿主进程（bowei）能提取默认智能体的完整工具面，供其自定义智能体
+		// （AIZJ/budget-analysis 等）复用——否则 WithAgent 替换原生 agent 后这些
+		// openclaw.yaml providers/toolsets（bowei-compile cost_*、hitl、fs、lua、
+		// bowei_mcp 等）会丢失。见 spec specs/refactors/bowei-agent-tool-assembly-and-name。
+		hubRT.tools = runtimeTools
+		hubRT.toolSets = toolSets
 		runtimeOpts.runtimeReadyHook(hubRT)
 	}
 	go func() {
