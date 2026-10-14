@@ -507,6 +507,15 @@ func (s *Server) streamLocked(
 	if run.streamOptions != nil {
 		noTruncateTools = run.streamOptions.NoTruncateTools
 	}
+	// 收集本次请求声明的外部工具名（小写），用于在流循环中识别需要下发
+	// permission.request 的交互型工具（confirm_card / AskUserQuestion / 媒体生成 / MCP 桥接等）。
+	var externalToolNames map[string]struct{}
+	if len(run.externalTools) > 0 {
+		externalToolNames = make(map[string]struct{}, len(run.externalTools))
+		for _, et := range run.externalTools {
+			externalToolNames[strings.ToLower(strings.TrimSpace(et.Name))] = struct{}{}
+		}
+	}
 	for evt := range events {
 		if trace != nil && evt != nil {
 			_ = trace.Record(debugrecorder.KindRunnerEvent, evt)
@@ -515,12 +524,13 @@ func (s *Server) streamLocked(
 			continue
 		}
 
-		// confirm_card 权限确认卡：无论 shouldSendProgressForEvent 判断如何，
-		// 只要本次 runner 事件携带 confirm_card 类型的 tool call，就立即下发
-		// permission.request 事件，让前端弹出审批卡。该逻辑与“是否展示进度”
-		// 解耦，避免审批卡因进度抑制而丢失（修复 jxbw 续流审批卡不出现的问题）。
-		if confirmCardToolCalls := extractConfirmCardToolCalls(evt); len(confirmCardToolCalls) > 0 {
-			if !sendPermissionRequest(ctx, out, run, evt, confirmCardToolCalls) {
+		// 外部工具交互卡：无论 shouldSendProgressForEvent 判断如何，只要本次
+		// runner 事件携带已声明为外部工具的 tool call（含 confirm_card 与
+		// AskUserQuestion / 媒体生成 / MCP 桥接等），就立即下发 permission.request
+		// 事件，让前端弹出对应的交互卡。该逻辑与“是否展示进度”解耦，避免交互卡
+		// 因进度抑制而丢失（修复 jxbw 续流审批卡 / 外部工具卡不出现的问题）。
+		if extToolCalls := extractExternalToolCalls(evt, externalToolNames); len(extToolCalls) > 0 {
+			if !sendPermissionRequest(ctx, out, run, evt, extToolCalls) {
 				return streamOutcome{
 					status: traceStatusError,
 					errMsg: contextErrMessage(ctx),
@@ -530,6 +540,11 @@ func (s *Server) streamLocked(
 
 		if updates := progressUpdatesFromRunnerEvent(evt, noTruncateTools); len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
 			for _, update := range updates {
+				// 外部工具已由 permission.request 驱动前端交互卡，不再下发原始
+				// tool_use 进度卡，避免同一工具同时出现 JSON 卡与交互卡。
+				if update.toolName != "" && isExternalToolName(update.toolName, externalToolNames) {
+					continue
+				}
 				if !sendProgressUpdate(
 					ctx,
 					out,
@@ -900,12 +915,14 @@ func progressUpdatesFromRunnerEvent(
 // tool. The model invokes it before running a side-effecting operation.
 const confirmCardToolName = "confirm_card"
 
-// extractConfirmCardToolCalls returns the confirm_card tool calls carried by
-// the runner event. The gateway pauses the run (EndInvocation) and emits a
-// permission.request so the frontend can render an approval card. Only
-// tool-call responses are considered; tool results that resume a paused run
-// must not re-trigger the approval card.
-func extractConfirmCardToolCalls(evt *event.Event) []model.ToolCall {
+// extractExternalToolCalls returns the external-tool tool calls carried by the
+// runner event. A tool call is "external" when its name equals the built-in
+// confirm_card tool OR matches a tool declared via ExternalTools (caller-executed
+// tools such as AskUserQuestion / 媒体生成 / MCP 桥接). The gateway pauses the
+// run (EndInvocation) and emits a permission.request so the frontend can render
+// the corresponding interactive card. Only tool-call responses are considered;
+// tool results that resume a paused run must not re-trigger the card.
+func extractExternalToolCalls(evt *event.Event, externalToolNames map[string]struct{}) []model.ToolCall {
 	if evt == nil || evt.Response == nil || !evt.Response.IsToolCallResponse() {
 		return nil
 	}
@@ -915,11 +932,23 @@ func extractConfirmCardToolCalls(evt *event.Event) []model.ToolCall {
 	}
 	matched := make([]model.ToolCall, 0, len(toolCalls))
 	for _, tc := range toolCalls {
-		if strings.EqualFold(strings.TrimSpace(tc.Function.Name), confirmCardToolName) {
+		if isExternalToolName(tc.Function.Name, externalToolNames) {
 			matched = append(matched, tc)
 		}
 	}
 	return matched
+}
+
+// isExternalToolName reports whether name is a caller-executed external tool.
+// The built-in confirm_card tool always qualifies; other names qualify only
+// when present in externalToolNames (declared via ExternalTools in the request).
+func isExternalToolName(name string, externalToolNames map[string]struct{}) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == confirmCardToolName {
+		return true
+	}
+	_, ok := externalToolNames[n]
+	return ok
 }
 
 // sendPermissionRequest emits a permission.request gateway event carrying the
