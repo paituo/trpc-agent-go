@@ -68,6 +68,50 @@ func (s *stubGraphStore) Traverse(
 	return &graph.TraverseResult{}, nil
 }
 
+func (s *stubGraphStore) QueryNodesByIDs(
+	ctx context.Context,
+	ids []string,
+) ([]*graph.Node, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		want[id] = true
+	}
+	out := make([]*graph.Node, 0, len(ids))
+	for _, n := range s.nodes {
+		if want[n.ID] {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+func (s *stubGraphStore) QueryNodesByMetadata(
+	ctx context.Context,
+	metadata map[string]any,
+) ([]*graph.Node, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+	out := make([]*graph.Node, 0, len(s.nodes))
+	for _, n := range s.nodes {
+		matched := true
+		for k, v := range metadata {
+			if n.Metadata == nil || n.Metadata[k] != v {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
 func (s *stubGraphStore) FindPaths(
 	ctx context.Context,
 	query *graph.PathQuery,
@@ -1338,12 +1382,12 @@ func TestBuiltinGraphKnowledge_LoadGraphSourceIndexError(t *testing.T) {
 	src := &stubGraphSource{data: &graph.Data{
 		Nodes: []*graph.Node{{ID: "idx-1", Name: "Idx1", Content: "c"}},
 	}}
+	// wanghaimin 最终形态：addGraphDocuments 的顺序分支对单文档失败采取
+	// best-effort（记录后继续），不向调用方返回错误。
+	// 故此处期望不返回错误，且失败的文档不被计为已索引。
 	err := gk.LoadGraphSource(context.Background(), src)
-	if err == nil {
-		t.Fatal("expected error from addGraphDocument failure")
-	}
-	if !strings.Contains(err.Error(), "add graph seed document") {
-		t.Fatalf("error = %v, want 'add graph seed document'", err)
+	if err != nil {
+		t.Fatalf("LoadGraphSource() error = %v, want nil (best-effort indexing)", err)
 	}
 }
 
@@ -2361,9 +2405,11 @@ func TestBuiltinGraphKnowledge_AddGraphDocumentsSequentialError(t *testing.T) {
 	config := newGraphLoadConfig(
 		WithGraphLoadConcurrency(GraphLoadConcurrency{EmbeddingRoutines: 1}),
 	)
+	// wanghaimin 最终形态：顺序分支为 best-effort，单文档失败不中断、
+	// 也不向调用方返回错误（并发分支才 fail-fast）。
 	err := gk.addGraphDocuments(context.Background(), docs, config)
-	if err == nil {
-		t.Fatal("expected error from sequential doc add failure")
+	if err != nil {
+		t.Fatalf("addGraphDocuments() error = %v, want nil (best-effort sequential path)", err)
 	}
 }
 

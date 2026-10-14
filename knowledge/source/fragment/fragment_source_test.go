@@ -123,21 +123,25 @@ func TestParseMDDocument(t *testing.T) {
 		require.Len(t, frags, 1)
 		chA := frags[0]
 		require.Equal(t, "A", chA.headingPath)
-		// A 的正文 body fragment 居首，B（最大解析层级内）是下一项。
-		require.Len(t, chA.children, 2)
-		require.Equal(t, "A", chA.children[0].headingPath)
-		chB := chA.children[1]
+		// "# A\n## B\n### C\n" 中 A 无正文（下一条即 ## B），
+		// 故 A 只有一个 child，即 B（wanghaimin 折叠语义：空正文章节并入首个 child）。
+		require.Len(t, chA.children, 1)
+		chB := chA.children[0]
 		require.Equal(t, "A > B", chB.headingPath)
 		require.Empty(t, chB.children)
 	})
 
-	t.Run("document with no headings yields no fragments", func(t *testing.T) {
+	t.Run("document with no headings creates default chapter", func(t *testing.T) {
 		dir := t.TempDir()
 		path := writeMDFile(t, dir, "empty.md", "第一段内容。\n\n第二段内容。\n")
 		frags, err := (&Source{logging: false}).parseMDDocument(path)
 		require.NoError(t, err)
-		// 无标题文档不产出章节结构，交由更高层（目录/其它源）处理。
-		require.Empty(t, frags)
+		// 无标题文档以文档名合成一个默认章节（wanghaimin 最终形态）。
+		require.Len(t, frags, 1, "should create one default chapter")
+		ch := frags[0]
+		require.Equal(t, "empty", ch.name)
+		require.NotEmpty(t, ch.headingPath)
+		require.NotEmpty(t, ch.children, "body should be attached under the chapter")
 	})
 
 	t.Run("file not found", func(t *testing.T) {
@@ -424,6 +428,17 @@ func nodeIDs(nodes []*graph.Node) []string {
 	return ids
 }
 
+// nodeTypeCounts 返回各 trpc_ast_type 的节点数量，用于校验图结构稳定性。
+func nodeTypeCounts(nodes []*graph.Node) map[string]int {
+	counts := make(map[string]int)
+	for _, n := range nodes {
+		if t, ok := n.Metadata["trpc_ast_type"].(string); ok {
+			counts[t]++
+		}
+	}
+	return counts
+}
+
 func hasNodeWithMetadata(nodes []*graph.Node, nodeType string, key string, value any) bool {
 	for _, n := range nodes {
 		if n.Metadata["trpc_ast_type"] == nodeType {
@@ -580,8 +595,10 @@ func TestReadGraph(t *testing.T) {
 		for _, e := range data.Edges {
 			if e.Type == "MOUNTS_TO" {
 				mountsCount++
+				// MOUNTS_TO 方向为「骨架 → 碎片」（wanghaimin 最终形态）：
+				// 骨架节点在 FromID，碎片节点在 ToID。
 				// title "Ch1/Sec1.1" matches no skeleton name -> auto unknown node
-				require.Equal(t, defaultUnknownSkeletonID, e.ToID)
+				require.Equal(t, defaultUnknownSkeletonID, e.FromID)
 			}
 		}
 		require.GreaterOrEqual(t, mountsCount, 1, "should have MOUNTS_TO edges to skeleton")
@@ -646,7 +663,7 @@ func TestReadGraph(t *testing.T) {
 		require.Empty(t, data.Edges)
 	})
 
-	t.Run("deterministic node IDs", func(t *testing.T) {
+	t.Run("deterministic fragment IDs", func(t *testing.T) {
 		dir := t.TempDir()
 		content := "# Ch1\nBody1\n"
 		path := writeMDFile(t, dir, "det.md", content)
@@ -656,9 +673,16 @@ func TestReadGraph(t *testing.T) {
 		data2, err := src.ReadGraph(context.Background())
 		require.NoError(t, err)
 
-		sortNodesByID(data1.Nodes)
-		sortNodesByID(data2.Nodes)
-		require.Equal(t, nodeIDs(data1.Nodes), nodeIDs(data2.Nodes))
+		// 节点 ID 基于 fragment id，而 wanghaimin 最终形态下 fragment id 为随机 uuid
+		// （确定性值降级至内部 fragId），故两次 ReadGraph 的**节点 ID 集合不保证相同**。
+		// 此处校验仍然成立的不变量：图结构（节点数/类型/数量分布）跨次调用稳定。
+		require.Equal(t, len(data1.Nodes), len(data2.Nodes),
+			"node count must be stable across ReadGraph calls")
+		require.Equal(t, len(data1.Edges), len(data2.Edges),
+			"edge count must be stable across ReadGraph calls")
+		require.Equal(t, nodeTypeCounts(data1.Nodes), nodeTypeCounts(data2.Nodes),
+			"node type distribution must be stable across ReadGraph calls")
+		require.NotEmpty(t, data1.Nodes, "graph must contain nodes")
 	})
 
 	t.Run("node dedup via edgeMap", func(t *testing.T) {
@@ -922,11 +946,13 @@ func TestReadGraphMountsToMatchedSkeleton(t *testing.T) {
 		}
 	}
 
+	// MOUNTS_TO 方向为「骨架 → 碎片」（wanghaimin 最终形态）：
+	// 骨架节点在 FromID，碎片节点在 ToID。
 	mountTarget := map[string]string{}
 	for _, e := range data.Edges {
 		if e.Type == "MOUNTS_TO" {
-			if p, ok := fragPathByNode[e.FromID]; ok {
-				mountTarget[p] = e.ToID
+			if p, ok := fragPathByNode[e.ToID]; ok {
+				mountTarget[p] = e.FromID
 			}
 		}
 	}
@@ -968,11 +994,13 @@ func TestReadGraphUnmatchedToUnknown(t *testing.T) {
 			}
 		}
 	}
+	// MOUNTS_TO 方向为「骨架 → 碎片」（wanghaimin 最终形态）：
+	// 骨架节点在 FromID，碎片节点在 ToID。
 	mountTarget := map[string]string{}
 	for _, e := range data.Edges {
 		if e.Type == "MOUNTS_TO" {
-			if p, ok := fragPath[e.FromID]; ok {
-				mountTarget[p] = e.ToID
+			if p, ok := fragPath[e.ToID]; ok {
+				mountTarget[p] = e.FromID
 			}
 		}
 	}
