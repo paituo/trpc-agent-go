@@ -417,6 +417,14 @@ func (s *Server) normalizeUserMessage(
 		joinText(mentionText, transcriptMention),
 	)
 	if text == "" && len(parts) == 0 {
+		// A request carrying ToolCallContext is a continuation of a previous
+		// run that ended with EndInvocation (e.g. the user answered a
+		// permission/confirmation card via respondToPermission). No user text
+		// is required; the tool result is injected through ToolCallContext, so
+		// emit an empty user message instead of rejecting the request.
+		if len(req.ToolCallContext) > 0 {
+			return model.Message{Role: model.RoleUser, Content: ""}, "", nil
+		}
 		return model.Message{}, "", errors.New("missing text")
 	}
 	return model.Message{
