@@ -8,14 +8,14 @@
 //
 //
 
+//go:build !minimal
+
 package app
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
-	openaiembedder "trpc.group/trpc-go/trpc-agent-go/knowledge/embedder/openai"
 	"trpc.group/trpc-go/trpc-agent-go/memory"
 	memmysql "trpc.group/trpc-go/trpc-agent-go/memory/mysql"
 	mempgvector "trpc.group/trpc-go/trpc-agent-go/memory/pgvector"
@@ -261,15 +261,6 @@ type pgvectorMemoryConfig struct {
 	Embedder *openAIEmbedderConfig `yaml:"embedder,omitempty"`
 }
 
-type openAIEmbedderConfig struct {
-	Type         string `yaml:"type,omitempty"`
-	Model        string `yaml:"model,omitempty"`
-	Dimensions   int    `yaml:"dimensions,omitempty"`
-	APIKey       string `yaml:"api_key,omitempty"`
-	Organization string `yaml:"organization,omitempty"`
-	BaseURL      string `yaml:"base_url,omitempty"`
-}
-
 func newPGVectorMemoryBackend(
 	deps registry.MemoryDeps,
 	spec registry.MemoryBackendSpec,
@@ -333,48 +324,4 @@ func newPGVectorMemoryBackend(
 	}
 
 	return mempgvector.NewService(opts...)
-}
-
-func newOpenAIEmbedder(
-	cfg *openAIEmbedderConfig,
-) (*openaiembedder.Embedder, error) {
-	if cfg == nil {
-		return openaiembedder.New(), nil
-	}
-
-	t := strings.ToLower(strings.TrimSpace(cfg.Type))
-	if t == "" {
-		t = "openai"
-	}
-	if t != "openai" {
-		return nil, fmt.Errorf("unsupported embedder type: %s", t)
-	}
-
-	opts := make([]openaiembedder.Option, 0, 5)
-	if model := strings.TrimSpace(cfg.Model); model != "" {
-		opts = append(opts, openaiembedder.WithModel(model))
-	}
-	if cfg.Dimensions > 0 {
-		opts = append(opts, openaiembedder.WithDimensions(cfg.Dimensions))
-	}
-	if key := strings.TrimSpace(cfg.APIKey); key != "" {
-		opts = append(opts, openaiembedder.WithAPIKey(key))
-	}
-	if org := strings.TrimSpace(cfg.Organization); org != "" {
-		opts = append(opts, openaiembedder.WithOrganization(org))
-	}
-	if baseURL := strings.TrimSpace(cfg.BaseURL); baseURL != "" {
-		opts = append(opts, openaiembedder.WithBaseURL(baseURL))
-	}
-
-	return openaiembedder.New(opts...), nil
-}
-
-func safeOption[O any](mk func(string) O, value string) (opt O, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("invalid value %q: %v", value, r)
-		}
-	}()
-	return mk(value), nil
 }

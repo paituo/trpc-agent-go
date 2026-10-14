@@ -21,24 +21,8 @@ func init() {
 		newInMemorySessionBackend,
 	))
 	must(registry.RegisterSessionBackend(
-		sessionBackendRedis,
-		newRedisSessionBackend,
-	))
-	must(registry.RegisterSessionBackend(
 		sessionBackendSQLite,
 		newSQLiteSessionBackend,
-	))
-	must(registry.RegisterSessionBackend(
-		sessionBackendMySQL,
-		newMySQLSessionBackend,
-	))
-	must(registry.RegisterSessionBackend(
-		sessionBackendPostgres,
-		newPostgresSessionBackend,
-	))
-	must(registry.RegisterSessionBackend(
-		sessionBackendClickHouse,
-		newClickHouseSessionBackend,
 	))
 
 	must(registry.RegisterMemoryBackend(
@@ -50,28 +34,12 @@ func init() {
 		newInMemoryMemoryBackend,
 	))
 	must(registry.RegisterMemoryBackend(
-		memoryBackendRedis,
-		newRedisMemoryBackend,
-	))
-	must(registry.RegisterMemoryBackend(
 		memoryBackendSQLite,
 		newSQLiteMemoryBackend,
 	))
 	must(registry.RegisterMemoryBackend(
 		memoryBackendSQLiteVec,
 		newSQLiteVecMemoryBackend,
-	))
-	must(registry.RegisterMemoryBackend(
-		memoryBackendMySQL,
-		newMySQLMemoryBackend,
-	))
-	must(registry.RegisterMemoryBackend(
-		memoryBackendPostgres,
-		newPostgresMemoryBackend,
-	))
-	must(registry.RegisterMemoryBackend(
-		memoryBackendPGVector,
-		newPGVectorMemoryBackend,
 	))
 
 	must(registry.RegisterKnowledgeProvider(

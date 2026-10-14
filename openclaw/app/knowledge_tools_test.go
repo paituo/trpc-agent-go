@@ -7,6 +7,8 @@
 // trpc-agent-go is licensed under the Apache License Version 2.0.
 //
 
+//go:build !minimal
+
 package app
 
 import (
@@ -48,15 +50,6 @@ func (providerKnowledge) Search(
 			Score:    1,
 		}},
 	}, nil
-}
-
-func builtinKnowledgeEntry(t *testing.T, name, configYAML string) knowledgeEntry {
-	t.Helper()
-	return knowledgeEntry{
-		Type:   "builtin",
-		Name:   name,
-		Config: yamlNode(t, configYAML),
-	}
 }
 
 func TestRawKnowledgeComponentUnmarshalYAML_StoresNode(t *testing.T) {
