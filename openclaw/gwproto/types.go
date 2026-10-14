@@ -11,7 +11,10 @@
 // Package gwproto defines the JSON payloads used by the OpenClaw gateway.
 package gwproto
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+)
 
 // MessageRequest matches the gateway /messages JSON payload.
 //
@@ -335,4 +338,37 @@ type ToolCallContextItem struct {
 	ToolName   string `json:"tool_name,omitempty"`
 	Arguments  string `json:"arguments,omitempty"`
 	Result     string `json:"result,omitempty"`
+}
+
+// ToolProgressReporter 允许长时间运行的工具在执行期间向前端报告进度。
+// 通过 context 注入，工具函数从 ctx 提取后调用。
+//
+// 实现方（Gateway）：创建持有 SSE out channel 的具体实现，通过 WithToolProgressReporter 注入 ctx。
+// 消费方（Tool）：通过 ToolProgressReporterFromContext 提取，调用 ReportProgressDelta/ReportProgressComplete。
+type ToolProgressReporter interface {
+	// ReportProgressDelta 发送增量文本（会以 public.delta 推送到前端）。
+	// 前端收到后会追加到当前消息的正文中，适合 Markdown 格式的进度表格。
+	ReportProgressDelta(delta string)
+
+	// ReportProgressComplete 发送完整文本（会以 public.completed 推送到前端）。
+	// 表示工具执行的最终输出，前端收到后会作为最终结果渲染。
+	ReportProgressComplete(text string)
+}
+
+// toolProgressReporterKey 是 context 中存放 ToolProgressReporter 的 key。
+// 使用空结构体类型确保唯一性。
+type toolProgressReporterKeyType struct{}
+
+// WithToolProgressReporter 向 context 注入进度报告器。
+func WithToolProgressReporter(ctx context.Context, r ToolProgressReporter) context.Context {
+	return context.WithValue(ctx, toolProgressReporterKeyType{}, r)
+}
+
+// ToolProgressReporterFromContext 从 context 提取进度报告器。
+// 如果未注入则返回 nil，工具应检查 nil 并回退到同步行为。
+func ToolProgressReporterFromContext(ctx context.Context) ToolProgressReporter {
+	if r, ok := ctx.Value(toolProgressReporterKeyType{}).(ToolProgressReporter); ok {
+		return r
+	}
+	return nil
 }

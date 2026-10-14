@@ -157,7 +157,8 @@ type progressState struct {
 	toolResult           string
 	toolCallID           string
 	toolStatus           gwproto.StreamToolStatus
-	pendingToolCallCount int // number of tool_calls without matching tool results
+	pendingToolCallCount int  // number of tool_calls without matching tool results
+	hadToolCalls         bool // whether any tool call was made in this run
 }
 
 type streamToolArgKind int
@@ -473,6 +474,18 @@ func (s *Server) streamLocked(
 		}
 	}
 	recordRuntimeProfile(debugrecorder.TraceFromContext(ctx), ctx)
+
+	// === 注入进度报告器：允许长时间运行的工具（如 workflow_execute）
+	// 在执行过程中通过 public.delta / public.completed 推送节点级进度到前端。 ===
+	progressReporter := &gatewayProgressReporter{
+		ctx:       ctx,
+		out:       out,
+		sessionID: run.sessionID,
+		requestID: run.requestID,
+	}
+	ctx = gwproto.WithToolProgressReporter(ctx, progressReporter)
+	// === 注入结束 ===
+
 	events, err := s.runner.Run(
 		ctx,
 		run.userID,
@@ -804,10 +817,29 @@ func (s *Server) streamLocked(
 		return streamOutcome{status: traceStatusOK}
 	}
 
+	recordPromptCacheUsage(trace, run.sessionID, requestID, result.Usage)
+
+	// If the model only called tools without generating text, skip MessageCompleted
+	// and only send RunCompleted to avoid showing fallback text to the user.
 	if reply == "" {
+		if progress.hadToolCalls {
+			// Tool calls were made but model didn't generate text response.
+			// Skip MessageCompleted, only send RunCompleted.
+			if !sendStreamEvent(ctx, out, gwproto.StreamEvent{
+				Type:      gwproto.StreamEventTypeRunCompleted,
+				SessionID: run.sessionID,
+				RequestID: requestID,
+				Usage:     cloneGatewayUsage(result.Usage),
+			}) {
+				return streamOutcome{
+					status: traceStatusError,
+					errMsg: contextErrMessage(ctx),
+				}
+			}
+			return streamOutcome{status: traceStatusOK}
+		}
 		reply = emptyReplyFallbackText
 	}
-	recordPromptCacheUsage(trace, run.sessionID, requestID, result.Usage)
 
 	msgCompletedID := lastDeltaMessageID
 	if msgCompletedID == "" {
@@ -857,11 +889,19 @@ func sendStreamEvent(
 	out chan<- gwproto.StreamEvent,
 	evt gwproto.StreamEvent,
 ) bool {
+	// 使用 recover 捕获向已关闭 channel 发送导致的 panic。
+	// 当 SSE 连接断开时，streamLocked 返回 → defer close(out)，
+	// 但 workflow 等后台 goroutine 可能仍在调用 ReportProgressDelta，
+	// 此时 out 已关闭，直接发送会 panic。
+	defer func() {
+		if r := recover(); r != nil {
+			log.DebugfContext(ctx, "[DIAG-SEND-PANIC] sendStreamEvent recovered from panic: %v, event_type=%v", r, evt.Type)
+		}
+	}()
 	select {
 	case out <- evt:
 		return true
 	case <-ctx.Done():
-		// [DIAG-CTX-CANCEL] SSE send blocked — context canceled, event type=%v, ctx_err=%v
 		log.DebugfContext(ctx, "[DIAG-CTX-CANCEL] sendStreamEvent: context done, event_type=%v, ctx_err=%v", evt.Type, ctx.Err())
 		return false
 	}
@@ -2000,6 +2040,7 @@ func sendProgressUpdate(
 	case gwproto.StreamToolStatusRunning:
 		if update.toolName != "" {
 			state.pendingToolCallCount++
+			state.hadToolCalls = true
 		}
 	case gwproto.StreamToolStatusCompleted:
 		if state.pendingToolCallCount > 0 {
