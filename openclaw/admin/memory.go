@@ -67,6 +67,16 @@ type memoryFileSaver interface {
 	) error
 }
 
+// memoryFileEnsurer 是可选能力：在 MEMORY.md 尚不存在时幂等创建（含目录）。
+// 仅当底层存储为 *memoryfile.Store 时可用；不支持时保存逻辑退化为原行为。
+type memoryFileEnsurer interface {
+	EnsureMemory(
+		ctx context.Context,
+		appName string,
+		userID string,
+	) (string, error)
+}
+
 type memoryStatus struct {
 	Enabled      bool             `json:"enabled"`
 	FileEnabled  bool             `json:"file_enabled"`
@@ -478,14 +488,59 @@ func saveMemoryFile(
 	if err != nil || !configured {
 		return fmt.Errorf("memory file store is not configured")
 	}
+	// 首次写入：若 MEMORY.md 尚不存在（如 brand-new 用户），resolveMemoryFile
+	// 会报 "memory file not found"。此时先确保文件（幂等创建）再解析一次，
+	// 避免首写失败。底层不支持 ensure 时退化为原行为。
 	filePath, err := resolveMemoryFile(root, relPath)
 	if err != nil {
-		return err
+		if !isMemoryFileNotFound(err) {
+			return err
+		}
+		if ensured, ensureErr := ensureMemoryFile(ctx, store, relPath); ensureErr != nil {
+			return ensureErr
+		} else if !ensured {
+			return err
+		}
+		filePath, err = resolveMemoryFile(root, relPath)
+		if err != nil {
+			return err
+		}
 	}
 	if saver, ok := store.(memoryFileSaver); ok {
 		return saver.SaveResolvedMemoryFile(ctx, filePath, content)
 	}
 	return writeMemoryFileAtomic(filePath, []byte(content))
+}
+
+// isMemoryFileNotFound 判断是否为"文件不存在"类错误
+// （resolveMemoryFile 在缺失时返回 "memory file not found"）。
+func isMemoryFileNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "memory file not found") ||
+		errors.Is(err, os.ErrNotExist)
+}
+
+// ensureMemoryFile 在存储后端支持时幂等创建 MEMORY.md（含目录），返回是否已完成。
+// 不支持 ensure 的存储返回 (false, nil) 以走原退化路径。
+func ensureMemoryFile(
+	ctx context.Context,
+	store MemoryFileStore,
+	relPath string,
+) (bool, error) {
+	ensurer, ok := store.(memoryFileEnsurer)
+	if !ok {
+		return false, nil
+	}
+	appName, userID := memoryScopeFromRelativePath(relPath)
+	if appName == "" && userID == "" {
+		return false, nil
+	}
+	if _, err := ensurer.EnsureMemory(ctx, appName, userID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func memoryScopeFromRelativePath(relPath string) (string, string) {

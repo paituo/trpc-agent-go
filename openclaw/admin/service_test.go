@@ -12,6 +12,7 @@ package admin
 import (
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -1151,6 +1152,44 @@ func TestServiceMemoryFileEndpointRejectsTypedNilStore(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, rr.Code)
 	require.Contains(t, rr.Body.String(), "not configured")
+}
+
+// TestSaveMemoryFileCreatesMissingFile 回归：brand-new 用户（MEMORY.md 尚不存在）
+// 首次写入时，saveMemoryFile 应幂等创建文件并持久化内容，而非返回 "not found"。
+func TestSaveMemoryFileCreatesMissingFile(t *testing.T) {
+	t.Parallel()
+
+	root, err := memoryfile.DefaultRoot(t.TempDir())
+	require.NoError(t, err)
+	store, err := memoryfile.NewStore(root)
+	require.NoError(t, err)
+
+	appEnc := base64.RawURLEncoding.EncodeToString([]byte("openclaw"))
+	userEnc := base64.RawURLEncoding.EncodeToString([]byte("newuser"))
+	relPath := filepath.ToSlash(filepath.Join(appEnc, userEnc, "MEMORY.md"))
+
+	// 首次保存前文件不应存在。
+	_, beforeErr := os.Stat(filepath.Join(root, appEnc, userEnc, "MEMORY.md"))
+	require.True(t, os.IsNotExist(beforeErr))
+
+	content := "# Memory\n\n- first entry"
+	require.NoError(t, saveMemoryFile(context.Background(), store, relPath, content))
+
+	detail, err := readMemoryFileDetail(root, relPath)
+	require.NoError(t, err)
+	require.Contains(t, detail.Content, "first entry")
+
+	// 第二次写入在已存在文件上追加，不破坏已有内容。
+	require.NoError(t, saveMemoryFile(
+		context.Background(),
+		store,
+		relPath,
+		"# Memory\n\n- first entry\n- second entry",
+	))
+	detail2, err := readMemoryFileDetail(root, relPath)
+	require.NoError(t, err)
+	require.Contains(t, detail2.Content, "first entry")
+	require.Contains(t, detail2.Content, "second entry")
 }
 
 func TestServiceMemoryFileEndpoint_MethodAndPathValidation(t *testing.T) {
