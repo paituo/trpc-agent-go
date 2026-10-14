@@ -64,6 +64,7 @@ func defaultLangfuseTraceAttributeFilter(member baggage.Member) bool {
 		traceUserID, "user.id",
 		traceSessionID, "session.id",
 		version, release,
+		environment,
 		traceTags,
 		traceInput:
 		return true

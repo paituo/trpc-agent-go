@@ -49,7 +49,7 @@ func (f *fileToolSet) searchFile(
 	req *searchFileRequest,
 ) (*searchFileResponse, error) {
 	rsp := &searchFileResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 	}
 	if req == nil {
 		err := errors.New("request cannot be nil")
@@ -100,8 +100,10 @@ func (f *fileToolSet) searchFile(
 
 	reqPath := strings.TrimSpace(req.Path)
 	rsp.Path = reqPath
-	// Resolve and validate the target path.
-	targetPath, err := f.resolvePath(reqPath)
+	// Resolve and validate the target path. search_file is a read-only
+	// operator, so it may also search under configured read_only_dirs (extra
+	// read roots), not just the (session-scoped) base directory.
+	targetPath, err := f.resolveReadPathCtx(ctx, reqPath)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return rsp, err

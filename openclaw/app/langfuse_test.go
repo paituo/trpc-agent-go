@@ -15,6 +15,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -255,7 +256,7 @@ func TestBuildLangfuseRunOptionResolver_SetsTraceID(t *testing.T) {
 	)
 	require.Equal(
 		t,
-		"wecom msg-1",
+		"wecom request",
 		bag.Member(langfuseTraceNameKey).Value(),
 	)
 
@@ -396,7 +397,7 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 	).Value())
 	require.Equal(
 		t,
-		"wecom u1 req-1",
+		"wecom u1 request",
 		bag.Member(langfuseTraceNameKey).Value(),
 	)
 
@@ -409,7 +410,7 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 		if string(attr.Key) != langfuseTraceNameKey {
 			continue
 		}
-		require.Equal(t, "wecom u1 req-1", attr.Value.AsString())
+		require.Equal(t, "wecom u1 request", attr.Value.AsString())
 		foundTraceName = true
 	}
 	require.True(t, foundTraceName)
@@ -464,7 +465,7 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 
 	require.Equal(
 		t,
-		"wecom req-1",
+		"wecom request",
 		buildLangfuseTraceName("", gateway.RunOptionInput{
 			Inbound:   gateway.InboundMessage{Channel: "wecom"},
 			RequestID: "req-1",
@@ -484,7 +485,7 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 	)
 	require.Equal(
 		t,
-		"wecom user-abc req-1",
+		"wecom user-abc request",
 		buildLangfuseTraceName("", gateway.RunOptionInput{
 			Inbound:   gateway.InboundMessage{Channel: "wecom"},
 			UserID:    "user-abc",
@@ -511,4 +512,167 @@ func TestSetLangfuseBaggageMember_IgnoresEmptyInput(t *testing.T) {
 
 	bag = setLangfuseBaggageMember(bag, "langfuse.user.id", "")
 	require.Empty(t, bag.Members())
+}
+
+// TestBuildLangfuseRunOptionResolver_AppendsAgentName verifies FR-1/FR-2: when a
+// resolved runtime profile carries a readable agent name, the Langfuse trace
+// name is decorated with it and the agent identity is surfaced in metadata.
+func TestBuildLangfuseRunOptionResolver_AppendsAgentName(t *testing.T) {
+	resolver := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+
+	ctx := runtimeprofile.WithProfile(context.Background(), runtimeprofile.Profile{
+		AgentName: "AIZJ",
+	})
+	ctx, runOpts, err := resolver(ctx, gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	})
+	require.NoError(t, err)
+
+	bag := baggage.FromContext(ctx)
+	require.Equal(
+		t,
+		"wecom u1 request [AIZJ]",
+		bag.Member(langfuseTraceNameKey).Value(),
+	)
+	require.Equal(
+		t,
+		"AIZJ",
+		bag.Member(langfuseMetadataAgentName).Value(),
+	)
+	// trace name is also applied as a span attribute
+	require.NotEmpty(t, runOpts)
+}
+
+// TestBuildLangfuseRunOptionResolver_NoAgentNameKeepsPlainTraceName verifies
+// backward compatibility: without a resolved profile, the trace name is
+// unchanged and agent metadata is empty (not written).
+func TestBuildLangfuseRunOptionResolver_NoAgentNameKeepsPlainTraceName(t *testing.T) {
+	resolver := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+
+	ctx, _, err := resolver(context.Background(), gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	})
+	require.NoError(t, err)
+
+	bag := baggage.FromContext(ctx)
+	require.Equal(t, "wecom u1 request", bag.Member(langfuseTraceNameKey).Value())
+	require.Empty(t, bag.Member(langfuseMetadataAgentName).Value())
+}
+
+// TestBuildLangfuseRunOptionResolver_PropagatesParentCorrelation verifies
+// FR-3/FR-4: parent trace ID / parent session carried in incoming baggage are
+// surfaced as subagent_of / parent_trace_id metadata on the sub-agent trace.
+func TestBuildLangfuseRunOptionResolver_PropagatesParentCorrelation(t *testing.T) {
+	// Simulate a sub-agent run whose context baggage was inherited from the
+	// parent (taskrun mergeObservabilityContext forwards baggage, not spans).
+	ptID, err := baggage.NewMemberRaw(langfuseParentTraceIDBaggage, "abc123")
+	require.NoError(t, err)
+	psID, err := baggage.NewMemberRaw(langfuseParentSessionBaggage, "bowei:dm:parent-1")
+	require.NoError(t, err)
+	bag, err := baggage.New(ptID, psID)
+	require.NoError(t, err)
+	ctx := baggage.ContextWithBaggage(context.Background(), bag)
+
+	resolver := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+	ctx, _, err = resolver(ctx, gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	})
+	require.NoError(t, err)
+
+	out := baggage.FromContext(ctx)
+	require.Equal(
+		t,
+		"abc123",
+		out.Member(langfuseMetadataParentTraceID).Value(),
+	)
+	require.Equal(
+		t,
+		"bowei:dm:parent-1",
+		out.Member(langfuseMetadataSubagentOf).Value(),
+	)
+}
+
+// TestBuildLangfuseRunOptionResolver_ParentConversationNoSubagentMarkers verifies
+// FR-4: a normal parent-conversation run (no inherited parent baggage) must not
+// carry subagent_of / parent_trace_id metadata.
+func TestBuildLangfuseRunOptionResolver_ParentConversationNoSubagentMarkers(t *testing.T) {
+	resolver := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+	ctx, _, err := resolver(context.Background(), gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	})
+	require.NoError(t, err)
+
+	bag := baggage.FromContext(ctx)
+	require.Empty(t, bag.Member(langfuseMetadataParentTraceID).Value())
+	require.Empty(t, bag.Member(langfuseMetadataSubagentOf).Value())
+}
+
+func TestNormalizeLangfuseEnvironment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: ""},
+		{name: "whitespace", in: "   ", want: ""},
+		// Windows computer names are typically uppercase with dashes.
+		{name: "uppercase windows host", in: "DESKTOP-ABC123", want: "desktop-abc123"},
+		{name: "lowercase host", in: "my-pc-01", want: "my-pc-01"},
+		// Dots/spaces (netbios vs fqdn) must map to '-'.
+		{name: "fqdn dots", in: "WorkStation01.example.com", want: "workstation01-example-com"},
+		{name: "leading/trailing invalid trimmed", in: ".my-pc.", want: "my-pc"},
+		// Reserved "langfuse" prefix must be avoided.
+		{name: "reserved langfuse prefix", in: "langfuse-host", want: "host-langfuse-host"},
+		// Over 40 chars is truncated.
+		{name: "over 40 chars truncated", in: strings.Repeat("a", 50), want: strings.Repeat("a", 40)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, normalizeLangfuseEnvironment(tt.in))
+		})
+	}
+}
+
+// TestBuildLangfuseRunOptionResolver_SetsEnvironment verifies that the Langfuse
+// environment baggage member is populated. When LANGFUSE_ENVIRONMENT is unset it
+// falls back to the local host name (normalized); when set it uses that value.
+func TestBuildLangfuseRunOptionResolver_SetsEnvironment(t *testing.T) {
+	t.Setenv("LANGFUSE_ENVIRONMENT", "")
+	host, err := os.Hostname()
+	require.NoError(t, err)
+
+	resolver := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+	ctx, _, err := resolver(context.Background(), gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	})
+	require.NoError(t, err)
+	bag := baggage.FromContext(ctx)
+	want := normalizeLangfuseEnvironment(host)
+	require.NotEmpty(t, want)
+	require.Equal(t, want, bag.Member(langfuseEnvironmentKey).Value())
+
+	// Explicit override wins over host name.
+	t.Setenv("LANGFUSE_ENVIRONMENT", "Site-B-9")
+	resolver2 := buildLangfuseRunOptionResolver(runOptions{AppName: "openclaw"})
+	ctx2, _, err := resolver2(context.Background(), gateway.RunOptionInput{
+		Inbound: gateway.InboundMessage{Channel: "wecom", MessageID: "msg-1"},
+	})
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		"site-b-9",
+		baggage.FromContext(ctx2).Member(langfuseEnvironmentKey).Value(),
+	)
 }

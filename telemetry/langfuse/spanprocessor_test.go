@@ -149,3 +149,15 @@ func TestNewSpanProcessor_PropagatesTraceName(t *testing.T) {
 	want := attribute.String(traceName, "terminal user request")
 	assert.Contains(t, spans[0].Attributes(), want)
 }
+
+func TestDefaultLangfuseTraceAttributeFilter_PropagatesEnvironment(t *testing.T) {
+	m, err := baggage.NewMemberRaw(environment, "desktop-abc123")
+	require.NoError(t, err)
+	assert.True(t, defaultLangfuseTraceAttributeFilter(m))
+}
+
+func TestDefaultLangfuseTraceAttributeFilter_IgnoresNonLangfuse(t *testing.T) {
+	m, err := baggage.NewMemberRaw("random.key", "x")
+	require.NoError(t, err)
+	assert.False(t, defaultLangfuseTraceAttributeFilter(m))
+}

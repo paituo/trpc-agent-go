@@ -48,11 +48,11 @@ type copyFilesResponse struct {
 
 // copyFiles performs the copy files operation.
 func (f *fileToolSet) copyFiles(
-	_ context.Context,
+	ctx context.Context,
 	req *copyFilesRequest,
 ) (*copyFilesResponse, error) {
 	rsp := &copyFilesResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 	}
 	if len(req.Items) == 0 {
 		rsp.Message = "Error: items cannot be empty"
@@ -61,7 +61,7 @@ func (f *fileToolSet) copyFiles(
 	var results []itemResult
 	var successCount int
 	for _, item := range req.Items {
-		result := f.copySingleItem(item, req.Overwrite)
+		result := f.copySingleItem(ctx, item, req.Overwrite)
 		results = append(results, result)
 		if result.Success {
 			successCount++
@@ -76,7 +76,7 @@ func (f *fileToolSet) copyFiles(
 	return rsp, nil
 }
 
-func (f *fileToolSet) copySingleItem(item copyItem, overwrite bool) itemResult {
+func (f *fileToolSet) copySingleItem(ctx context.Context, item copyItem, overwrite bool) itemResult {
 	result := itemResult{
 		Source:      item.Source,
 		Destination: item.Destination,
@@ -108,12 +108,12 @@ func (f *fileToolSet) copySingleItem(item copyItem, overwrite bool) itemResult {
 		return result
 	}
 	// Resolve and validate paths.
-	srcPath, err := f.resolvePath(item.Source)
+	srcPath, err := f.resolvePathCtx(ctx, item.Source)
 	if err != nil {
 		result.Error = fmt.Sprintf("Error: %v", err)
 		return result
 	}
-	dstPath, err := f.resolvePath(item.Destination)
+	dstPath, err := f.resolvePathCtx(ctx, item.Destination)
 	if err != nil {
 		result.Error = fmt.Sprintf("Error: %v", err)
 		return result

@@ -42,11 +42,11 @@ type deleteFilesResponse struct {
 
 // deleteFiles performs the delete files operation.
 func (f *fileToolSet) deleteFiles(
-	_ context.Context,
+	ctx context.Context,
 	req *deleteFilesRequest,
 ) (*deleteFilesResponse, error) {
 	rsp := &deleteFilesResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 	}
 	if len(req.Paths) == 0 {
 		rsp.Message = "Error: paths cannot be empty"
@@ -55,7 +55,7 @@ func (f *fileToolSet) deleteFiles(
 	var results []deleteResult
 	var successCount int
 	for _, path := range req.Paths {
-		result := f.deleteSinglePath(path)
+		result := f.deleteSinglePath(ctx, path)
 		results = append(results, result)
 		if result.Success {
 			successCount++
@@ -70,7 +70,7 @@ func (f *fileToolSet) deleteFiles(
 	return rsp, nil
 }
 
-func (f *fileToolSet) deleteSinglePath(path string) deleteResult {
+func (f *fileToolSet) deleteSinglePath(ctx context.Context, path string) deleteResult {
 	result := deleteResult{Path: path}
 	// Reject file refs.
 	ref, err := fileref.Parse(path)
@@ -86,7 +86,7 @@ func (f *fileToolSet) deleteSinglePath(path string) deleteResult {
 		return result
 	}
 	// Resolve and validate path.
-	resolvedPath, err := f.resolvePath(path)
+	resolvedPath, err := f.resolvePathCtx(ctx, path)
 	if err != nil {
 		result.Error = fmt.Sprintf("Error: %v", err)
 		return result

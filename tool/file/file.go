@@ -213,6 +213,7 @@ func WithName(name string) Option {
 type fileToolSet struct {
 	baseDir                  string
 	extraReadRoots           []string
+	readOnlyRootSkipped      map[string]error
 	hasInputsDir             bool
 	saveFileEnabled          bool
 	readFileEnabled          bool
@@ -246,6 +247,22 @@ func (f *fileToolSet) Close() error {
 // Name implements the ToolSet interface.
 func (f *fileToolSet) Name() string {
 	return f.name
+}
+
+// ReadOnlyRootSkipped returns the configured read-only roots that could not be
+// used during assembly (missing on disk, or not realpath-resolvable), keyed by
+// the original configured value with the reason. It is empty when every
+// configured read-only root is usable. Assemblers should surface these via a
+// warning so a mis-configured root is observable rather than silently dropped.
+func (f *fileToolSet) ReadOnlyRootSkipped() map[string]error {
+	return f.readOnlyRootSkipped
+}
+
+// ReadOnlyRootsReporter is implemented by tool sets that can report which
+// configured read-only roots were skipped during assembly. Assemblers use it to
+// emit an observable warning instead of silently dropping unusable roots.
+type ReadOnlyRootsReporter interface {
+	ReadOnlyRootSkipped() map[string]error
 }
 
 // NewToolSet creates a new file operation tool set with the provided
@@ -286,7 +303,7 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 		)
 	}
 	fileToolSet.baseDir = absDir
-	fileToolSet.extraReadRoots = normalizeExtraReadRoots(
+	fileToolSet.extraReadRoots, fileToolSet.readOnlyRootSkipped = normalizeExtraReadRoots(
 		fileToolSet.extraReadRoots,
 	)
 	// Check if the base directory exists.
@@ -345,11 +362,34 @@ func NewToolSet(opts ...Option) (tool.ToolSet, error) {
 	return fileToolSet, nil
 }
 
+// baseDirFor returns the base directory the fs tools operate on for the given
+// invocation context. The default implementation returns the static container
+// base directory configured on the tool set, so behaviour is identical to the
+// pre-existing static base dir regardless of ctx.
+//
+// It is the single extension point through which a caller can scope fs
+// operations to a per-invocation directory: an overriding implementation may
+// derive a narrower base (e.g. a per-session subdirectory) from ctx. All tool
+// methods resolve both their reported BaseDirectory and their read/write paths
+// through this method so a single override keeps them consistent.
+func (f *fileToolSet) baseDirFor(_ context.Context) string {
+	return f.baseDir
+}
+
 // resolvePath validates a path to prevent directory traversal attacks,
 // and resolves the path within the base directory.
 // Relative paths are resolved against the base directory.
 // Absolute paths that fall within the base directory are accepted.
+// It uses the static container base dir (back-compat for direct callers).
 func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
+	return f.resolvePathCtx(context.Background(), relativePath)
+}
+
+// resolvePathCtx is the ctx-aware resolver used by tool methods. It resolves
+// the path against the base directory reported by baseDirFor(ctx), which by
+// default is the static container base dir.
+func (f *fileToolSet) resolvePathCtx(ctx context.Context, relativePath string) (string, error) {
+	base := f.baseDirFor(ctx)
 	reqPath := f.normalizeInputsAlias(relativePath)
 	if strings.Contains(reqPath, "..") {
 		return "", fmt.Errorf(
@@ -358,9 +398,9 @@ func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
 		)
 	}
 	if filepath.IsAbs(reqPath) {
-		rel, err := filepath.Rel(f.baseDir, reqPath)
+		rel, err := filepath.Rel(base, reqPath)
 		if err == nil && !strings.HasPrefix(rel, "..") {
-			return filepath.Join(f.baseDir, rel), nil
+			return filepath.Join(base, rel), nil
 		}
 		return "", fmt.Errorf(
 			"invalid path - absolute path outside base directory "+
@@ -369,20 +409,24 @@ func (f *fileToolSet) resolvePath(relativePath string) (string, error) {
 				"read it only when that path is under base_directory or a "+
 				"configured read-only root; otherwise have exec_command print "+
 				"the needed data directly.",
-			f.baseDir,
+			base,
 			relativePath,
 		)
 	}
-	return filepath.Join(f.baseDir, reqPath), nil
+	return filepath.Join(base, reqPath), nil
 }
 
 func (f *fileToolSet) resolveReadPath(requestPath string) (string, error) {
+	return f.resolveReadPathCtx(context.Background(), requestPath)
+}
+
+func (f *fileToolSet) resolveReadPathCtx(ctx context.Context, requestPath string) (string, error) {
 	raw := strings.TrimSpace(requestPath)
 	if !filepath.IsAbs(raw) {
-		return f.resolvePath(requestPath)
+		return f.resolvePathCtx(ctx, requestPath)
 	}
 	clean := filepath.Clean(raw)
-	if _, ok := f.matchReadRoot(clean); ok {
+	if _, ok := f.matchReadRoot(ctx, clean); ok {
 		return clean, nil
 	}
 	return "", fmt.Errorf(
@@ -394,18 +438,25 @@ func (f *fileToolSet) resolveReadPath(requestPath string) (string, error) {
 	)
 }
 
-func (f *fileToolSet) matchReadRoot(absPath string) (string, bool) {
-	if root, ok := f.matchBaseReadRoot(absPath); ok {
+// matchReadRoot reports whether absPath is readable. The base read root is the
+// base directory reported by baseDirFor(ctx), consulted before the configured
+// read-only roots.
+func (f *fileToolSet) matchReadRoot(ctx context.Context, absPath string) (string, bool) {
+	if root, ok := f.matchBaseReadRoot(ctx, absPath); ok {
 		return root, true
 	}
 	return f.matchExtraReadRoot(absPath)
 }
 
-func (f *fileToolSet) matchBaseReadRoot(absPath string) (string, bool) {
-	if f == nil || strings.TrimSpace(f.baseDir) == "" {
+func (f *fileToolSet) matchBaseReadRoot(ctx context.Context, absPath string) (string, bool) {
+	if f == nil {
 		return "", false
 	}
-	root := filepath.Clean(f.baseDir)
+	base := f.baseDirFor(ctx)
+	if strings.TrimSpace(base) == "" {
+		return "", false
+	}
+	root := filepath.Clean(base)
 	if !filepath.IsAbs(root) {
 		absRoot, err := filepath.Abs(root)
 		if err != nil {
@@ -480,20 +531,46 @@ func evalPathWithExistingParent(path string) (string, bool) {
 	}
 }
 
-func normalizeExtraReadRoots(roots []string) []string {
+// normalizeExtraReadRoots canonicalizes and validates the configured read-only
+// roots. It returns the usable roots plus a map of roots that were configured
+// but could not be used (missing on disk, or not realpath-resolvable) together
+// with the reason, so callers can surface an observable warning instead of
+// silently dropping them.
+//
+// Relative roots are made absolute against the process working directory
+// (which, in the bowei/OpenClaw layout, is the executable directory). This
+// makes read_only_dirs portable across machines with the same relative layout,
+// instead of hard-coding an absolute machine path.
+func normalizeExtraReadRoots(roots []string) ([]string, map[string]error) {
 	out := make([]string, 0, len(roots))
+	skipped := make(map[string]error, len(roots))
 	seen := make(map[string]struct{}, len(roots))
 	for _, raw := range roots {
 		root := strings.TrimSpace(raw)
 		if root == "" {
+			skipped[root] = fmt.Errorf("empty read-only root")
 			continue
+		}
+		if !filepath.IsAbs(root) {
+			abs, err := filepath.Abs(root)
+			if err != nil {
+				skipped[root] = fmt.Errorf("resolve relative root to absolute: %w", err)
+				continue
+			}
+			root = abs
 		}
 		root = filepath.Clean(root)
 		if resolved, err := filepath.EvalSymlinks(root); err == nil {
 			root = filepath.Clean(resolved)
-		}
-		if _, err := os.Stat(root); err != nil {
-			continue
+		} else {
+			// Not realpath-resolvable (missing path, permission, or a reparse
+			// point that cannot be followed without privileges on Windows).
+			// Still fall through to os.Stat so a plainly-missing root is
+			// reported as missing; only keep the root if it physically exists.
+			if _, statErr := os.Stat(root); statErr != nil {
+				skipped[raw] = fmt.Errorf("read-only root not usable: %w", statErr)
+				continue
+			}
 		}
 		if _, ok := seen[root]; ok {
 			continue
@@ -501,7 +578,7 @@ func normalizeExtraReadRoots(roots []string) []string {
 		seen[root] = struct{}{}
 		out = append(out, root)
 	}
-	return out
+	return out, skipped
 }
 
 func isPathWithinRoot(candidate string, root string) bool {

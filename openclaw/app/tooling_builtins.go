@@ -36,6 +36,8 @@ import (
 	ocbrowser "trpc.group/trpc-go/trpc-agent-go/openclaw/internal/browser"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/internal/imageinspect"
 	"trpc.group/trpc-go/trpc-agent-go/openclaw/registry"
+
+	oclog "trpc.group/trpc-go/trpc-agent-go/log"
 )
 
 const (
@@ -445,10 +447,14 @@ func newFileToolSet(
 	if baseDir := strings.TrimSpace(cfg.BaseDir); baseDir != "" {
 		opts = append(opts, file.WithBaseDir(baseDir))
 	}
-	readOnlyDirs := append(
-		[]string{},
-		cfg.ReadOnlyDirs...,
-	)
+	// Canonicalize explicitly-configured read_only_dirs to absolute paths just
+	// like the default read-only roots. filepath.Abs is idempotent for
+	// already-absolute paths, so existing absolute configs keep working while
+	// relative-to-exe configs (portable) now resolve against the process CWD.
+	readOnlyDirs := make([]string, 0, len(cfg.ReadOnlyDirs))
+	for _, d := range cfg.ReadOnlyDirs {
+		readOnlyDirs = append(readOnlyDirs, absPathOrOriginal(d))
+	}
 	runtimeReadDirs := true
 	if cfg.RuntimeReadDirs != nil {
 		runtimeReadDirs = *cfg.RuntimeReadDirs
@@ -518,7 +524,24 @@ func newFileToolSet(
 		opts = append(opts, file.WithName(name))
 	}
 
-	return file.NewToolSet(opts...)
+	fs, err := file.NewToolSet(opts...)
+	if err != nil {
+		return nil, err
+	}
+	// Surface any read_only_dirs that were configured but could not be used
+	// (missing on disk, or not realpath-resolvable). Without this, a
+	// mis-configured absolute path silently stops applying and models hit
+	// "invalid path - absolute path outside base_directory ..." that is easy to
+	// misread as "the directory does not exist".
+	if reporter, ok := fs.(file.ReadOnlyRootsReporter); ok {
+		for root, reason := range reporter.ReadOnlyRootSkipped() {
+			oclog.Warnf(
+				"file toolset: read_only_dir %q not usable, skipped: %v",
+				root, reason,
+			)
+		}
+	}
+	return fs, nil
 }
 
 func defaultFileReadOnlyDirs(stateDir string) []string {

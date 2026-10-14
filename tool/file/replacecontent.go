@@ -44,11 +44,11 @@ type replaceContentResponse struct {
 
 // replaceContent performs the replace content operation.
 func (f *fileToolSet) replaceContent(
-	_ context.Context,
+	ctx context.Context,
 	req *replaceContentRequest,
 ) (*replaceContentResponse, error) {
 	rsp := &replaceContentResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 		FileName:      req.FileName,
 	}
 	ref, err := fileref.Parse(req.FileName)
@@ -76,7 +76,7 @@ func (f *fileToolSet) replaceContent(
 		return rsp, nil
 	}
 	// Resolve path and ensure it's a regular file.
-	filePath, err := f.resolvePath(req.FileName)
+	filePath, err := f.resolvePathCtx(ctx, req.FileName)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return rsp, err

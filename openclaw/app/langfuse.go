@@ -11,6 +11,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,9 +46,21 @@ const (
 	langfuseMetadataProfileID      = langfuseMetadataPrefix + "profile_id"
 	langfuseMetadataProfileVersion = langfuseMetadataPrefix +
 		"profile_version"
+	langfuseMetadataAgentName = langfuseMetadataPrefix + "agent_name"
+	// Parent trace / session correlation keys (Solution B/C): a sub-agent run
+	// copies these baggage members (carrying the parent's OTel trace ID and
+	// parent session ID) from the parent context into its own trace metadata,
+	// so a Langfuse trace for a spawned sub-agent can be traced back to the
+	// parent conversation that invoked it.
+	langfuseMetadataParentTraceID = langfuseMetadataPrefix + "parent_trace_id"
+	langfuseMetadataSubagentOf    = langfuseMetadataPrefix + "subagent_of"
+	langfuseParentTraceIDBaggage  = "langfuse.trace.metadata.parent_trace_id"
+	langfuseParentSessionBaggage  = "langfuse.trace.metadata.subagent_of"
 
 	langfuseMetadataDebugTracePath = langfuseMetadataPrefix + "debug_trace"
 	langfuseMetadataCorrelationID  = langfuseMetadataPrefix + "correlation_id"
+
+	langfuseEnvironmentKey = "langfuse.environment"
 
 	langfuseTraceDefaultName = "request"
 )
@@ -191,6 +204,16 @@ func buildLangfuseRunOptionResolver(
 		runOpts := make([]agent.RunOption, 0, 2)
 		resolvedAppName := runtimeprofile.AppNameFromContext(ctx, appName)
 		traceName := buildLangfuseTraceName(resolvedAppName, input)
+		// Allow distinguishing conversations & sub-agent calls by agent name in
+		// the Langfuse trace list. The resolved runtime profile carries the
+		// agent identity (parent conversation agent for gateway runs, the
+		// resolved sub-agent profile for spawned sub-agent runs). Append it to
+		// the trace name without changing buildLangfuseTraceName's contract.
+		if profile, ok := runtimeprofile.ProfileFromContext(ctx); ok {
+			if agentName := strings.TrimSpace(profile.AgentName); agentName != "" {
+				traceName = fmt.Sprintf("%s [%s]", traceName, agentName)
+			}
+		}
 		if traceName != "" {
 			// Propagate langfuse.trace.name via baggage so that child spans
 			// exported before the root span still carry the trace name.
@@ -292,6 +315,25 @@ func withLangfuseBaggage(
 		ctx = context.Background()
 	}
 	bag := baggage.FromContext(ctx)
+	// LANGFUSE_ENVIRONMENT, when set, explicitly overrides the auto-derived
+	// environment. Otherwise the environment defaults to the local host /
+	// computer name so that traces from different machines are distinguishable
+	// in Langfuse via the standard environment field. The value is normalized
+	// to Langfuse's environment naming constraint (see
+	// normalizeLangfuseEnvironment).
+	env := strings.TrimSpace(os.Getenv("LANGFUSE_ENVIRONMENT"))
+	if env == "" {
+		if host, err := os.Hostname(); err == nil {
+			env = host
+		}
+	}
+	if normalized := normalizeLangfuseEnvironment(env); normalized != "" {
+		bag = setLangfuseBaggageMember(
+			bag,
+			langfuseEnvironmentKey,
+			normalized,
+		)
+	}
 	bag = setLangfuseBaggageMember(
 		bag,
 		langfuseUserIDKey,
@@ -317,6 +359,34 @@ func withLangfuseBaggage(
 			bag,
 			langfuseMetadataProfileVersion,
 			profile.Version,
+		)
+		// FR-1/FR-2: surface the readable agent identity in Langfuse metadata so
+		// conversations/spawned runs can be filtered by agent name.
+		bag = setLangfuseBaggageMember(
+			bag,
+			langfuseMetadataAgentName,
+			profile.AgentName,
+		)
+	}
+
+	// FR-3/FR-4: a spawned sub-agent run carries the parent OTel trace ID and
+	// parent session ID via baggage (propagated through taskrun's
+	// mergeObservabilityContext, which forwards baggage but not OTel span
+	// context). Surface both on the sub-agent's own trace metadata so the
+	// parent->child relationship is visible in Langfuse. Parent-conversation
+	// (gateway) runs have no such baggage, leaving these fields empty.
+	if parentTraceID := baggageMember(bag, langfuseParentTraceIDBaggage); parentTraceID != "" {
+		bag = setLangfuseBaggageMember(
+			bag,
+			langfuseMetadataParentTraceID,
+			parentTraceID,
+		)
+	}
+	if parentSession := baggageMember(bag, langfuseParentSessionBaggage); parentSession != "" {
+		bag = setLangfuseBaggageMember(
+			bag,
+			langfuseMetadataSubagentOf,
+			parentSession,
 		)
 	}
 	bag = setLangfuseBaggageMember(
@@ -381,6 +451,49 @@ func withLangfuseTraceNameBaggage(
 	return baggage.ContextWithBaggage(ctx, bag)
 }
 
+// baggageMember returns the value of the baggage member with the given key,
+// trimmed, or "" when absent.
+// normalizeLangfuseEnvironment returns a Langfuse-compliant environment value
+// derived from the given host/environment string, or "" when nothing usable.
+//
+// Langfuse requires environment names to match `^(?!langfuse)[a-z0-9-_]+$` with
+// a maximum of 40 chars (lowercase letters, digits, '-' and '_', and must not
+// start with "langfuse"). Windows computer names typically contain uppercase
+// letters and dots, so we lowercase, map invalid chars to '-', drop a reserved
+// leading "langfuse", and truncate to 40 chars.
+func normalizeLangfuseEnvironment(host string) string {
+	in := strings.ToLower(strings.TrimSpace(host))
+	if in == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, r := range in {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= '0' && r <= '9',
+			r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if strings.HasPrefix(out, "langfuse") {
+		out = "host-" + out
+	}
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	return out
+}
+
+func baggageMember(bag baggage.Baggage, key string) string {
+	if len(bag.Members()) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(bag.Member(key).Value())
+}
+
 func setLangfuseBaggageMember(
 	bag baggage.Baggage,
 	key string,
@@ -419,13 +532,9 @@ func buildLangfuseTraceName(
 	if userID != "" {
 		prefix = channel + " " + userID
 	}
-	if messageID := strings.TrimSpace(
-		input.Inbound.MessageID,
-	); messageID != "" {
-		return prefix + " " + messageID
-	}
-	if requestID := strings.TrimSpace(input.RequestID); requestID != "" {
-		return prefix + " " + requestID
-	}
+	// Keep the trace name human-readable in the Langfuse trace list:
+	// messageID/requestID are random req_<uuid> tokens that add no signal there
+	// and are already surfaced as metadata (request_id / correlation_id), so we
+	// intentionally omit them from the name.
 	return prefix + " " + langfuseTraceDefaultName
 }

@@ -56,7 +56,7 @@ func (f *fileToolSet) listFile(
 	req *listFileRequest,
 ) (*listFileResponse, error) {
 	rsp := &listFileResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 	}
 	if req == nil {
 		err := errors.New("request cannot be nil")
@@ -91,8 +91,10 @@ func (f *fileToolSet) listFile(
 
 	reqPath := strings.TrimSpace(req.Path)
 	rsp.Path = reqPath
-	// Resolve the target path.
-	targetPath, err := f.resolvePath(reqPath)
+	// Resolve the target path. list_file is a read-only operator, so it may
+	// also access directories under configured read_only_dirs (extra read
+	// roots), not just the (session-scoped) base directory.
+	targetPath, err := f.resolveReadPathCtx(ctx, reqPath)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return rsp, err

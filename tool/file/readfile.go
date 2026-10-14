@@ -52,7 +52,7 @@ func (f *fileToolSet) readFile(
 	req *readFileRequest,
 ) (*readFileResponse, error) {
 	rsp := &readFileResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 		FileName:      "",
 	}
 	if req == nil {
@@ -233,7 +233,7 @@ func (f *fileToolSet) readFileFromDiskOrCache(
 	req *readFileRequest,
 	rsp *readFileResponse,
 ) error {
-	filePath, err := f.resolveReadPath(req.FileName)
+	filePath, err := f.resolveReadPathCtx(ctx, req.FileName)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return err

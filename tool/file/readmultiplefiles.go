@@ -54,7 +54,7 @@ func (f *fileToolSet) readMultipleFiles(
 	ctx context.Context,
 	req *readMultipleFilesRequest,
 ) (*readMultipleFilesResponse, error) {
-	rsp := &readMultipleFilesResponse{BaseDirectory: f.baseDir}
+	rsp := &readMultipleFilesResponse{BaseDirectory: f.baseDirFor(ctx)}
 	if len(req.Patterns) == 0 {
 		rsp.Message = "Error: patterns cannot be empty"
 		return rsp, errors.New("patterns cannot be empty")
@@ -177,7 +177,7 @@ func (f *fileToolSet) readFiles(
 				return
 			}
 
-			fullPath, err := f.resolveReadPath(rp)
+			fullPath, err := f.resolveReadPathCtx(ctx, rp)
 			if err != nil {
 				results[idx].Message = fmt.Sprintf(
 					"Error: cannot resolve path %s: %v",

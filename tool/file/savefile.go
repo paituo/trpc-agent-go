@@ -40,11 +40,11 @@ type saveFileResponse struct {
 
 // saveFile performs the save file operation.
 func (f *fileToolSet) saveFile(
-	_ context.Context,
+	ctx context.Context,
 	req *saveFileRequest,
 ) (*saveFileResponse, error) {
 	rsp := &saveFileResponse{
-		BaseDirectory: f.baseDir,
+		BaseDirectory: f.baseDirFor(ctx),
 		FileName:      req.FileName,
 	}
 	ref, err := fileref.Parse(req.FileName)
@@ -63,7 +63,7 @@ func (f *fileToolSet) saveFile(
 		)
 	}
 	// Resolve and validate the file path.
-	filePath, err := f.resolvePath(req.FileName)
+	filePath, err := f.resolvePathCtx(ctx, req.FileName)
 	if err != nil {
 		rsp.Message = fmt.Sprintf("Error: %v", err)
 		return rsp, err

@@ -74,7 +74,7 @@ func (f *fileToolSet) searchContent(
 	req *searchContentRequest,
 ) (*searchContentResponse, error) {
 	rsp := &searchContentResponse{
-		BaseDirectory:  f.baseDir,
+		BaseDirectory:  f.baseDirFor(ctx),
 		Path:           "",
 		FilePattern:    "",
 		ContentPattern: "",
@@ -198,7 +198,7 @@ func (f *fileToolSet) searchContentByPath(
 		matches := f.searchWorkspaceContent(ctx, pathRef.Path, req, re)
 		return path, matches, nil
 	default:
-		reqPath := normalizeToolPath(f.baseDir, pathRef.Path)
+		reqPath := normalizeToolPath(f.baseDirFor(ctx), pathRef.Path)
 		matches, err := f.searchContentLocal(ctx, reqPath, req, re)
 		return reqPath, matches, err
 	}
@@ -225,7 +225,10 @@ func (f *fileToolSet) searchContentLocal(
 		return matches, nil
 	}
 
-	targetPath, err := f.resolvePath(reqPath)
+	// search_content is a read-only operator, so it may also search under
+	// configured read_only_dirs (extra read roots), not just the (session-
+	// scoped) base directory.
+	targetPath, err := f.resolveReadPathCtx(ctx, reqPath)
 	if err != nil {
 		return nil, err
 	}
