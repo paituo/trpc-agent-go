@@ -1157,6 +1157,21 @@ func (m *Model) shouldBackfillReasoningContent(
 
 // convertMessages converts our Message format to OpenAI's format.
 func (m *Model) convertMessages(messages []model.Message) []openai.ChatCompletionMessageParamUnion {
+	// Collapse consecutive system messages into a single leading system
+	// message. Some gateways (e.g. jxbw/vLLM) reject requests when the
+	// system message is not the first message or when multiple system
+	// messages appear, which trpc-agent-go can emit (instruction plus a
+	// post-tool/system-injected prompt). Merging keeps the request valid.
+	collapsed := make([]model.Message, 0, len(messages))
+	for _, msg := range messages {
+		n := len(collapsed)
+		if msg.Role == model.RoleSystem && n > 0 && collapsed[n-1].Role == model.RoleSystem {
+			collapsed[n-1].Content += "\n\n" + msg.Content
+			continue
+		}
+		collapsed = append(collapsed, msg)
+	}
+	messages = collapsed
 	result := make([]openai.ChatCompletionMessageParamUnion, len(messages))
 
 	for i, msg := range messages {
