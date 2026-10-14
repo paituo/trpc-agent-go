@@ -130,6 +130,10 @@ func junctionDir(target, link string) error {
 	// Remove existing path if present.
 	_ = os.RemoveAll(link)
 	cmd := exec.Command("cmd.exe", "/c", "mklink", "/J", absLink, target)
+	// Windows 隐藏子进程控制台窗口（GUI 父进程 spawn cmd.exe 创建 junction 时，
+	// 若无 CREATE_NO_WINDOW 会新建可见控制台 → 弹黑色终端一闪而过）。
+	// 与 codeexecutor/local 的 hideChildWindow、deps 的 hideChildConsole 一致。
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000000}
 	if out, cmdErr := cmd.CombinedOutput(); cmdErr != nil {
 		return fmt.Errorf("mklink /J %q -> %q: %w: %s",
 			absLink, target, cmdErr, out)
