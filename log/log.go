@@ -140,10 +140,10 @@ var fileEncoderConfig = zapcore.EncoderConfig{
 
 // AddFileOutput adds a file-based log output alongside the existing
 // stdout output. Logs are written in JSON format to the specified
-// directory. The log file is created under a date-based subdirectory
-// (YYYY/MM/DD) with a timestamp-based filename to preserve history
-// across restarts. This function is idempotent: calling it more than
-// once has no effect.
+// directory. The log file is created under a single date-based
+// subdirectory (YYYYMMDD) with a timestamp-based filename to preserve
+// history across restarts. This function is idempotent: calling it more
+// than once has no effect.
 func AddFileOutput(dir string) error {
 	if fileCoreAdded {
 		return nil
@@ -151,12 +151,8 @@ func AddFileOutput(dir string) error {
 
 	now := time.Now()
 
-	// Create date-based subdirectory: {dir}/YYYY/MM/DD
-	dateDir := filepath.Join(dir,
-		fmt.Sprintf("%04d", now.Year()),
-		fmt.Sprintf("%02d", now.Month()),
-		fmt.Sprintf("%02d", now.Day()),
-	)
+	// Create a single date-based subdirectory: {dir}/YYYYMMDD
+	dateDir := filepath.Join(dir, now.Format("20060102"))
 	if err := os.MkdirAll(dateDir, 0o755); err != nil {
 		return err
 	}

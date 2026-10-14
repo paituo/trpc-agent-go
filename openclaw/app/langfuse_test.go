@@ -395,9 +395,19 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 	require.Equal(t, "v2", bag.Member(
 		langfuseMetadataProfileVersion,
 	).Value())
+	// The trace name carries a "@hostname" suffix when the local hostname is
+	// resolvable (see buildLangfuseRunOptionResolver), so derive the expected
+	// value instead of hard-coding it — otherwise this test fails on any
+	// machine whose hostname is non-empty.
+	expectedTraceName := buildLangfuseTraceName("retail-app", gateway.RunOptionInput{
+		Inbound:   gateway.InboundMessage{Channel: "wecom"},
+		UserID:    "u1",
+		RequestID: "req-1",
+	}, localLangfuseHostname())
+
 	require.Equal(
 		t,
-		"wecom u1 request",
+		expectedTraceName,
 		bag.Member(langfuseTraceNameKey).Value(),
 	)
 
@@ -410,7 +420,7 @@ func TestBuildLangfuseRunOptionResolver_UsesRuntimeProfile(
 		if string(attr.Key) != langfuseTraceNameKey {
 			continue
 		}
-		require.Equal(t, "wecom u1 request", attr.Value.AsString())
+		require.Equal(t, expectedTraceName, attr.Value.AsString())
 		foundTraceName = true
 	}
 	require.True(t, foundTraceName)
@@ -469,19 +479,19 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 		buildLangfuseTraceName("", gateway.RunOptionInput{
 			Inbound:   gateway.InboundMessage{Channel: "wecom"},
 			RequestID: "req-1",
-		}),
+		}, ""),
 	)
 	require.Equal(
 		t,
 		"wecom request",
 		buildLangfuseTraceName("", gateway.RunOptionInput{
 			Inbound: gateway.InboundMessage{Channel: "wecom"},
-		}),
+		}, ""),
 	)
 	require.Equal(
 		t,
 		"custom-app request",
-		buildLangfuseTraceName("custom-app", gateway.RunOptionInput{}),
+		buildLangfuseTraceName("custom-app", gateway.RunOptionInput{}, ""),
 	)
 	require.Equal(
 		t,
@@ -490,7 +500,7 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 			Inbound:   gateway.InboundMessage{Channel: "wecom"},
 			UserID:    "user-abc",
 			RequestID: "req-1",
-		}),
+		}, ""),
 	)
 	require.Equal(
 		t,
@@ -498,7 +508,16 @@ func TestBuildLangfuseTraceName_Fallbacks(t *testing.T) {
 		buildLangfuseTraceName("", gateway.RunOptionInput{
 			Inbound: gateway.InboundMessage{Channel: "wecom"},
 			UserID:  "user-abc",
-		}),
+		}, ""),
+	)
+	// Hostname is appended when non-empty.
+	require.Equal(
+		t,
+		"wecom user-abc request @tst-liuyue",
+		buildLangfuseTraceName("", gateway.RunOptionInput{
+			Inbound: gateway.InboundMessage{Channel: "wecom"},
+			UserID:  "user-abc",
+		}, "tst-liuyue"),
 	)
 }
 

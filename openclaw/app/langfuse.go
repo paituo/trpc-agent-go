@@ -203,7 +203,11 @@ func buildLangfuseRunOptionResolver(
 
 		runOpts := make([]agent.RunOption, 0, 2)
 		resolvedAppName := runtimeprofile.AppNameFromContext(ctx, appName)
-		traceName := buildLangfuseTraceName(resolvedAppName, input)
+		// Surface the local hostname in the trace name so traces from different
+		// machines are distinguishable at a glance in the Langfuse trace list.
+		traceName := buildLangfuseTraceName(
+			resolvedAppName, input, localLangfuseHostname(),
+		)
 		// Allow distinguishing conversations & sub-agent calls by agent name in
 		// the Langfuse trace list. The resolved runtime profile carries the
 		// agent identity (parent conversation agent for gateway runs, the
@@ -519,6 +523,7 @@ func setLangfuseBaggageMember(
 func buildLangfuseTraceName(
 	fallbackAppName string,
 	input gateway.RunOptionInput,
+	hostname string,
 ) string {
 	channel := strings.TrimSpace(input.Inbound.Channel)
 	if channel == "" {
@@ -536,5 +541,20 @@ func buildLangfuseTraceName(
 	// messageID/requestID are random req_<uuid> tokens that add no signal there
 	// and are already surfaced as metadata (request_id / correlation_id), so we
 	// intentionally omit them from the name.
-	return prefix + " " + langfuseTraceDefaultName
+	name := prefix + " " + langfuseTraceDefaultName
+	if hostname != "" {
+		name = name + " @" + hostname
+	}
+	return name
+}
+
+// localLangfuseHostname returns the trimmed local hostname, or "" when it
+// cannot be resolved. Extracted so production code and tests share one source
+// of truth for the "@hostname" trace-name suffix.
+func localLangfuseHostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(host)
 }

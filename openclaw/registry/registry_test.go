@@ -49,6 +49,7 @@ func resetForTest(t *testing.T) {
 	knowledgeFactories = map[string]KnowledgeProviderFactory{}
 	toolFactories = map[string]ToolProviderFactory{}
 	toolSetFactories = map[string]ToolSetProviderFactory{}
+	toolCallbacksContributors = map[string]ToolCallbacksContributor{}
 	modelFactories = map[string]ModelFactory{}
 }
 
@@ -330,6 +331,43 @@ func TestTypes(t *testing.T) {
 	require.Equal(t, []string{"a", "b"}, Types("knowledge provider"))
 
 	require.Nil(t, Types("unknown kind"))
+}
+
+func TestRegisterToolCallbacksContributor_ValidatesInputs(t *testing.T) {
+	resetForTest(t)
+
+	var nilContributor ToolCallbacksContributor
+	require.Error(t, RegisterToolCallbacksContributor("hooks", nilContributor))
+	require.Error(t, RegisterToolCallbacksContributor("", func() *tool.Callbacks {
+		return nil
+	}))
+
+	require.NoError(t, RegisterToolCallbacksContributor("hooks", func() *tool.Callbacks {
+		return tool.NewCallbacks()
+	}))
+	require.Error(t, RegisterToolCallbacksContributor("hooks", func() *tool.Callbacks {
+		return nil
+	}))
+}
+
+func TestLookupToolCallbacksContributors_Sorted(t *testing.T) {
+	resetForTest(t)
+
+	require.NoError(t, RegisterToolCallbacksContributor("z-hooks", func() *tool.Callbacks {
+		return nil
+	}))
+	require.NoError(t, RegisterToolCallbacksContributor("a-hooks", func() *tool.Callbacks {
+		return tool.NewCallbacks()
+	}))
+
+	contribs := LookupToolCallbacksContributors()
+	require.Len(t, contribs, 2)
+
+	// Deterministic name-sorted order: a-hooks first.
+	require.NotNil(t, contribs[0](), "a-hooks contributor should return callbacks")
+	require.Nil(t, contribs[1]())
+
+	require.Equal(t, []string{"a-hooks", "z-hooks"}, Types("tool callbacks contributor"))
 }
 
 func TestDecodeStrict(t *testing.T) {

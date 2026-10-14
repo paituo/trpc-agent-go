@@ -12,7 +12,6 @@ package log
 // ... existing code ...
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,13 +129,9 @@ func TestAddFileOutput(t *testing.T) {
 	assert.True(t, fileCoreAdded,
 		"fileCoreAdded should be true after AddFileOutput")
 
-	// Verify log file was created under date-based subdirectory.
+	// Verify log file was created under a single date-based subdirectory.
 	now := time.Now()
-	dateDir := filepath.Join(dir,
-		fmt.Sprintf("%04d", now.Year()),
-		fmt.Sprintf("%02d", now.Month()),
-		fmt.Sprintf("%02d", now.Day()),
-	)
+	dateDir := filepath.Join(dir, now.Format("20060102"))
 	entries, readErr := os.ReadDir(dateDir)
 	require.NoError(t, readErr, "date directory should exist")
 	require.NotEmpty(t, entries, "date directory should contain log files")

@@ -218,6 +218,14 @@ type ToolSetProviderFactory func(
 	spec PluginSpec,
 ) (tool.ToolSet, error)
 
+// ToolCallbacksContributor returns tool callbacks (before/after tool hooks)
+// that OpenClaw merges into every llm agent it constructs.
+//
+// The returned callbacks are evaluated lazily each time an agent is created,
+// so a contributor may return nil (or a nil *tool.Callbacks) while the hooks
+// it exposes are not assembled yet; nil results are skipped.
+type ToolCallbacksContributor func() *tool.Callbacks
+
 // PlannerDeps contains dependencies passed to planner factories.
 type PlannerDeps struct {
 	AppName  string
@@ -268,6 +276,8 @@ var (
 	toolSetFactories   = map[string]ToolSetProviderFactory{}
 	modelFactories     = map[string]ModelFactory{}
 	plannerFactories   = map[string]PlannerFactory{}
+
+	toolCallbacksContributors = map[string]ToolCallbacksContributor{}
 )
 
 // RegisterChannel registers a channel factory under typeName.
@@ -476,6 +486,56 @@ func LookupToolSetProvider(
 	return f, ok
 }
 
+// RegisterToolCallbacksContributor registers a global tool callbacks
+// contributor under typeName.
+//
+// Contributors registered by downstream plugins are merged into every llm
+// agent constructed by OpenClaw (see app.newAgent), so their before/after
+// tool hooks also fire for the default main assistant. The contributor is
+// evaluated lazily each time an agent is created and may return nil while its
+// hooks are not assembled yet.
+func RegisterToolCallbacksContributor(
+	typeName string,
+	f ToolCallbacksContributor,
+) error {
+	name, err := validateType("tool callbacks contributor", typeName)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return fmt.Errorf(
+			"registry: tool callbacks contributor is nil: %s",
+			name,
+		)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if _, ok := toolCallbacksContributors[name]; ok {
+		return fmt.Errorf(
+			"registry: tool callbacks contributor already registered: %s",
+			name,
+		)
+	}
+	toolCallbacksContributors[name] = f
+	return nil
+}
+
+// LookupToolCallbacksContributors returns all registered tool callbacks
+// contributors in a deterministic (name-sorted) order.
+func LookupToolCallbacksContributors() []ToolCallbacksContributor {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	keys := mapKeys(toolCallbacksContributors)
+	sort.Strings(keys)
+	out := make([]ToolCallbacksContributor, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, toolCallbacksContributors[k])
+	}
+	return out
+}
+
 // RegisterModel registers a model factory under typeName.
 func RegisterModel(typeName string, f ModelFactory) error {
 	name, err := validateType("model", typeName)
@@ -570,6 +630,8 @@ func Types(kind string) []string {
 		keys = mapKeys(plannerFactories)
 	case "model":
 		keys = mapKeys(modelFactories)
+	case "tool callbacks contributor":
+		keys = mapKeys(toolCallbacksContributors)
 	default:
 		return nil
 	}

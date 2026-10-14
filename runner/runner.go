@@ -2689,9 +2689,9 @@ func contextDoneReason(ctx context.Context) string {
 }
 
 func sessionPersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if ctx.Err() == nil {
-		return ctx, func() {}
-	}
+	// Always use a detached context with timeout for persistence operations.
+	// This ensures persistence can complete even if the parent context is canceled
+	// between the check and the actual database operation.
 	return context.WithTimeout(
 		context.WithoutCancel(ctx),
 		cancelledSessionPersistenceTimeout,
