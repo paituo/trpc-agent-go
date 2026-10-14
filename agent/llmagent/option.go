@@ -613,6 +613,13 @@ type Options struct {
 	// workspaceExecOutputLimits caps inline terminal output before
 	// workspace_exec tool-result events are persisted.
 	workspaceExecOutputLimits toolworkspaceexec.OutputLimits
+	// workspaceExecBaseEnv holds tool-environment variables (e.g. a
+	// portable python's bin dir prepended to PATH) merged into every
+	// skill_run / workspace_exec command's environment. It is injected
+	// before the command-policy scrub so a stable, scrubbed toolchain
+	// PATH reaches both tools without reintroducing unsafe vars in
+	// policy mode.
+	workspaceExecBaseEnv map[string]string
 	// workspaceBootstrap declares static files and commands that
 	// must be present/executed in the workspace before user
 	// commands run. When non-empty it is converted into a Provider
@@ -1476,6 +1483,27 @@ func WithWorkspaceExecOutputLimits(
 ) Option {
 	return func(opts *Options) {
 		opts.workspaceExecOutputLimits = limits
+	}
+}
+
+// WithWorkspaceExecBaseEnv sets base environment variables merged into
+// every skill_run / workspace_exec command's environment before the
+// command-policy scrub. A typical use is injecting a portable python's
+// bin directory onto PATH so skill scripts can resolve python without
+// depending on the host PATH. Scrub (envscrub) runs afterward, so unsafe
+// variables such as PATH / LD_PRELOAD / BASH_ENV are still removed in
+// policy mode.
+func WithWorkspaceExecBaseEnv(env map[string]string) Option {
+	return func(opts *Options) {
+		if len(env) == 0 {
+			opts.workspaceExecBaseEnv = nil
+			return
+		}
+		cp := make(map[string]string, len(env))
+		for k, v := range env {
+			cp[k] = v
+		}
+		opts.workspaceExecBaseEnv = cp
 	}
 }
 

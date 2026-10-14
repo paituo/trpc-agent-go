@@ -61,6 +61,12 @@ type RunTool struct {
 	forceSaveArtifacts bool
 	requireSkillLoaded bool
 	outputLimits       RunOutputLimits
+
+	// baseEnv holds tool-environment variables (e.g. a portable python's bin
+	// dir prepended to PATH) provided by the host when the tool is
+	// constructed. It is merged into the run command's environment so skill
+	// scripts can resolve python without depending on the host PATH.
+	baseEnv map[string]string
 }
 
 // RunOutputLimits controls how much inline text skill_run returns.
@@ -204,6 +210,17 @@ func WithForceSaveArtifacts(enable bool) func(*RunTool) {
 func WithRunOutputLimits(limits RunOutputLimits) func(*RunTool) {
 	return func(t *RunTool) {
 		t.outputLimits = limits
+	}
+}
+
+// WithRunBaseEnv sets base environment variables merged into every skill_run
+// command's environment before skill-local env injection and the command
+// policy scrub. A typical use is injecting a portable python's bin directory
+// onto PATH so skill scripts can resolve python without depending on the host
+// PATH.
+func WithRunBaseEnv(env map[string]string) func(*RunTool) {
+	return func(t *RunTool) {
+		t.baseEnv = env
 	}
 }
 
@@ -1231,6 +1248,7 @@ func (t *RunTool) buildRunProgramSpec(
 		timeout = defaultSkillRunTimeout
 	}
 	env := cloneStringMap(in.Env)
+	env = mergeEnvMap(env, t.baseEnv)
 	t.maybeInjectSkillEnv(ctx, in.Skill, env)
 	if _, ok := env[codeexecutor.EnvSkillName]; !ok {
 		env[codeexecutor.EnvSkillName] = in.Skill
@@ -1581,6 +1599,16 @@ func cloneStringMap(src map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(src))
 	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+// mergeEnvMap returns a copy of base with extra merged in, preferring the
+// value in extra when the same key appears in both. It mutates neither input.
+func mergeEnvMap(base, extra map[string]string) map[string]string {
+	out := cloneStringMap(base)
+	for k, v := range extra {
 		out[k] = v
 	}
 	return out

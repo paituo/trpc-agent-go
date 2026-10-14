@@ -1182,6 +1182,12 @@ func appendWorkspaceExecToolWithExecutor(
 			),
 		)
 	}
+	if options != nil && len(options.workspaceExecBaseEnv) > 0 {
+		toolOpts = append(
+			toolOpts,
+			toolworkspaceexec.WithBaseEnv(options.workspaceExecBaseEnv),
+		)
+	}
 	execTool := toolworkspaceexec.NewExecTool(exec, toolOpts...)
 	allTools = append(
 		allTools,
@@ -1410,6 +1416,12 @@ func buildSkillRunToolWithRepo(
 		runOpts = append(
 			runOpts,
 			toolskill.WithSkillStager(options.skillRunStager),
+		)
+	}
+	if len(options.workspaceExecBaseEnv) > 0 {
+		runOpts = append(
+			runOpts,
+			toolskill.WithRunBaseEnv(options.workspaceExecBaseEnv),
 		)
 	}
 	if reg != nil {

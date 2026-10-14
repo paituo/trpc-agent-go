@@ -80,6 +80,13 @@ type ExecTool struct {
 	deniedCmds  []string
 	outputLimit int
 
+	// baseEnv holds tool-environment variables (e.g. a portable python's bin
+	// dir prepended to PATH) provided by the host when the tool is
+	// constructed. It is merged into every command's environment before the
+	// command policy scrub runs, so a stable, scrubbed toolchain env reaches
+	// workspace_exec without reintroducing unsafe vars in policy mode.
+	baseEnv map[string]string
+
 	mu       sync.Mutex
 	sessions map[string]*execSession
 	ttl      time.Duration
@@ -213,6 +220,17 @@ func WithWorkspaceRegistry(
 ) func(*ExecTool) {
 	return func(t *ExecTool) {
 		t.reg = reg
+	}
+}
+
+// WithBaseEnv sets base environment variables merged into every command's
+// environment before the command policy scrub. A typical use is injecting a
+// portable python's bin directory onto PATH so workspace_exec can resolve
+// python without depending on the host PATH. Scrub runs afterward, so unsafe
+// variables are still removed in policy mode.
+func WithBaseEnv(env map[string]string) func(*ExecTool) {
+	return func(t *ExecTool) {
+		t.baseEnv = env
 	}
 }
 
@@ -655,7 +673,7 @@ func (t *ExecTool) prepareExec(
 		spec: codeexecutor.RunProgramSpec{
 			Cmd:      "sh",
 			Args:     shellArgsForPolicy(policyActive, in.Command),
-			Env:      envForPolicy(policyActive, in.Env),
+			Env:      envForPolicy(policyActive, mergeEnv(in.Env, t.baseEnv)),
 			CleanEnv: policyActive,
 			Cwd:      cwd,
 			Stdin:    in.Stdin,
@@ -881,6 +899,23 @@ func envForPolicyOnGOOS(
 		return env
 	}
 	return envscrub.Scrub(env, goos == "windows")
+}
+
+// mergeEnv returns a copy of base with extra merged in. When the same key
+// appears in both, the value in extra wins and its position is preserved. If
+// both inputs are empty the result is nil.
+func mergeEnv(base, extra map[string]string) map[string]string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
 }
 
 func (t *ExecTool) callNonSessional(
