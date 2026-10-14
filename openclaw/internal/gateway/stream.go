@@ -515,6 +515,19 @@ func (s *Server) streamLocked(
 			continue
 		}
 
+		// confirm_card 权限确认卡：无论 shouldSendProgressForEvent 判断如何，
+		// 只要本次 runner 事件携带 confirm_card 类型的 tool call，就立即下发
+		// permission.request 事件，让前端弹出审批卡。该逻辑与“是否展示进度”
+		// 解耦，避免审批卡因进度抑制而丢失（修复 jxbw 续流审批卡不出现的问题）。
+		if confirmCardToolCalls := extractConfirmCardToolCalls(evt); len(confirmCardToolCalls) > 0 {
+			if !sendPermissionRequest(ctx, out, run, evt, confirmCardToolCalls) {
+				return streamOutcome{
+					status: traceStatusError,
+					errMsg: contextErrMessage(ctx),
+				}
+			}
+		}
+
 		if updates := progressUpdatesFromRunnerEvent(evt, noTruncateTools); len(updates) > 0 && shouldSendProgressForEvent(run.streamOptions, sentText) {
 			for _, update := range updates {
 				if !sendProgressUpdate(
@@ -881,6 +894,58 @@ func progressUpdatesFromRunnerEvent(
 		return []progressUpdate{u}
 	}
 	return nil
+}
+
+// confirmCardToolName is the model-visible name of the external confirm_card
+// tool. The model invokes it before running a side-effecting operation.
+const confirmCardToolName = "confirm_card"
+
+// extractConfirmCardToolCalls returns the confirm_card tool calls carried by
+// the runner event. The gateway pauses the run (EndInvocation) and emits a
+// permission.request so the frontend can render an approval card. Only
+// tool-call responses are considered; tool results that resume a paused run
+// must not re-trigger the approval card.
+func extractConfirmCardToolCalls(evt *event.Event) []model.ToolCall {
+	if evt == nil || evt.Response == nil || !evt.Response.IsToolCallResponse() {
+		return nil
+	}
+	toolCalls := allToolCalls(evt.Response)
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	matched := make([]model.ToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		if strings.EqualFold(strings.TrimSpace(tc.Function.Name), confirmCardToolName) {
+			matched = append(matched, tc)
+		}
+	}
+	return matched
+}
+
+// sendPermissionRequest emits a permission.request gateway event carrying the
+// confirm_card tool calls. It is decoupled from shouldSendProgressForEvent so
+// the approval card is always shown even when progress updates are suppressed.
+func sendPermissionRequest(
+	ctx context.Context,
+	out chan<- gwproto.StreamEvent,
+	run preparedMessageRun,
+	evt *event.Event,
+	toolCalls []model.ToolCall,
+) bool {
+	streamToolCalls := make([]gwproto.StreamToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		streamToolCalls = append(streamToolCalls, gwproto.StreamToolCall{
+			ID:        strings.TrimSpace(tc.ID),
+			Name:      strings.TrimSpace(tc.Function.Name),
+			Arguments: safeJSONRawMessage(tc.Function.Arguments),
+		})
+	}
+	return sendStreamEvent(ctx, out, gwproto.StreamEvent{
+		Type:      gwproto.StreamEventTypePermissionRequest,
+		SessionID: run.sessionID,
+		RequestID: resolvedStreamRequestID(evt.RequestID, run.requestID),
+		ToolCalls: streamToolCalls,
+	})
 }
 
 func allToolCalls(rsp *model.Response) []model.ToolCall {
