@@ -1283,6 +1283,51 @@ func (m *MarkdownChunking) createMarkdownChunkWithPath(
 	}
 }
 
+func (m *MarkdownChunking) rowAwareOverlap(prevText string, overlap int) string {
+	total := encoding.RuneCount(prevText)
+	if overlap <= 0 || total <= overlap {
+		return prevText
+	}
+	tail := encoding.SafeOverlap(prevText, overlap)
+
+	cut := len(prevText) - len(tail)
+	lineStart := strings.LastIndex(prevText[:cut], "\n")
+	if lineStart < 0 {
+		lineStart = 0
+	} else {
+		lineStart++
+	}
+	lineEnd := strings.IndexByte(prevText[cut:], '\n')
+	if lineEnd < 0 {
+		lineEnd = len(prevText)
+	} else {
+		lineEnd += cut
+	}
+	fullLine := prevText[lineStart:lineEnd]
+	t := strings.TrimSpace(fullLine)
+
+	// GFM pipe row: back up to the row start so the overlap begins on a
+	// complete |...| line (a verbatim substring of the source).
+	if strings.HasPrefix(t, "|") {
+		if backed := prevText[lineStart:]; encoding.RuneCount(backed) <= overlap*2 {
+			return backed
+		}
+		return tail
+	}
+	// HTML table row: back up to the start of the enclosing <tr> so the
+	// overlap does not split a row mid-way.
+	low := strings.ToLower(prevText[:cut])
+	if trStart := strings.LastIndex(low, "<tr"); trStart >= 0 {
+		after := low[trStart+3:]
+		if len(after) == 0 || after[0] == ' ' || after[0] == '>' || after[0] == '\n' || after[0] == '\t' {
+			if backed := prevText[trStart:]; encoding.RuneCount(backed) <= overlap*2 {
+				return backed
+			}
+		}
+	}
+	return tail
+}
+
 // applyOverlap applies overlap between consecutive chunks.
 func (m *MarkdownChunking) applyOverlap(
 	content string,
