@@ -39,7 +39,7 @@ const (
 	defaultGraphSearchMaxSeeds   = 5
 	defaultGraphStoreRoutines    = 4
 	defaultGraphDocumentRoutines = 30
-	defaultGraphNodeContentRunes = 16 * 1024
+	defaultGraphNodeContentRunes = 8 * 1024
 )
 
 // GraphKnowledgeOption configures BuiltinGraphKnowledge.
@@ -154,7 +154,11 @@ func (gk *BuiltinGraphKnowledge) Search(
 		return nil, errors.New("search query cannot be empty")
 	}
 
-	return gk.HybridSearch(ctx, req)
+	if req.SearchMode == vectorstore.SearchModeVector {
+		return gk.vectorSearch(ctx, req)
+	} else {
+		return gk.HybridSearch(ctx, req)
+	}
 	// // If retriever is configured, use vector search
 	// if gk.retriever != nil {
 	// 	return gk.vectorSearch(ctx, req)
@@ -162,6 +166,18 @@ func (gk *BuiltinGraphKnowledge) Search(
 
 	// // Otherwise, use graph-native retrieval
 	// return gk.graphSearch(ctx, req)
+}
+
+// QueryNodesByMetadata queries graph nodes by metadata key-value pairs.
+// All specified metadata fields must match (AND logic).
+func (gk *BuiltinGraphKnowledge) QueryNodesByMetadata(
+	ctx context.Context,
+	metadata map[string]any,
+) ([]*graph.Node, error) {
+	if gk.store == nil {
+		return nil, errors.New("knowledge: graph store is nil")
+	}
+	return gk.store.QueryNodesByMetadata(ctx, metadata)
 }
 
 // vectorSearch performs vector-based search using the configured retriever.
@@ -185,38 +201,37 @@ func (gk *BuiltinGraphKnowledge) vectorSearch(
 		minScore = 0.0
 	}
 
-	searchMode := req.SearchMode
 	if req.Query == "" && hasSearchFilter(req.SearchFilter) {
 		log.DebugfContext(ctx, "knowledge search: empty query with filter, switching search mode to filter")
-		searchMode = vectorstore.SearchModeFilter
 	}
-
-	retrieverReq := &retriever.Query{
-		Text:       req.Query,
-		History:    req.History,
-		UserID:     req.UserID,
-		SessionID:  req.SessionID,
-		Filter:     graphConvertQueryFilter(req.SearchFilter),
-		Limit:      req.MaxResults,
-		MinScore:   minScore,
-		SearchMode: searchMode,
-	}
-
-	result, err := gk.retriever.Retrieve(ctx, retrieverReq)
+	embedding, err := gk.embedder.GetEmbedding(ctx, req.Query)
 	if err != nil {
-		if started {
-			span.SetAttributes(attribute.String("knowledge.search.error", err.Error()))
+		return nil, fmt.Errorf("generate embedding: %w", err)
+	}
+	var filter *vectorstore.SearchFilter
+	if req.SearchFilter != nil {
+		filter = &vectorstore.SearchFilter{
+			IDs:             req.SearchFilter.DocumentIDs,
+			Metadata:        req.SearchFilter.Metadata,
+			FilterCondition: req.SearchFilter.FilterCondition,
 		}
-		return nil, fmt.Errorf("retrieval failed: %w", err)
 	}
 
-	if len(result.Documents) == 0 {
+	result, err := gk.vectorStore.Search(ctx, &vectorstore.SearchQuery{
+		Query:    req.Query,
+		Vector:   embedding,
+		Limit:    req.MaxResults,
+		MinScore: req.MinScore,
+		Filter:   filter,
+	})
+
+	if len(result.Results) == 0 {
 		return nil, errors.New("no relevant documents found")
 	}
 
-	bestDoc := result.Documents[0]
-	documents := make([]*Result, 0, len(result.Documents))
-	for _, doc := range result.Documents {
+	bestDoc := result.Results[0]
+	documents := make([]*Result, 0, len(result.Results))
+	for _, doc := range result.Results {
 		documents = append(documents, &Result{
 			Document: doc.Document,
 			Score:    doc.Score,
@@ -605,6 +620,7 @@ func (gk *BuiltinGraphKnowledge) HybridSearch(
 }
 
 // traverseChildNodes traverses from seed nodes to get their child nodes.
+// It filters out the seed nodes themselves and nodes whose trpc_ast_type is "chapter".
 func (gk *BuiltinGraphKnowledge) traverseChildNodes(
 	ctx context.Context,
 	seeds []*graphSeed,
@@ -627,7 +643,7 @@ func (gk *BuiltinGraphKnowledge) traverseChildNodes(
 		StartIDs:  startIDs,
 		Direction: graph.DirectionOut,
 		MaxDepth:  1,
-		MaxNodes:  100,
+		MaxNodes:  10000,
 	})
 	if err != nil {
 		return nil, err
@@ -635,7 +651,32 @@ func (gk *BuiltinGraphKnowledge) traverseChildNodes(
 	if result == nil {
 		return nil, nil
 	}
-	return result.Nodes, nil
+
+	// Build a set of start IDs for quick lookup.
+	startIDSet := make(map[string]struct{}, len(startIDs))
+	for _, id := range startIDs {
+		startIDSet[id] = struct{}{}
+	}
+
+	// Filter out seed nodes themselves and nodes with trpc_ast_type == "chapter".
+	filtered := make([]*graph.Node, 0, len(result.Nodes))
+	for _, node := range result.Nodes {
+		if node == nil || node.ID == "" {
+			continue
+		}
+		// Skip the seed nodes themselves.
+		if _, isStart := startIDSet[node.ID]; isStart {
+			continue
+		}
+		// Skip nodes whose trpc_ast_type is "chapter".
+		if nodeType, ok := node.Metadata[codeast.TrpcAstMetaPrefix+"type"]; ok {
+			if typeStr, ok := nodeType.(string); ok && typeStr == "chapter" {
+				continue
+			}
+		}
+		filtered = append(filtered, node)
+	}
+	return filtered, nil
 }
 
 // vectorSearchOnNodes performs vector search on the given nodes' content.
@@ -719,12 +760,53 @@ func (gk *BuiltinGraphKnowledge) retrieveSeedNodes(
 	ctx context.Context,
 	req *SearchRequest,
 ) ([]*graphSeed, error) {
+	maxSeeds := resolvePositiveInt(req.SeedMaxResults, defaultGraphSearchMaxSeeds)
+
+	// Try to query nodes by IDs first (from SeedQuery parsed as comma-separated IDs)
+	seedQuery := strings.TrimSpace(req.SeedQuery)
+	if seedQuery != "" && gk.store != nil {
+		// Parse comma-separated node IDs
+		idStrs := strings.Split(seedQuery, ",")
+		ids := make([]string, 0, len(idStrs))
+		for _, id := range idStrs {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			nodes, err := gk.store.QueryNodesByIDs(ctx, ids)
+			if err != nil {
+				return nil, fmt.Errorf("query graph nodes by IDs: %w", err)
+			}
+			if len(nodes) > 0 {
+				seeds := make([]*graphSeed, 0, len(nodes))
+				for _, node := range nodes {
+					if node == nil || node.ID == "" {
+						continue
+					}
+					seeds = append(seeds, &graphSeed{
+						node:  node,
+						score: 1.0, // Default score for direct ID lookup
+					})
+				}
+				if len(seeds) > 0 {
+					return seeds, nil
+				}
+			}
+		}
+	}
+
+	// Fall back to vector search
 	if gk.vectorStore == nil {
 		return nil, errors.New("graph vector store is not configured")
 	}
-	maxSeeds := resolvePositiveInt(req.SeedMaxResults, defaultGraphSearchMaxSeeds)
 
-	query := strings.TrimSpace(req.Query)
+	query := strings.TrimSpace(req.SeedQuery)
+	if query == "" {
+		query = strings.TrimSpace(req.Query)
+	}
+
 	var embedding []float64
 	if query != "" {
 		if gk.embedder == nil {
@@ -819,7 +901,7 @@ func (gk *BuiltinGraphKnowledge) addGraphDocuments(
 	if concurrency <= 1 || len(docs) <= 1 {
 		for i, doc := range docs {
 			if err := gk.addGraphDocument(ctx, doc); err != nil {
-				return err
+				continue
 			}
 			gk.reportGraphDocumentProgress(ctx, config, i+1, len(docs))
 		}

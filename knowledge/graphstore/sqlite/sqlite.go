@@ -163,6 +163,55 @@ func (s *Store) AddEdges(ctx context.Context, edges []*graph.Edge) error {
 	return tx.Commit()
 }
 
+func (s *Store) QueryNodesByIDs(ctx context.Context, ids []string) ([]*graph.Node, error) {
+	return s.queryNodesByIDs(ctx, ids)
+}
+
+// QueryNodesByMetadata queries nodes by metadata key-value pairs.
+// All specified metadata fields must match (AND logic).
+func (s *Store) QueryNodesByMetadata(ctx context.Context, metadata map[string]any) ([]*graph.Node, error) {
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+
+	// Build WHERE clause with JSON extraction for each metadata key
+	conditions := make([]string, 0, len(metadata))
+	args := make([]any, 0, len(metadata))
+	for key, value := range metadata {
+		conditions = append(conditions, fmt.Sprintf("json_extract(metadata, '$.%s') = ?", key))
+		args = append(args, fmt.Sprintf("%v", value))
+	}
+
+	query := fmt.Sprintf(
+		"SELECT id, name, content, metadata FROM %s WHERE %s",
+		s.opts.nodeTableName,
+		strings.Join(conditions, " AND "),
+	)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("sqlitegraph: query nodes by metadata: %w", err)
+	}
+	defer rows.Close()
+
+	var nodes []*graph.Node
+	for rows.Next() {
+		var id, name, content, metadataStr string
+		if err := rows.Scan(&id, &name, &content, &metadataStr); err != nil {
+			return nil, fmt.Errorf("sqlitegraph: scan node: %w", err)
+		}
+		nodeMetadata, _ := unmarshalMetadata(metadataStr)
+		nodes = append(nodes, &graph.Node{
+			ID:       id,
+			Name:     name,
+			Content:  content,
+			Metadata: nodeMetadata,
+		})
+	}
+
+	return nodes, rows.Err()
+}
+
 func (s *Store) queryNodesByIDs(ctx context.Context, ids []string) ([]*graph.Node, error) {
 	if len(ids) == 0 {
 		return nil, nil

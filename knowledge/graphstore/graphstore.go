@@ -27,6 +27,12 @@ type Store interface {
 	// Traverse runs graph traversal from one or more start nodes.
 	Traverse(ctx context.Context, query *graph.TraverseQuery) (*graph.TraverseResult, error)
 
+	QueryNodesByIDs(ctx context.Context, ids []string) ([]*graph.Node, error)
+
+	// QueryNodesByMetadata queries nodes by metadata key-value pairs.
+	// All specified metadata fields must match (AND logic).
+	QueryNodesByMetadata(ctx context.Context, metadata map[string]any) ([]*graph.Node, error)
+
 	// FindPaths finds paths between two graph nodes.
 	FindPaths(ctx context.Context, query *graph.PathQuery) (*graph.PathResult, error)
 

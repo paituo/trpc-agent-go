@@ -458,6 +458,57 @@ func (s *Store) Close() error {
 	return nil
 }
 
+// QueryNodesByIDs returns nodes matching the given IDs.
+func (s *Store) QueryNodesByIDs(ctx context.Context, ids []string) ([]*graph.Node, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return s.withAgeTxResult(ctx, func(tx *sql.Tx) ([]*graph.Node, error) {
+		return s.queryNodesByIDs(ctx, tx, ids)
+	})
+}
+
+// QueryNodesByMetadata queries nodes by metadata key-value pairs.
+// All specified metadata fields must match (AND logic).
+func (s *Store) QueryNodesByMetadata(ctx context.Context, metadata map[string]any) ([]*graph.Node, error) {
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+
+	return s.withAgeTxResult(ctx, func(tx *sql.Tx) ([]*graph.Node, error) {
+		// Build WHERE clause for metadata matching
+		whereParts := make([]string, 0, len(metadata))
+		for key, value := range metadata {
+			whereParts = append(whereParts, fmt.Sprintf("node.%s = %s", key, cypherValue(value)))
+		}
+
+		cypher := fmt.Sprintf(
+			`MATCH (node:%s) WHERE %s RETURN node.id, node.name, node.content, node.metadata`,
+			nodeLabel,
+			strings.Join(whereParts, " AND "),
+		)
+
+		return s.queryNodes(ctx, tx, cypher)
+	})
+}
+
+// withAgeTxResult executes a function within an AGE transaction and returns a result.
+func (s *Store) withAgeTxResult(ctx context.Context, fn func(*sql.Tx) ([]*graph.Node, error)) ([]*graph.Node, error) {
+	var result []*graph.Node
+	err := s.client.Transaction(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `LOAD 'age'`); err != nil {
+			return fmt.Errorf("age: load extension: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `SET search_path = ag_catalog, "$user", public`); err != nil {
+			return fmt.Errorf("age: set search path: %w", err)
+		}
+		var err error
+		result, err = fn(tx)
+		return err
+	})
+	return result, err
+}
+
 func (s *Store) withAgeTx(ctx context.Context, fn func(*sql.Tx) error) error {
 	return s.client.Transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `LOAD 'age'`); err != nil {
