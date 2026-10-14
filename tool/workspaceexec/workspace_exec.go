@@ -26,6 +26,7 @@ import (
 	"trpc.group/trpc-go/trpc-agent-go/agent"
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	"trpc.group/trpc-go/trpc-agent-go/internal/envscrub"
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 	"trpc.group/trpc-go/trpc-agent-go/internal/programsession"
 	"trpc.group/trpc-go/trpc-agent-go/internal/shellsafe"
 	"trpc.group/trpc-go/trpc-agent-go/internal/workspacefacade"
@@ -468,7 +469,12 @@ func toInternalBootstrapSpec(
 func (t *ExecTool) Declaration() *tool.Declaration {
 	desc := "Execute a shell command in the current workspace."
 	outputDesc := "Result of workspace_exec. The output field is aggregated terminal text and does not guarantee preservation of the original stdout/stderr interleaving."
-	cmdDesc := "Shell command to execute."
+	cmdDesc := "Shell command to execute. " +
+		"On Windows this runs under PowerShell (powershell.exe/pwsh.exe; " +
+		"cmd.exe only as a fallback) with Windows command semantics " +
+		"(Get-ChildItem/Copy-Item/Set-Location - or dir/copy/cd under " +
+		"cmd.exe); on POSIX under sh. The current working directory is " +
+		"the workspace root unless cwd is set."
 	if t != nil && (len(t.allowedCmds) > 0 || len(t.deniedCmds) > 0) {
 		desc += " Restricted: only simple commands joined by " +
 			"|, &&, || or ; are allowed; redirections (>, <), " +
@@ -671,8 +677,8 @@ func (t *ExecTool) prepareExec(
 		yield:      firstIntPtr(in.YieldTimeMS, in.YieldMs),
 		eng:        eng,
 		spec: codeexecutor.RunProgramSpec{
-			Cmd:      "sh",
-			Args:     shellArgsForPolicy(policyActive, in.Command),
+			Cmd:      execShellCommand(),
+			Args:     execShellArgsForPolicy(policyActive, in.Command),
 			Env:      envForPolicy(policyActive, mergeEnv(in.Env, t.baseEnv)),
 			CleanEnv: policyActive,
 			Cwd:      cwd,
@@ -854,15 +860,68 @@ func checkRunnerSupportsPolicy(
 	)
 }
 
-// shellArgsForPolicy returns the argv to pass to sh. When a command
-// policy is active, the leading "-l" (login shell) flag is dropped
-// so /etc/profile and $HOME/.profile are not sourced - otherwise a
-// passing command could still be hijacked at shell start-up time
-// via a planted profile script (e.g. when HOME is attacker
-// controlled). When no policy is configured the historical "-lc"
-// behaviour is preserved so existing callers see no behaviour
+// windowsShellProbe resolves the Windows shell used by workspace_exec.
+// It is a package-level variable so tests can pin a deterministic spec;
+// the real implementation reuses the project-wide platform selector
+// (internal/platform.Shell), which prefers PowerShell (powershell.exe /
+// pwsh.exe) over cmd.exe - both correctly honour the child cwd set via
+// exec.Cmd.Dir, natively resolve Windows paths (D:\... / D:/...) and are
+// never the bundled busybox sh shim (which neither switches cwd nor cd to
+// a Windows path and surfaces a misleading "pwd = C:/Users/<user>" WSL/msys
+// look).
+var windowsShellProbe = func() (platform.ShellSpec, error) {
+	return platform.Shell()
+}
+
+// execShellCommand returns the shell binary name used to run
+// workspace_exec commands. On Windows the project platform selector is
+// reused (PowerShell preferred, cmd.exe as fallback). On POSIX the
+// historical "sh" is preserved.
+func execShellCommand() string {
+	return execShellCommandOnGOOS(runtime.GOOS)
+}
+
+func execShellCommandOnGOOS(goos string) string {
+	if goos == "windows" {
+		if spec, err := windowsShellProbe(); err == nil {
+			return spec.Command
+		}
+		return "cmd.exe"
+	}
+	return "sh"
+}
+
+// execShellArgsForPolicy returns the argv passed to the platform shell
+// selected by execShellCommand.
+//
+// Windows: the args come from the platform selector (PowerShell:
+// "-NoProfile -NonInteractive -Command"; cmd.exe fallback:
+// "/d /s /c" which disables the interactive AutoRun registry command so
+// a passing command cannot be re-armed by a planted
+// HKCU\Software\Microsoft\Command Processor\AutoRun). Note the
+// user-supplied command runs with Windows shell semantics, not POSIX sh.
+//
+// POSIX (sh): mirrors the historical shellArgsForPolicy behaviour.
+// When a command policy is active, the leading "-l" (login shell) flag
+// is dropped so /etc/profile and $HOME/.profile are not sourced -
+// otherwise a passing command could still be hijacked at shell
+// start-up time via a planted profile script (e.g. when HOME is
+// attacker controlled). When no policy is configured the historical
+// "-lc" behaviour is preserved so existing callers see no behaviour
 // change.
-func shellArgsForPolicy(policyActive bool, command string) []string {
+func execShellArgsForPolicy(policyActive bool, command string) []string {
+	return execShellArgsForPolicyOnGOOS(policyActive, command, runtime.GOOS)
+}
+
+func execShellArgsForPolicyOnGOOS(
+	policyActive bool, command, goos string,
+) []string {
+	if goos == "windows" {
+		if spec, err := windowsShellProbe(); err == nil {
+			return append(append([]string{}, spec.Args...), command)
+		}
+		return []string{"/d", "/s", "/c", command}
+	}
 	if policyActive {
 		return []string{"-c", command}
 	}

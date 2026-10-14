@@ -13,6 +13,7 @@ package workspaceexec
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
 	localexec "trpc.group/trpc-go/trpc-agent-go/codeexecutor/local"
+	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 const policyTestTimeoutSec = 5
@@ -184,25 +186,108 @@ func TestExecTool_NoPolicy_DescriptionUnchanged(t *testing.T) {
 	require.NotContains(t, decl.Description, "Allowed commands")
 }
 
-// TestShellArgsForPolicy locks down the rule that the historical
-// "-lc" (login shell, sources /etc/profile + $HOME/.profile) is
-// only used when no policy is active. With a policy a planted
-// .profile (e.g. via attacker-controlled HOME) is a passive
-// bypass of any allow/deny list, so "-c" is used instead.
-func TestShellArgsForPolicy(t *testing.T) {
+// TestShellArgsForPolicyPOSIX locks down the POSIX (non-Windows) rule
+// that the historical "-lc" (login shell, sources /etc/profile +
+// $HOME/.profile) is only used when no policy is active. With a
+// policy a planted .profile (e.g. via attacker-controlled HOME) is a
+// passive bypass of any allow/deny list, so "-c" is used instead.
+func TestShellArgsForPolicyPOSIX(t *testing.T) {
 	const cmd = "echo hi"
 	require.Equal(
 		t,
 		[]string{"-c", cmd},
-		shellArgsForPolicy(true, cmd),
+		execShellArgsForPolicyOnGOOS(true, cmd, "linux"),
 		"policy active should drop -l",
 	)
 	require.Equal(
 		t,
 		[]string{"-lc", cmd},
-		shellArgsForPolicy(false, cmd),
+		execShellArgsForPolicyOnGOOS(false, cmd, "linux"),
 		"no policy should preserve historical -lc",
 	)
+}
+
+// shellProbeForWindows pins the windowsShellProbe to a deterministic spec so
+// the platform-shell selection can be asserted without depending on the host.
+func shellProbeForWindows(command string, args ...string) func() (platform.ShellSpec, error) {
+	return func() (platform.ShellSpec, error) {
+		return platform.ShellSpec{Command: command, Args: args}, nil
+	}
+}
+
+// TestShellArgsForPolicyWindows locks down the Windows rule: the project
+// platform selector is reused, preferring PowerShell over cmd.exe, so the
+// child honours the cwd set via exec.Cmd.Dir (unlike the busybox sh shim)
+// and the interactive AutoRun is disabled under the cmd.exe fallback.
+func TestShellArgsForPolicyWindows(t *testing.T) {
+	const cmd = `echo hi & cd`
+
+	old := windowsShellProbe
+	t.Cleanup(func() { windowsShellProbe = old })
+
+	// PowerShell preferred.
+	windowsShellProbe = shellProbeForWindows(
+		"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+	)
+	require.Equal(
+		t,
+		[]string{"-NoProfile", "-NonInteractive", "-Command", cmd},
+		execShellArgsForPolicyOnGOOS(false, cmd, "windows"),
+		"windows no policy prefers PowerShell -Command args",
+	)
+	require.Equal(
+		t,
+		[]string{"-NoProfile", "-NonInteractive", "-Command", cmd},
+		execShellArgsForPolicyOnGOOS(true, cmd, "windows"),
+		"windows policy mode still prefers PowerShell -Command args",
+	)
+
+	// cmd.exe fallback keeps the historical hard-env "/d /s /c" args.
+	windowsShellProbe = shellProbeForWindows("cmd.exe", "/d", "/s", "/c")
+	require.Equal(
+		t,
+		[]string{"/d", "/s", "/c", cmd},
+		execShellArgsForPolicyOnGOOS(true, cmd, "windows"),
+		"windows cmd.exe fallback uses /d /s /c",
+	)
+
+	// Probe failure degrades to the hard-coded cmd.exe fallback.
+	windowsShellProbe = func() (platform.ShellSpec, error) {
+		return platform.ShellSpec{}, errors.New("no shell")
+	}
+	require.Equal(
+		t,
+		[]string{"/d", "/s", "/c", cmd},
+		execShellArgsForPolicyOnGOOS(false, cmd, "windows"),
+		"probe failure degrades to cmd.exe /d /s /c",
+	)
+}
+
+// TestShellCommandPerGOOS locks down the platform shell selection: PowerShell
+// on Windows (so the child cwd lands in the workspace root), cmd.exe as the
+// fallback, and sh on POSIX.
+func TestShellCommandPerGOOS(t *testing.T) {
+	old := windowsShellProbe
+	t.Cleanup(func() { windowsShellProbe = old })
+
+	// PowerShell preferred on Windows.
+	windowsShellProbe = shellProbeForWindows(
+		"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+	)
+	require.Equal(t, "powershell.exe", execShellCommandOnGOOS("windows"))
+
+	// cmd.exe fallback.
+	windowsShellProbe = shellProbeForWindows("cmd.exe", "/d", "/s", "/c")
+	require.Equal(t, "cmd.exe", execShellCommandOnGOOS("windows"))
+
+	// Probe failure degrades to cmd.exe.
+	windowsShellProbe = func() (platform.ShellSpec, error) {
+		return platform.ShellSpec{}, errors.New("no shell")
+	}
+	require.Equal(t, "cmd.exe", execShellCommandOnGOOS("windows"))
+
+	require.Equal(t, "sh", execShellCommandOnGOOS("linux"))
+	require.Equal(t, "sh", execShellCommandOnGOOS("darwin"))
 }
 
 // TestEnvForPolicy_NoPolicyPassesThrough makes sure the env scrub
@@ -399,8 +484,8 @@ func TestExecTool_PolicyActive_HardensSpawn(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t,
-		[]string{"-c", "echo hi"}, req.spec.Args,
-		"policy active should spawn with -c, not -lc")
+		execShellArgsForPolicy(true, "echo hi"), req.spec.Args,
+		"policy active should spawn with the hardened platform shell args")
 	require.True(t, req.spec.CleanEnv,
 		"policy active should not inherit host environment variables")
 	_, hasHome := req.spec.Env["HOME"]
@@ -437,8 +522,8 @@ func TestExecTool_NoPolicy_PreservesHistoricalSpawn(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t,
-		[]string{"-lc", "echo hi"}, req.spec.Args,
-		"no policy must keep historical -lc")
+		execShellArgsForPolicy(false, "echo hi"), req.spec.Args,
+		"no policy must keep the historical platform shell args")
 	require.False(t, req.spec.CleanEnv,
 		"no policy must preserve historical host environment inheritance")
 	require.Equal(t, in.Env, req.spec.Env,
