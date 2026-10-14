@@ -2653,6 +2653,20 @@ func run(
 	logStartupLines(gatewayStartupLines(httpSrv.Addr, gwSrv))
 	logStartupLines(a2aStartupLines(a2aSurface))
 	logStartupLines(toolDepsStartupLines(openClawTools.deps))
+	// Invoke the runtime-ready hook (if any) now that the gateway handler,
+	// session and subagent services are fully constructed but before the HTTP
+	// server begins serving. This lets callers mount extra loopback services
+	// (e.g. a session aggregation hub) on the live runtime.
+	if runtimeOpts.runtimeReadyHook != nil {
+		// 在 HTTP 服务启动前回调宿主进程，使其可拉起 loopback 侧聚合 Hub。
+		// run() 不持有 *Runtime，此处构造一个最小 Runtime 暴露所需组件给 hook。
+		hubRT := &Runtime{}
+		hubRT.session = bridgedSessionSvc
+		hubRT.subagent = subagentSvc
+		hubRT.Gateway = Gateway{Handler: gwSrv.Handler()}
+		hubRT.appName = opts.AppName
+		runtimeOpts.runtimeReadyHook(hubRT)
+	}
 	go func() {
 		//nolint:gosec
 		errCh <- httpSrv.ListenAndServe()

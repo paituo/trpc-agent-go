@@ -65,6 +65,11 @@ type runtimeOptions struct {
 	postToolPromptEnabled  *bool
 	codeExecutorLoader     codeExecutorConfigLoader
 	modelCatalog           *ModelCatalog
+	// runtimeReadyHook, when set, is invoked once the embedded runtime is fully
+	// constructed (gateway handler, session and subagent services are ready but
+	// before the HTTP server starts serving). It lets callers mount extra
+	// loopback services (e.g. a session aggregation hub) on the live runtime.
+	runtimeReadyHook func(*Runtime)
 }
 
 // ModelCatalog is a set of pre-built models addressable by stable aliases.
@@ -199,6 +204,20 @@ func WithGatewayRunOptionResolver(
 			return
 		}
 		opts.gatewayResolvers = append(opts.gatewayResolvers, resolver)
+	}
+}
+
+// WithRuntimeReadyHook registers a callback invoked once the embedded runtime
+// is fully constructed, immediately before the HTTP server starts serving. The
+// provided *Runtime exposes the gateway handler and the session/subagent
+// services, so callers can mount additional loopback services (such as a
+// session aggregation hub) on the live runtime.
+func WithRuntimeReadyHook(hook func(*Runtime)) RuntimeOption {
+	return func(opts *runtimeOptions) {
+		if hook == nil {
+			return
+		}
+		opts.runtimeReadyHook = hook
 	}
 }
 
