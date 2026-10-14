@@ -531,17 +531,47 @@ func pythonVersion(path string) string {
 func systemPythonCandidate() string {
 	for _, name := range []string{"python3", "python"} {
 		path, err := exec.LookPath(name)
-		if err == nil {
-			return path
+		if err != nil {
+			continue
 		}
+		if isAppExecutionAlias(path) {
+			// 跳过 Windows 应用执行别名（App Execution Alias）：它是 WindowsApps
+			// 下的 0 字节重定向占位文件，不是真实解释器。拉起它会让 Windows 经
+			// AppInstallerPythonRedirector.exe 中转，并弹出黑色终端窗口一闪而过
+			// （bowei-work-agent / bowei-openclaw 启动时黑框的根因）。继续探测下一个。
+			continue
+		}
+		return path
 	}
 	if runtime.GOOS == "windows" {
 		path, err := exec.LookPath("python.exe")
-		if err == nil {
+		if err == nil && !isAppExecutionAlias(path) {
 			return path
 		}
 	}
 	return ""
+}
+
+// isAppExecutionAlias 判断 path 是否为 Windows 的「应用执行别名」（App Execution
+// Alias）：位于 <LOCALAPPDATA>\Microsoft\WindowsApps 目录、文件大小为 0 的占位
+// 重定向文件（python.exe / python3.exe 等）。它不是真实可执行文件，实际执行时由
+// Windows 转交 AppInstallerPythonRedirector.exe，可能弹出黑色终端窗口或应用商店提示。
+func isAppExecutionAlias(path string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	loca := strings.ToLower(filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "WindowsApps"))
+	if !strings.HasPrefix(strings.ToLower(filepath.Clean(path)), loca) {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular() && info.Size() == 0
 }
 
 func prependPath(prefix string, current string) string {

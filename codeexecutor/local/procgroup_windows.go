@@ -14,6 +14,7 @@ package local
 
 import (
 	"fmt"
+	"os/exec"
 	"syscall"
 	"unsafe"
 
@@ -77,6 +78,18 @@ func (pg *procGroup) close() error {
 	}
 	pg.job = 0
 	return nil
+}
+
+// hideChildWindow 让技能/命令子进程（bash/sh/python 等控制台程序）在 Windows 上
+// 不创建、不显示控制台黑窗。桌面端执行造价等技能时会 spawn 这些子进程，
+// 缺此标志会在任务运行期间反复闪出终端窗口。
+// CREATE_NO_WINDOW 与现有 JOB_OBJECT 进程组管理并不冲突——子进程仍会被加入
+// Job Object 统一回收，只是窗口被隐藏。
+func hideChildWindow(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
 }
 
 var _ = syscall.Errno(0)

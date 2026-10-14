@@ -11,7 +11,12 @@
 
 package local
 
+import "os/exec"
+
 type procGroup struct{}
+
+// hideChildWindow 非 Windows 平台为空操作：POSIX 子进程不在控制台里单独弹窗。
+func hideChildWindow(_ *exec.Cmd) {}
 
 func newProcGroup() (*procGroup, error) {
 	return &procGroup{}, nil

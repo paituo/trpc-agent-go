@@ -10,9 +10,20 @@
 
 package localpython
 
-import "os/exec"
+import (
+	"os/exec"
+	"syscall"
 
-func configureProcess(cmd *exec.Cmd) {}
+	"golang.org/x/sys/windows"
+)
+
+// configureProcess 隐藏生成式 Python 子进程的控制台窗口，避免执行时闪出终端黑窗。
+func configureProcess(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
+}
 
 func killProcessGroup(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {

@@ -208,10 +208,15 @@ func newExecCommand(
 	spec executableSpec,
 	args ...string,
 ) *exec.Cmd {
-	return &exec.Cmd{
+	cmd := &exec.Cmd{
 		Path: spec.path,
 		Args: append([]string{spec.path}, args...),
 	}
+	// Windows 下隐藏子进程控制台窗口：deps 探测/安装会拉起 python/cmd 等控制台
+	// 子系统程序（含可能命中的 Python App Execution Alias 中转），不含此标志会在
+	// bowei-openclaw 启动时闪出黑色终端窗口。与 codeexecutor/local 的做法一致。
+	hideChildConsole(cmd)
+	return cmd
 }
 
 func mergeStepEnv(

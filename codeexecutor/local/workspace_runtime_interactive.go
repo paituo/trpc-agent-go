@@ -581,6 +581,8 @@ func newLocalProgramCommand(
 	cmd := exec.CommandContext(ctx, spec.Cmd, spec.Args...) //nolint:gosec
 	cmd.Dir = cwd
 	cmd.Env = env
+	// Windows 隐藏子进程控制台窗口，避免技能/命令执行（bash/sh/python）时反复闪出终端黑窗。
+	hideChildWindow(cmd)
 	if !isBareLocalCommand(spec.Cmd) {
 		return cmd
 	}
