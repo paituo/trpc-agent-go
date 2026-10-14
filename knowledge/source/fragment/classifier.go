@@ -198,7 +198,7 @@ func (s *Source) classifyDocPaths(ctx context.Context) (map[string]string, error
 
 	ch, err := s.llm.GenerateContent(ctx, &model.Request{
 		Messages:         messages,
-		GenerationConfig: model.GenerationConfig{Stream: true},
+		GenerationConfig: model.GenerationConfig{Stream: true, ThinkingEnabled: model.BoolPtr(false)},
 	})
 	if err != nil {
 		s.logf("classifyDocPaths: LLM call failed: %v", err)

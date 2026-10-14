@@ -198,6 +198,13 @@ func (m *semanticMounter) ensureIndex(ctx context.Context) error {
 // clear keywordMatchThreshold enter the candidate pool and are then
 // optionally refined by a reranker.
 func (m *semanticMounter) Mount(ctx context.Context, f fragment) []mountTarget {
+	// keywordMatchThreshold == 0: skip vector matching entirely, match by
+	// docCategory only. This avoids the cost of embedding when the caller
+	// only needs category-based routing.
+	if m.keywordMatchThreshold == 0 {
+		return m.matchByCategory(f.docCategory)
+	}
+
 	if err := m.ensureIndex(ctx); err != nil {
 		return m.unknown()
 	}
@@ -419,6 +426,9 @@ func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string)
 	for id, kwVecs := range m.keywordVecs {
 		best := 0.0
 		bestKw := ""
+		if m.docCatalogByID[id] == nil && docCategory != "" {
+			continue
+		}
 		if m.docCatalogByID[id] != nil && docCategory != "" {
 			if !slices.Contains(m.docCatalogByID[id], docCategory) {
 				//log.Printf("[排除][id]: %s [docCategory]: %s)", id, docCategory)
@@ -428,7 +438,10 @@ func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string)
 
 		for kw, vec := range kwVecs {
 			c := cosineSimilarity(fragVec, vec)
-			if c > best {
+			// Go map iteration order is randomized, so on an exact tie the
+			// winner would otherwise depend on iteration order. Break ties
+			// deterministically via betterKeyword (lexicographic).
+			if c > best || (c == best && betterKeyword(kw, bestKw)) {
 				best = c
 				bestKw = kw
 			}
@@ -440,8 +453,13 @@ func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string)
 	if len(ranked) == 0 {
 		return nil
 	}
-	sort.SliceStable(ranked, func(i, j int) bool {
-		return ranked[i].maxCos > ranked[j].maxCos
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].maxCos != ranked[j].maxCos {
+			return ranked[i].maxCos > ranked[j].maxCos
+		}
+		// Deterministic tie-break: equal cosine -> sort by node id so the
+		// result does not depend on map iteration order.
+		return ranked[i].id < ranked[j].id
 	})
 
 	out := make([]scoredTarget, len(ranked))
@@ -459,6 +477,50 @@ func (m *semanticMounter) matchByKeywords(fragVec []float64, docCategory string)
 		}
 	}
 	return out
+}
+
+// matchByCategory matches a fragment to skeleton nodes purely by document
+// category, without any vector embedding. It is used when
+// keywordMatchThreshold is 0, meaning the caller only wants category-based
+// routing. Each matched node is returned as a "direct" mount target.
+func (m *semanticMounter) matchByCategory(docCategory string) []mountTarget {
+	if docCategory == "" {
+		return m.unknown()
+	}
+	var matched []mountTarget
+	for id, catalogs := range m.docCatalogByID {
+		if slices.Contains(catalogs, docCategory) {
+			matched = append(matched, mountTarget{
+				SkeletonID:  id,
+				MountType:   "direct",
+				MatchSource: "category",
+			})
+		}
+	}
+	if len(matched) == 0 {
+		return m.unknown()
+	}
+	// Deterministic order: docCatalogByID is a map, so without sorting the
+	// returned order (and therefore targets[0]) would vary between runs.
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].SkeletonID < matched[j].SkeletonID
+	})
+	return matched
+}
+
+// betterKeyword reports whether candidate should replace current as the
+// winning keyword on an exact cosine tie. Map iteration order in Go is
+// randomized, so the winner must be decided by an intrinsic property of the
+// keyword rather than by iteration order. Lexicographic order is used: it is
+// deterministic and, for keyword sets that share a base term (e.g. "杆塔" and
+// "杆塔型式", both matching the same fragment), it selects the shorter base
+// term, which is the one the caller expects to see in MatchSource.
+// current == "" means there is no incumbent yet.
+func betterKeyword(candidate, current string) bool {
+	if current == "" {
+		return true
+	}
+	return candidate < current
 }
 
 // cosineSimilarity returns the cosine similarity between two vectors.

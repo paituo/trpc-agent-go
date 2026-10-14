@@ -64,6 +64,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/embedder"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/graph"
 	"trpc.group/trpc-go/trpc-agent-go/knowledge/reranker"
@@ -89,6 +91,7 @@ type SkeletonNode struct {
 
 type fragment struct {
 	id            string
+	fragId        string
 	name          string
 	content       string
 	headingLevel  int
@@ -387,6 +390,11 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 			metadata[trpcAstMetaPrefix+"mount_type"] = targets[0].MountType
 			metadata[trpcAstMetaPrefix+"match_source"] = targets[0].MatchSource
 		}
+
+		if _, exists := nodeMap[nodeID]; exists {
+			log.Printf("[fragment] Warning: duplicate fragment node ID %s (fragment_id=%s, document_id=%s, heading_path=%s)",
+				nodeID, leaf.id, leaf.documentID, leaf.headingPath)
+		}
 		nodeMap[nodeID] = &graph.Node{
 			ID:       nodeID,
 			Name:     leaf.name,
@@ -395,16 +403,18 @@ func (s *Source) ReadGraph(ctx context.Context, opts ...source.ReadGraphOption) 
 		}
 
 		for _, t := range targets {
-			edgeKey := nodeID + "::MOUNTS_TO::" + t.SkeletonID
+			edgeKey := t.SkeletonID + "::MOUNTS_TO::" + nodeID
 			edgeMap[edgeKey] = &graph.Edge{
 				ID:     edgeKey,
-				FromID: nodeID,
-				ToID:   t.SkeletonID,
+				FromID: t.SkeletonID,
+				ToID:   nodeID,
 				Type:   "MOUNTS_TO",
 				Metadata: map[string]any{
-					"builder":      "fragment_graph_source",
-					"mount_type":   t.MountType,
-					"match_source": t.MatchSource,
+					"builder":       "fragment_graph_source",
+					"mount_type":    t.MountType,
+					"match_source":  t.MatchSource,
+					"keyword_score": t.kwScore,
+					"rerank_score":  t.rrScore,
 				},
 			}
 		}
@@ -501,6 +511,14 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 			}}, headings...)
 		}
 	}
+	if len(headings) == 0 {
+		docName := defaultChapterName(docPath)
+		headings = append([]heading{{
+			lineNum: 1,
+			level:   1,
+			title:   docName,
+		}}, headings...)
+	}
 
 	s.logf("parseMDDocument %s: found %d headings, building tree", filepath.Base(docPath), len(headings))
 
@@ -533,12 +551,17 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 
 			// 按1500字符限制切割正文内容，保证不拆行、不拆表、不拆图
 			var bodyLines []string
+			var realbodyLines []string
 			for k := contentStart; k <= contentEnd && k-1 < len(lines); k++ {
 				if k-1 >= 0 && k-1 < len(lines) {
+					if strings.TrimSpace(lines[k-1]) != "" {
+						realbodyLines = append(realbodyLines, lines[k-1])
+					}
 					bodyLines = append(bodyLines, lines[k-1])
 				}
 			}
 
+			ischapterSingle := len(realbodyLines) == 1
 			// 使用 splitBodyByCharLimit 按1500字符切割
 			bodySegments := splitBodyByCharLimit(bodyLines, contentStart, maxFragmentChars)
 
@@ -548,24 +571,34 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 			if parentLevel == 0 || len(children) > 0 {
 				chapterID := fmt.Sprintf("h_%d_%d", h.lineNum, h.level)
 				var bodyFragments []fragment
-				for segIdx, seg := range bodySegments {
-					bodyFragID := fmt.Sprintf("%s_body_%d", chapterID, segIdx)
-					bodyFragments = append(bodyFragments, fragment{
-						id:           bodyFragID,
-						name:         h.title,
-						content:      seg.content,
-						headingLevel: h.level,
-						headingPath:  headingPath,
-						startLine:    seg.startLine,
-						endLine:      seg.endLine,
-						tables:       seg.tables,
-						images:       seg.images,
-						docCategory:  docCat,
-					})
+
+				// 如果是是章节没有正文，则内容加到第一个child中
+				if ischapterSingle && children != nil && len(children) > 0 {
+					child := &children[0]
+					child.content = bodySegments[0].content + "\n" + child.content
+					child.startLine = contentStart
+				} else {
+					for segIdx, seg := range bodySegments {
+						bodyFragID := fmt.Sprintf("%s_body_%d", chapterID, segIdx)
+						bodyFragments = append(bodyFragments, fragment{
+							id:           uuid.New().String(),
+							fragId:       bodyFragID,
+							name:         h.title,
+							content:      seg.content,
+							headingLevel: h.level,
+							headingPath:  headingPath,
+							startLine:    seg.startLine,
+							endLine:      seg.endLine,
+							tables:       seg.tables,
+							images:       seg.images,
+							docCategory:  docCat,
+						})
+					}
 				}
 				children = append(bodyFragments, children...)
 				result = append(result, fragment{
-					id:           chapterID,
+					id:           uuid.New().String(),
+					fragId:       chapterID,
 					name:         h.title,
 					content:      strings.TrimSpace(lines[h.lineNum-1]), // 仅标题行，作为章节头
 					headingLevel: h.level,
@@ -578,13 +611,14 @@ func (s *Source) parseMDDocument(docPath string) ([]fragment, error) {
 			} else {
 				for segIdx, seg := range bodySegments {
 					result = append(result, fragment{
-						id:           fmt.Sprintf("h_%d_%d_seg_%d", h.lineNum, h.level, segIdx),
+						id:           uuid.New().String(),
+						fragId:       fmt.Sprintf("h_%d_%d_seg_%d", h.lineNum, h.level, segIdx),
 						name:         h.title,
 						content:      seg.content,
 						headingLevel: h.level,
 						headingPath:  headingPath,
-						startLine:    contentStart,
-						endLine:      contentEnd,
+						startLine:    seg.startLine,
+						endLine:      seg.endLine,
 						children:     children,
 						docCategory:  docCat,
 					})
@@ -912,7 +946,7 @@ func parse3LevelTocBlock(lines []string, startIdx int) (lineBlock, int) {
 		}
 		i++
 	}
-	block.endLine = i - 1
+	block.endLine = i
 	return block, i - 1
 }
 
@@ -1077,6 +1111,10 @@ func buildLineBlocksInternal(lines []string, detect3Level bool) []lineBlock {
 				}
 				// 递归调用，detect3Level=false 避免死循环
 				subBlocks := buildLineBlocksInternal(subLines, false)
+				for idx := range subBlocks {
+					subBlocks[idx].startLine += i
+					subBlocks[idx].endLine += i
+				}
 				// 将递归结果合并到当前 blocks 列表中
 				blocks = append(blocks, subBlocks...)
 			} else {

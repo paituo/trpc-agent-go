@@ -105,7 +105,7 @@ func WithModel(llm model.Model) Option {
 }
 
 // WithDocClassifyPrompt overrides the default document classification prompt.
-// The placeholder "[在此处粘贴你的文件列表]" will be replaced with the actual
+// The placeholder "[INSERT_FILE_LIST_HERE]" will be replaced with the actual
 // docPaths at runtime. If empty, the built-in default prompt is used.
 func WithDocClassifyPrompt(prompt string) Option {
 	return func(s *Source) {
