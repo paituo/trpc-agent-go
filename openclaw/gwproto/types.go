@@ -165,6 +165,11 @@ const (
 	StreamEventTypeRunCanceled StreamEventType = "run.canceled"
 	// StreamEventTypeRunError marks a terminal stream error.
 	StreamEventTypeRunError StreamEventType = "run.error"
+	// StreamEventTypePermissionRequest carries a confirm_card permission
+	// request so the frontend can render an approval card before the
+	// side-effecting tool runs. The run is paused (EndInvocation) until the
+	// user responds via tool_call_context.
+	StreamEventTypePermissionRequest StreamEventType = "permission.request"
 
 	// StreamProgressStagePreparing marks pre-tool request setup.
 	StreamProgressStagePreparing StreamProgressStage = "preparing"
