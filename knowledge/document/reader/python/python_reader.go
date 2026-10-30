@@ -98,7 +98,7 @@ func (r *Reader) ReadFromFile(filePath string) ([]*document.Document, error) {
 		source.MetaFileSize:      fileInfo.Size(),
 		source.MetaFileMode:      fileInfo.Mode().String(),
 		source.MetaModifiedAt:    fileInfo.ModTime().UTC(),
-		source.MetaURI:           (&url.URL{Scheme: "file", Path: absPath}).String(),
+		source.MetaURI:           source.FileURI(absPath),
 		source.MetaSourceName:    r.Name(),
 		source.MetaContentLength: utf8.RuneCountInString(string(content)),
 	}

@@ -132,7 +132,15 @@ func IsInternalFileRef(raw string) bool {
 		strings.HasPrefix(s, WorkspacePrefix) ||
 		strings.HasPrefix(s, HostPrefix) ||
 		strings.HasPrefix(s, filePrefix) ||
-		filepath.IsAbs(s)
+		isAbsPath(s)
+}
+
+// isAbsPath reports whether s is an absolute path in the platform form
+// or in POSIX form. Internal file refs carry POSIX-style absolute paths
+// ("/tmp/...") produced by shell tooling, which must be recognized on
+// Windows too, where filepath.IsAbs requires a volume name.
+func isAbsPath(s string) bool {
+	return filepath.IsAbs(s) || strings.HasPrefix(s, "/")
 }
 
 // DisplayName returns a safe basename for a supported internal file ref.
@@ -159,7 +167,7 @@ func DisplayName(raw string) string {
 		return refBaseName(strings.TrimPrefix(s, HostPrefix))
 	case strings.HasPrefix(s, filePrefix):
 		return refBaseName(strings.TrimPrefix(s, filePrefix))
-	case filepath.IsAbs(s):
+	case isAbsPath(s):
 		return refBaseName(s)
 	default:
 		return ""
@@ -181,7 +189,7 @@ func cleanRelPath(p string) (string, error) {
 	if s == "" || s == "." {
 		return "", nil
 	}
-	if filepath.IsAbs(s) {
+	if isAbsPath(s) {
 		return "", fmt.Errorf(
 			"absolute paths are not allowed: %s",
 			p,

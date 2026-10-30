@@ -13,7 +13,6 @@ package file
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,7 +155,7 @@ func (s *Source) processFile(ctx context.Context, filePath string) ([]*document.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
-	fileURL := (&url.URL{Scheme: "file", Path: absPath}).String()
+	fileURL := source.FileURI(absPath)
 	metadata[source.MetaURI] = fileURL
 	metadata[source.MetaSourceName] = s.name
 

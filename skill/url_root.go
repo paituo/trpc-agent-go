@@ -59,6 +59,12 @@ func resolveSkillsRoot(root string) (string, error) {
 	if !strings.Contains(root, "://") {
 		return root, nil
 	}
+	// Tolerate hand-written Windows file URLs such as "file://C:\skills".
+	// A drive letter after the scheme is parsed as a URL authority and
+	// fails with "invalid port", so treat such values as plain paths.
+	if rest, ok := strings.CutPrefix(root, "file://"); ok && looksLikeDrivePath(rest) {
+		return filepath.FromSlash(rest), nil
+	}
 	u, err := url.Parse(root)
 	if err != nil {
 		return "", fmt.Errorf("parse skills root URL: %w", err)
@@ -71,6 +77,17 @@ func resolveSkillsRoot(root string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported skills root URL: %s", root)
 	}
+}
+
+// looksLikeDrivePath reports whether s starts with a Windows drive
+// specifier such as "C:\" or "D:/". On non-Windows platforms
+// filepath.VolumeName always returns an empty string, so this check is
+// inert there and URL parsing behavior is unchanged.
+func looksLikeDrivePath(s string) bool {
+	if len(s) < 3 || s[1] != ':' {
+		return false
+	}
+	return filepath.VolumeName(s) == s[:2]
 }
 
 func fileURLPath(u *url.URL) (string, error) {

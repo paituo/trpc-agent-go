@@ -155,7 +155,12 @@ func resolveScanRoot(repoRoot, subdir string) (string, error) {
 	}
 
 	cleanedSubdir := filepath.Clean(subdir)
-	if filepath.IsAbs(cleanedSubdir) {
+	// Root-anchored paths must be rejected on every platform: POSIX
+	// form ("/tmp/...") and, on Windows, the drive-relative form
+	// ("\tmp\..."), which filepath.IsAbs does not classify as absolute.
+	if filepath.IsAbs(cleanedSubdir) ||
+		strings.HasPrefix(cleanedSubdir, "/") ||
+		strings.HasPrefix(cleanedSubdir, string(filepath.Separator)) {
 		return "", fmt.Errorf("subdir must be relative to repository root: %s", subdir)
 	}
 
@@ -484,7 +489,7 @@ func (s *Source) processFile(filePath, repoRoot string, info *repoInfo) ([]*docu
 	metadata[source.MetaFileSize] = fileInfo.Size()
 	metadata[source.MetaFileMode] = fileInfo.Mode().String()
 	metadata[source.MetaModifiedAt] = fileInfo.ModTime().UTC()
-	metadata[source.MetaURI] = (&url.URL{Scheme: "file", Path: absPath}).String()
+	metadata[source.MetaURI] = source.FileURI(absPath)
 
 	for _, doc := range documents {
 		if doc.Metadata == nil {
@@ -555,7 +560,7 @@ func (s *Source) processDirectory(dirPath, fileType, repoRoot string, info *repo
 			doc.Metadata[source.MetaFileSize] = fileInfo.Size()
 			doc.Metadata[source.MetaFileMode] = fileInfo.Mode().String()
 			doc.Metadata[source.MetaModifiedAt] = fileInfo.ModTime().UTC()
-			doc.Metadata[source.MetaURI] = (&url.URL{Scheme: "file", Path: absPath}).String()
+			doc.Metadata[source.MetaURI] = source.FileURI(absPath)
 		}
 		filtered = append(filtered, doc)
 	}
@@ -622,7 +627,10 @@ func chooseRepoName(explicit, rawInput, fallbackPath string) string {
 		if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
 			return trimmed[idx+1:]
 		}
-		if idx := strings.LastIndex(trimmed, ":"); idx >= 0 {
+		// The colon split applies to scp-style git URLs
+		// ("git@host:path"), never to Windows drive paths ("C:\dir").
+		if idx := strings.LastIndex(trimmed, ":"); idx >= 0 &&
+			looksLikeGitURL(trimmed) {
 			return trimmed[idx+1:]
 		}
 	}

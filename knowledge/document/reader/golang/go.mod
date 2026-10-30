@@ -1,6 +1,6 @@
 module trpc.group/trpc-go/trpc-agent-go/knowledge/document/reader/golang
 
-go 1.21
+go 1.24.0
 
 replace trpc.group/trpc-go/trpc-agent-go => ../../../..
 
