@@ -128,11 +128,12 @@ func (r *Reporter) End() {
 		r.err = r.ctx.Err()
 	}
 	// Ensure TraceChat is called on every exit path so the span is not
-	// left without gen_ai.operation.name when TrackResponse was never called.
+	// left without gen_ai.operation.name when TrackResponse was never
+	// called. The request payload stays untraced on this path: without
+	// a response the span must not leak request content.
 	if r.startedSpan && !r.traceChatCalled {
 		itelemetry.TraceChat(r.span, &itelemetry.TraceChatAttributes{
 			Invocation: r.invocation,
-			Request:    r.request,
 		})
 	}
 	if r.recordMetric != nil {
