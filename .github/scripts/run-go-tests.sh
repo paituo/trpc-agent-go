@@ -52,6 +52,15 @@ if [ "${#gomodules[@]}" -eq 0 ]; then
   exit 1
 fi
 
+# Tests run on Windows in this downstream repository. The root module depends on
+# github.com/mattn/go-sqlite3 and the sqlite-vec CGO bindings, which need a C
+# compiler plus the vendored sqlite3.h. Default to the repository-provided
+# header when the caller has not pointed CGO_CFLAGS at one.
+if [[ -z "${CGO_CFLAGS:-}" ]]; then
+  cgo_include="$(cd "${repo_root}" && pwd -W 2>/dev/null || echo "${repo_root}")"
+  export CGO_CFLAGS="-I${cgo_include}"
+fi
+
 coverage_dir="coverage"
 rm -rf "${coverage_dir}"
 mkdir -p "${coverage_dir}"
