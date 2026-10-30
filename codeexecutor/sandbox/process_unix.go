@@ -27,6 +27,14 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
 
+// attachProcessTree is a no-op outside Windows: setpgid in setupProcess
+// already covers descendants through the process group.
+func attachProcessTree(*exec.Cmd) {}
+
+// normalizeTimeoutExitCode keeps the raw exit code: Unix kills deliver a
+// signal, and exec already reports killed processes as -1.
+func normalizeTimeoutExitCode(_ bool, code int) int { return code }
+
 func cleanupProcessTree(cmd *exec.Cmd) {
 	_ = killProcessGroup(cmd)
 }

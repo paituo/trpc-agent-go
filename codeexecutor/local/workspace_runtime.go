@@ -426,15 +426,17 @@ func (r *Runtime) Collect(
 	for _, p := range patterns {
 		// Use doublestar to support ** patterns.
 		abs := filepath.Join(root, p)
-		// Doublestar on os.DirFS("/") expects patterns relative to "/".
-		pattern := strings.TrimPrefix(abs, "/")
-		matches, err := ds.Glob(os.DirFS("/"), pattern)
+		// Map the absolute path to a filesystem root and pattern
+		// usable with os.DirFS on any platform ("/" on Unix, the
+		// volume root such as "D:\" on Windows).
+		fsRoot, pattern := globRootAndPattern(abs)
+		matches, err := ds.Glob(os.DirFS(fsRoot), pattern)
 		if err != nil {
 			return nil, err
 		}
 		for _, m := range matches {
 			// Convert match back to absolute path.
-			mAbs := "/" + strings.TrimPrefix(m, "/")
+			mAbs := globMatchToAbs(fsRoot, m)
 			// Ensure it is within root.
 			if !strings.HasPrefix(
 				mAbs, root+string(os.PathSeparator),
@@ -452,9 +454,9 @@ func (r *Runtime) Collect(
 			) && realp != realRoot {
 				continue
 			}
-			name := strings.TrimPrefix(
+			name := filepath.ToSlash(strings.TrimPrefix(
 				realp, realRoot+string(os.PathSeparator),
-			)
+			))
 			if codeexecutor.IsRootMetadataTempPath(name) {
 				continue
 			}
@@ -697,8 +699,8 @@ func (r *Runtime) CollectOutputs(
 	count := 0
 	for _, g := range globs {
 		abs := filepath.Join(ws.Path, g)
-		pattern := strings.TrimPrefix(abs, "/")
-		matches, err := ds.Glob(os.DirFS("/"), pattern)
+		fsRoot, pattern := globRootAndPattern(abs)
+		matches, err := ds.Glob(os.DirFS(fsRoot), pattern)
 		if err != nil {
 			return codeexecutor.OutputManifest{}, err
 		}
@@ -710,7 +712,7 @@ func (r *Runtime) CollectOutputs(
 			ref, consumed, skip, err := collectOutputMatch(
 				ctx,
 				ws.Path,
-				"/"+strings.TrimPrefix(m, "/"),
+				globMatchToAbs(fsRoot, m),
 				spec,
 				maxFileBytes,
 				leftTotal,
@@ -778,9 +780,9 @@ func collectOutputMatch(
 	if !withinWorkspacePath(wsPath, absPath) {
 		return codeexecutor.FileRef{}, 0, true, nil
 	}
-	name := strings.TrimPrefix(
+	name := filepath.ToSlash(strings.TrimPrefix(
 		absPath, wsPath+string(os.PathSeparator),
-	)
+	))
 	if codeexecutor.IsRootMetadataTempPath(name) {
 		return codeexecutor.FileRef{}, 0, true, nil
 	}
@@ -841,6 +843,30 @@ func withinWorkspacePath(wsPath string, absPath string) bool {
 		return true
 	}
 	return strings.HasPrefix(absPath, wsPath+sep)
+}
+
+// globRootAndPattern maps an OS-specific absolute path to a filesystem
+// root and a slash-separated doublestar pattern usable with
+// ds.Glob(os.DirFS(root), pattern) on every platform. On Unix the root
+// is "/" and the pattern drops the leading separator; on Windows the
+// root is the volume (e.g. "D:\") and the pattern is the remainder.
+func globRootAndPattern(abs string) (string, string) {
+	if volume := filepath.VolumeName(abs); volume != "" {
+		rest := strings.TrimPrefix(
+			abs[len(volume):], string(os.PathSeparator),
+		)
+		return volume + string(os.PathSeparator), filepath.ToSlash(rest)
+	}
+	return "/", strings.TrimPrefix(abs, "/")
+}
+
+// globMatchToAbs converts a doublestar match produced for the root
+// returned by globRootAndPattern back into an OS-specific absolute path.
+func globMatchToAbs(root, match string) string {
+	if root == "/" {
+		return "/" + strings.TrimPrefix(match, "/")
+	}
+	return root + filepath.FromSlash(match)
 }
 
 // ExecuteInline writes temp files for code blocks and runs them.

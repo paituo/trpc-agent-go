@@ -134,13 +134,13 @@ func (r *Runtime) Collect(
 		if pattern == "." {
 			pattern = "**"
 		}
-		glob := strings.TrimPrefix(filepath.ToSlash(filepath.Join(ws.Path, pattern)), "/")
-		matches, err := ds.Glob(os.DirFS("/"), glob)
+		fsRoot, glob := globRootAndPattern(filepath.Join(ws.Path, pattern))
+		matches, err := ds.Glob(os.DirFS(fsRoot), glob)
 		if err != nil {
 			return nil, err
 		}
 		for _, match := range matches {
-			abs := "/" + strings.TrimPrefix(match, "/")
+			abs := globMatchToAbs(fsRoot, match)
 			rel, readAbs, info, skip, err := r.resolveCollectMatch(profile, ws, abs)
 			if err != nil {
 				return nil, err
@@ -381,8 +381,8 @@ func (r *Runtime) CollectOutputs(
 			pattern = "**"
 		}
 		absPattern := filepath.Join(ws.Path, pattern)
-		glob := strings.TrimPrefix(filepath.ToSlash(absPattern), "/")
-		matches, err := ds.Glob(os.DirFS("/"), glob)
+		fsRoot, glob := globRootAndPattern(absPattern)
+		matches, err := ds.Glob(os.DirFS(fsRoot), glob)
 		if err != nil {
 			return codeexecutor.OutputManifest{}, err
 		}
@@ -395,7 +395,7 @@ func (r *Runtime) CollectOutputs(
 				ctx,
 				profile,
 				ws,
-				"/"+strings.TrimPrefix(match, "/"),
+				globMatchToAbs(fsRoot, match),
 				spec,
 				maxFileBytes,
 				leftTotal,

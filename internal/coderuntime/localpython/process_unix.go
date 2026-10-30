@@ -46,6 +46,10 @@ func killProcessGroup(cmd *exec.Cmd) error {
 	}
 }
 
+// attachProcessTree is a no-op on Unix: the setpgid applied in
+// configureProcess already puts descendants into the killed group.
+func attachProcessTree(*exec.Cmd) {}
+
 func cleanupProcessTree(cmd *exec.Cmd) {
 	_ = killProcessGroup(cmd)
 }

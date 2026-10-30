@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -313,10 +314,12 @@ func TestRuntime_PutSkill_ReadOnly(t *testing.T) {
 	target := filepath.Join(ws.Path, "tool", "script.sh")
 	st, err := os.Stat(target)
 	require.NoError(t, err)
-	// Verify the staged skill is made non-writable for all users.
-	require.Zero(t, st.Mode().Perm()&0o222)
-	// Verify the script remains executable after staging.
-	require.NotZero(t, st.Mode().Perm()&0o111)
+	if runtime.GOOS != "windows" {
+		// Verify the staged skill is made non-writable for all users.
+		require.Zero(t, st.Mode().Perm()&0o222)
+		// Verify the script remains executable after staging.
+		require.NotZero(t, st.Mode().Perm()&0o111)
+	}
 
 	// Still executable: run it.
 	res, err := rt.RunProgram(ctx, ws, codeexecutor.RunProgramSpec{
@@ -371,6 +374,9 @@ func TestRuntime_RunProgram_EnvAndStdin(t *testing.T) {
 }
 
 func TestRuntime_RunProgram_UsesSpecPATHForBareCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("extension-less shebang scripts are not executable on Windows")
+	}
 	rt := local.NewRuntime("")
 	ctx := context.Background()
 	ws, err := rt.CreateWorkspace(
@@ -402,6 +408,9 @@ func TestRuntime_RunProgram_UsesSpecPATHForBareCommand(t *testing.T) {
 }
 
 func TestRuntime_RunProgram_SpecPATHWinsForExistingCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("extension-less shebang scripts are not executable on Windows")
+	}
 	rt := local.NewRuntime("")
 	ctx := context.Background()
 	ws, err := rt.CreateWorkspace(
@@ -772,7 +781,9 @@ func TestRuntime_Collect_FiltersRootMetadataTempFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(ws.Path, tmpName), []byte("root"), 0o644,
 	))
-	nestedName := filepath.Join(codeexecutor.DirWork, tmpName)
+	// Collect reports workspace-relative names with forward slashes on
+	// every platform.
+	nestedName := codeexecutor.DirWork + "/" + tmpName
 	const nonGeneratedRootName = ".metadata.user.tmp"
 	require.NoError(t, os.WriteFile(
 		filepath.Join(ws.Path, nonGeneratedRootName),
@@ -806,9 +817,11 @@ func TestRuntime_Collect_EnvPrefixes(t *testing.T) {
 	require.NoError(t, err)
 	defer rt.Cleanup(ctx, ws)
 
+	// Collect reports workspace-relative names with forward slashes on
+	// every platform.
 	const name = "env.txt"
 	require.NoError(t, rt.PutFiles(ctx, ws, []codeexecutor.PutFile{{
-		Path:    filepath.Join(codeexecutor.DirOut, name),
+		Path:    codeexecutor.DirOut + "/" + name,
 		Content: []byte("v"),
 		Mode:    0o644,
 	}}))
@@ -818,8 +831,7 @@ func TestRuntime_Collect_EnvPrefixes(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, files, 1)
-	require.Equal(t, filepath.Join(codeexecutor.DirOut, name),
-		files[0].Name)
+	require.Equal(t, codeexecutor.DirOut+"/"+name, files[0].Name)
 }
 
 func TestRuntime_Collect_SkipsDirectories(t *testing.T) {
@@ -862,6 +874,9 @@ func TestRuntime_PutFiles_EmptyPathError(t *testing.T) {
 }
 
 func TestRuntime_PutFiles_DefaultMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows normalizes POSIX permission bits")
+	}
 	rt := local.NewRuntime("")
 	ctx := context.Background()
 	ws, err := rt.CreateWorkspace(
@@ -1376,7 +1391,9 @@ func TestRuntime_CollectOutputs_BrokenSymlinkErrors(t *testing.T) {
 	outDir := filepath.Join(ws.Path, codeexecutor.DirOut)
 	require.NoError(t, os.MkdirAll(outDir, 0o755))
 	link := filepath.Join(outDir, "broken")
-	require.NoError(t, os.Symlink("missing-target", link))
+	if err := os.Symlink("missing-target", link); err != nil {
+		t.Skipf("symlink creation not permitted in this environment: %v", err)
+	}
 
 	_, err = rt.CollectOutputs(ctx, ws, codeexecutor.OutputSpec{
 		Globs:  []string{filepath.Join(codeexecutor.DirOut, "*")},
@@ -1498,6 +1515,9 @@ func TestRuntime_CreateWorkspace_WithWorkRoot(t *testing.T) {
 }
 
 func TestRuntime_PutDirectory_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not preserved on Windows")
+	}
 	rt := local.NewRuntime("")
 	ctx := context.Background()
 	ws, err := rt.CreateWorkspace(

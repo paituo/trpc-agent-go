@@ -242,11 +242,22 @@ func (s *interactiveSession) Kill(grace time.Duration) error {
 			cancel()
 		}
 		err := cmd.Process.Kill()
-		if err != nil && errors.Is(err, os.ErrProcessDone) {
+		if err != nil && isProcessAlreadyDone(err) {
 			return nil
 		}
 		return err
 	}
+}
+
+// isProcessAlreadyDone reports whether err indicates the process had
+// already exited before the kill was issued. Windows fails TerminateProcess
+// on an exited process with ERROR_INVALID_PARAMETER rather than a
+// dedicated "already finished" error, while Unix reports
+// [os.ErrProcessDone] once the process has been reaped.
+func isProcessAlreadyDone(err error) bool {
+	return errors.Is(err, os.ErrProcessDone) ||
+		errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, syscall.EINVAL)
 }
 
 func (s *interactiveSession) Close() error {

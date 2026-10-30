@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1117,7 +1118,9 @@ func TestFilesystemHelperBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	// Windows does not persist POSIX permission bits; os.Stat there
+	// synthesizes the mode from the read-only attribute.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("copied file mode = %o, want 0640", info.Mode().Perm())
 	}
 
@@ -1364,8 +1367,13 @@ func TestFilesystemSymlinkAndCopyHelperBranches(t *testing.T) {
 	if err := os.Symlink(source, sourceParentLink); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := resolvePotentialSymlinkTarget(filepath.Join(sourceParentLink, "child.txt")); err == nil {
-		t.Fatalf("resolvePotentialSymlinkTarget unexpectedly succeeded below symlink-to-file parent")
+	// Below a symlink-to-file parent, Unix fails path traversal with
+	// ENOTDIR while Windows reports the missing child as a plain
+	// not-exist and resolves the parent link instead.
+	if runtime.GOOS != "windows" {
+		if _, _, err := resolvePotentialSymlinkTarget(filepath.Join(sourceParentLink, "child.txt")); err == nil {
+			t.Fatalf("resolvePotentialSymlinkTarget unexpectedly succeeded below symlink-to-file parent")
+		}
 	}
 	fileParent := filepath.Join(t.TempDir(), "file-parent")
 	if err := os.WriteFile(fileParent, []byte("not a directory"), 0o600); err != nil {

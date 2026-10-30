@@ -354,7 +354,14 @@ func TestLocalProgramCommandPath_EmptyPATHEntryUsesCWD(
 	t *testing.T,
 ) {
 	cwd := t.TempDir()
-	toolPath := filepath.Join(cwd, "tool")
+	// Windows only executes names whose extension is listed in PATHEXT,
+	// so the discoverable file name differs per platform while the
+	// contract (an empty PATH entry resolves against the CWD) is shared.
+	name := "tool"
+	if runtime.GOOS == "windows" {
+		name = "tool.cmd"
+	}
+	toolPath := filepath.Join(cwd, name)
 	require.NoError(t, os.WriteFile(
 		toolPath,
 		[]byte("#!/bin/sh\n"),
@@ -435,7 +442,10 @@ func TestLocalProgramCommandPath_WindowsPathExt(t *testing.T) {
 	})
 
 	require.True(t, ok)
-	require.Equal(t, filepath.Join(bin, "tool.cmd"), got)
+	// The candidate is appended from the uppercase PATHEXT entry and the
+	// Windows filesystem matches case-insensitively, so compare without
+	// relying on the on-disk extension casing.
+	require.True(t, strings.EqualFold(filepath.Join(bin, "tool.cmd"), got))
 }
 
 func TestStartPipes_RejectsPresetFields(t *testing.T) {

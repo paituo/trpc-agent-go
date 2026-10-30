@@ -176,7 +176,11 @@ func TestRunnerSupportsRelativePythonPath(t *testing.T) {
 	currentDir, err := os.Getwd()
 	require.NoError(t, err)
 	relativePython, err := filepath.Rel(currentDir, pythonPath)
-	require.NoError(t, err)
+	if err != nil {
+		// Windows keeps each volume in its own root, so an interpreter
+		// installed on another drive cannot be expressed relatively.
+		t.Skipf("python3 is not relative to the module: %v", err)
+	}
 
 	runner := New(
 		sandbox.WithPermissionProfile(sandbox.DangerFullAccessProfile()),

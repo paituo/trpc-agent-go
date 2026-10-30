@@ -13,6 +13,7 @@ package hostexec
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -66,4 +67,23 @@ func terminateProcessTree(
 	_ time.Duration,
 ) error {
 	return killProcess(process)
+}
+
+// isAlreadyExitedKillError reports whether a Process.Kill error means the
+// process had already exited. Windows has no dedicated sentinel: killing
+// a reaped process surfaces as a closed handle or an invalid-parameter
+// error depending on how far the runtime got, and both mean the kill
+// objective is already met. The invalid case arrives as the runtime's
+// encoded invalid errno (0x20000027, "invalid argument"), not the raw
+// ERROR_INVALID_PARAMETER code, so match it explicitly.
+const errnoInvalidArgument = syscall.Errno(0x20000027)
+
+func isAlreadyExitedKillError(err error) bool {
+	var errno syscall.Errno
+	if errors.As(err, &errno) && errno == errnoInvalidArgument {
+		return true
+	}
+	return errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
+		errors.Is(err, windows.ERROR_INVALID_PARAMETER)
 }

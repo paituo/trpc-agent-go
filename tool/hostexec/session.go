@@ -280,7 +280,8 @@ func killProcess(process *os.Process) error {
 		return nil
 	}
 	if err := process.Kill(); err != nil &&
-		!errors.Is(err, os.ErrProcessDone) {
+		!errors.Is(err, os.ErrProcessDone) &&
+		!isAlreadyExitedKillError(err) {
 		return err
 	}
 	return nil

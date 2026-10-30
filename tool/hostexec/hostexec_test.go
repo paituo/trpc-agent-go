@@ -77,6 +77,13 @@ func TestNewToolSet_ForegroundHonorsMaxLines(t *testing.T) {
 			command: "printf 'l1\\nl2\\nl3\\nl4\\nl5'",
 		},
 	}
+	if runtime.GOOS == "windows" {
+		// cmd.exe equivalents: echo emits a line, and
+		// "set /p =" prints its prompt without a trailing newline.
+		cases[0].command = "echo l1& echo l2& echo l3& echo l4& echo l5"
+		cases[1].command = "echo l1& echo l2& echo l3& echo l4&" +
+			" set /p =l5<nul"
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			set, err := NewToolSet(WithMaxLines(3))
@@ -122,11 +129,15 @@ func TestNewToolSet_BaseDirAndRelativeWorkdir(t *testing.T) {
 	require.NoError(t, err)
 	defer set.Close()
 
+	readCommand := "cat note.txt"
+	if runtime.GOOS == "windows" {
+		readCommand = "type note.txt"
+	}
 	execTool, _, _, _ := toolSetTools(t, set)
 	out, err := execTool.Call(
 		context.Background(),
 		mustJSON(t, map[string]any{
-			"command": "cat note.txt",
+			"command": readCommand,
 			"workdir": "sub",
 			"yieldMs": 0,
 		}),
@@ -147,11 +158,17 @@ func TestNewToolSet_YieldAndPoll(t *testing.T) {
 	require.NoError(t, err)
 	defer set.Close()
 
+	command := "echo start; sleep 0.2; echo end"
+	if runtime.GOOS == "windows" {
+		// cmd.exe has no sleep; ping introduces the delay that keeps
+		// the run alive past the 10ms yield.
+		command = "echo start& ping -n 2 127.0.0.1 >nul& echo end"
+	}
 	execTool, _, _, mgr := toolSetTools(t, set)
 	out, err := execTool.Call(
 		context.Background(),
 		mustJSON(t, map[string]any{
-			"command": "echo start; sleep 0.2; echo end",
+			"command": command,
 			"yieldMs": 10,
 		}),
 	)
@@ -187,6 +204,11 @@ func TestNewToolSet_YieldAndPoll(t *testing.T) {
 func TestNewToolSet_WriteStdin(t *testing.T) {
 	if _, _, err := shellSpec(); err != nil {
 		t.Skip(err.Error())
+	}
+	if runtime.GOOS == "windows" {
+		// Reading one stdin line and echoing it back needs POSIX shell
+		// syntax; cmd.exe expands %line% at parse time instead.
+		t.Skip("stdin line echo-back requires a POSIX shell")
 	}
 
 	set, err := NewToolSet(WithJobTTL(10 * time.Second))
@@ -270,6 +292,11 @@ func TestNewToolSet_WriteStdin_ReturnsWhenProcessExits(t *testing.T) {
 func TestNewToolSet_WriteStdin_NoRepeatedInitialOutput(t *testing.T) {
 	if _, _, err := shellSpec(); err != nil {
 		t.Skip(err.Error())
+	}
+	if runtime.GOOS == "windows" {
+		// Reading one stdin line and echoing it back needs POSIX shell
+		// syntax; cmd.exe expands %line% at parse time instead.
+		t.Skip("stdin line echo-back requires a POSIX shell")
 	}
 
 	set, err := NewToolSet(WithJobTTL(10 * time.Second))
@@ -782,12 +809,18 @@ func TestNewToolSet_HugeTimeout(t *testing.T) {
 	require.NoError(t, err)
 	defer set.Close()
 
+	command := "sleep 0.1; echo ok"
+	if runtime.GOOS == "windows" {
+		// cmd.exe has no sleep; ping with one echo emits "ok" after a
+		// short delay so the huge timeout still wraps a real run.
+		command = "ping -n 2 127.0.0.1 >nul& echo ok"
+	}
 	execTool, _, _, _ := toolSetTools(t, set)
 	hugeTimeout := int(^uint(0) >> 1)
 	out, err := execTool.Call(
 		context.Background(),
 		mustJSON(t, map[string]any{
-			"command":       "sleep 0.1; echo ok",
+			"command":       command,
 			"yield_time_ms": 0,
 			"timeout_sec":   hugeTimeout,
 		}),

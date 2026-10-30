@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -1173,6 +1174,9 @@ func TestRunTool_ShellPATHPrefersInheritedPATHBeforeSkillBin(
 }
 
 func TestRunTool_AllowedCommandsFindsSkillBin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shebang skill bins are not directly executable on Windows")
+	}
 	root := t.TempDir()
 	dir := writeSkill(t, root, testSkillName)
 	writeSkillExecutable(
@@ -1220,6 +1224,9 @@ func TestRunTool_AllowedCommandsFindsSkillBin(t *testing.T) {
 func TestRunTool_AllowedCommandsPolicyScrubsCallerPATH(
 	t *testing.T,
 ) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shebang skill bins are not directly executable on Windows")
+	}
 	root := t.TempDir()
 	dir := writeSkill(t, root, testSkillName)
 	writeSkillExecutable(
@@ -1265,6 +1272,9 @@ func TestRunTool_AllowedCommandsPolicyScrubsCallerPATH(
 }
 
 func TestRunTool_AllowedCommandsPathAllowsBareSkillBin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shebang skill bins are not directly executable on Windows")
+	}
 	root := t.TempDir()
 	dir := writeSkill(t, root, testSkillName)
 	writeSkillExecutable(
@@ -1370,6 +1380,9 @@ func TestScrubPolicyEnv_EmptyInputReturnsNonNil(t *testing.T) {
 // the skill bin running. The point is that the caller cannot
 // redirect resolution at an attacker-staged hostBin via env.PATH.)
 func TestRunTool_DeniedCommandsPolicyScrubsCallerPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shebang skill bins are not directly executable on Windows")
+	}
 	root := t.TempDir()
 	dir := writeSkill(t, root, testSkillName)
 	writeSkillExecutable(
@@ -1447,6 +1460,9 @@ func TestRunTool_DeniedCommandsRejectsExplicitRelativeSkillBin(
 }
 
 func TestRunTool_AllowedCommandsFindsSkillBinFromChildCWD(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shebang skill bins are not directly executable on Windows")
+	}
 	root := t.TempDir()
 	dir := writeSkill(t, root, testSkillName)
 	writeSkillExecutable(
@@ -2351,8 +2367,17 @@ func TestRunTool_SaveAsArtifacts_SaveError(t *testing.T) {
 	)
 	ctx := agent.NewInvocationContext(context.Background(), inv)
 
-	_, err = rt.Call(ctx, enc)
-	require.Error(t, err)
+	// Artifact persistence failures degrade to warnings on the output
+	// instead of failing the whole run (see the workspace error-chain
+	// hardening in tool/skill Call).
+	res, err := rt.Call(ctx, enc)
+	require.NoError(t, err)
+	out := res.(runOutput)
+	require.Contains(
+		t,
+		strings.Join(out.Warnings, "\n"),
+		"save artifact out/a.txt: forced-error",
+	)
 }
 
 func TestRunTool_ErrorOnMissingSkill(t *testing.T) {
@@ -2403,6 +2428,13 @@ func TestRunTool_AllowedCommands_AllowsBasenameMatch(t *testing.T) {
 
 	full, err := exec.LookPath(cmdLS)
 	require.NoError(t, err)
+	// Basename matching is exact; on Windows the looked-up binary is
+	// "ls.exe", so the allowlist must carry the same basename.
+	if runtime.GOOS == "windows" &&
+		filepath.Base(full) != cmdLS {
+		t.Setenv(envAllowedCommands,
+			cmdEcho+","+filepath.Base(full))
+	}
 
 	root := t.TempDir()
 	writeSkill(t, root, testSkillName)
@@ -2412,9 +2444,13 @@ func TestRunTool_AllowedCommands_AllowsBasenameMatch(t *testing.T) {
 	exec := localexec.New()
 	rt := NewRunTool(repo, exec)
 
+	// The command line goes through POSIX-style quoting, so a resolved
+	// path containing spaces (for example under "Program Files" on
+	// Windows) must be quoted for the parser to keep it as one token.
+	// Single quotes also preserve the backslashes literally.
 	args := runInput{
 		Skill:   testSkillName,
-		Command: full,
+		Command: "'" + full + "'",
 		Timeout: timeoutSecSmall,
 	}
 	enc, err := jsonMarshal(args)
@@ -2835,10 +2871,17 @@ func TestRunTool_RelativeCWD_TraversalDoesNotEscapeWorkspace(t *testing.T) {
 	exec := localexec.New()
 	rt := NewRunTool(repo, exec)
 
+	// Git Bash prints POSIX mount paths ("/d/...") by default; "-W"
+	// yields a drive-style path comparable with the Windows workspace
+	// root that the Go side injects.
+	pwdCommand := "pwd"
+	if runtime.GOOS == "windows" {
+		pwdCommand = "pwd -W"
+	}
 	args := runInput{
 		Skill: testSkillName,
 		Cwd:   "../../..",
-		Command: "pwd; echo \"$" +
+		Command: pwdCommand + "; echo \"$" +
 			codeexecutor.WorkspaceEnvDirKey + "\"",
 		Timeout: timeoutSecSmall,
 	}
@@ -4268,7 +4311,9 @@ func TestRunTool_PreparationStaleInvalidatesLegacyHandleAndRetries(
 	t *testing.T,
 ) {
 	manager := &legacySkillRetryManager{}
-	fs := &staleOnceSkillFS{}
+	// Metadata publishing renames a staged temp file on disk, so the
+	// stub filesystem must honor PutFiles with real writes.
+	fs := &staleOnceSkillFS{stubFS: stubFS{writeFiles: true}}
 	eng := &managedEngine{
 		m: manager,
 		f: fs,
@@ -5534,18 +5579,21 @@ func TestRunTool_WorkspacePersistsAcrossCalls(t *testing.T) {
 func TestSkillStagingHelpers_EarlyReturns(t *testing.T) {
 	rt := &RunTool{}
 	ctx := context.Background()
-	ws := codeexecutor.Workspace{}
+	// Both helpers are filesystem-based now; anchor them in a temp
+	// directory so a missing workspace never resolves to the CWD.
+	ws := codeexecutor.Workspace{Path: t.TempDir()}
 
 	ok, err := rt.skillLinksPresent(ctx, nil, ws, "")
 	require.NoError(t, err)
 	require.False(t, ok)
 
 	ok, err = rt.skillLinksPresent(ctx, nil, ws, testSkillName)
-	require.Error(t, err)
+	require.NoError(t, err)
 	require.False(t, ok)
 
 	require.NoError(t, rt.removeWorkspacePath(ctx, nil, ws, ""))
-	require.Error(t, rt.removeWorkspacePath(
+	// Removing a path that does not exist is a no-op success.
+	require.NoError(t, rt.removeWorkspacePath(
 		ctx,
 		nil,
 		ws,
@@ -5560,6 +5608,10 @@ type stubFS struct {
 	putErr   error
 	putCalls int
 	putFiles []codeexecutor.PutFile
+
+	// writeFiles makes PutFiles persist payloads to the workspace
+	// directory so rename-based flows behave like the real FS.
+	writeFiles bool
 }
 
 type staleOnceSkillFS struct {
@@ -5600,12 +5652,29 @@ func (f *staleOnceSkillFS) Collect(
 
 func (s *stubFS) PutFiles(
 	_ context.Context,
-	_ codeexecutor.Workspace,
+	ws codeexecutor.Workspace,
 	files []codeexecutor.PutFile,
 ) error {
 	s.putCalls++
 	s.putFiles = append(s.putFiles, files...)
-	return s.putErr
+	if s.putErr != nil {
+		return s.putErr
+	}
+	// Optionally honor the filesystem contract by writing the files
+	// for real, which production paths such as the metadata publish
+	// rename depend on.
+	if s.writeFiles {
+		for _, f := range files {
+			p := filepath.Join(ws.Path, filepath.FromSlash(f.Path))
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				return err
+			}
+			if err := os.WriteFile(p, f.Content, 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (*stubFS) StageDirectory(
@@ -5661,8 +5730,10 @@ func (m *legacySkillRetryManager) CreateWorkspace(
 ) (codeexecutor.Workspace, error) {
 	m.creates++
 	return codeexecutor.Workspace{
-		ID:   "skill-workspace",
-		Path: "/tmp/skill-workspace",
+		ID: "skill-workspace",
+		// The production path writes metadata under this directory,
+		// so it must exist and be writable on every platform.
+		Path: filepath.Join(os.TempDir(), "skill-workspace"),
 	}, nil
 }
 
@@ -5812,62 +5883,44 @@ func TestRunTool_saveWorkspaceMetadata_CoversBranches(t *testing.T) {
 
 	fs := &stubFS{}
 	eng := &stubEngine{f: fs}
-	err = rt.saveWorkspaceMetadata(ctx, eng, ws, md)
-	require.Error(t, err)
-
-	r := &stubRunner{}
-	eng.r = r
-	fs.putErr = fmt.Errorf(errPutFail)
+	// Put succeeds, but the staged temporary file does not exist on
+	// disk, so publishing the metadata through the rename fails.
 	err = rt.saveWorkspaceMetadata(ctx, eng, ws, md)
 	require.Error(t, err)
 	require.Equal(t, 1, fs.putCalls)
-	require.Equal(t, 1, r.calls)
 	require.True(t, codeexecutor.IsMetadataTempFileName(
 		fs.putFiles[0].Path,
 	))
 	require.Equal(t, workspaceMetadataFileMode, fs.putFiles[0].Mode)
-	require.Contains(t, r.specs[0].Args[1], "rm -f")
 
-	fs.putErr = nil
-	r.err = fmt.Errorf(errRunFail)
+	// A filesystem failure surfaces before any publishing attempt.
+	fs.putErr = fmt.Errorf(errPutFail)
 	err = rt.saveWorkspaceMetadata(ctx, eng, ws, md)
 	require.Error(t, err)
 	require.Equal(t, 2, fs.putCalls)
-	require.Equal(t, 3, r.calls)
-	require.Equal(t, "bash", r.specs[1].Cmd)
-	require.Len(t, r.specs[1].Args, 2)
-	require.Contains(t, r.specs[1].Args[1], "mv -f")
-	require.Contains(t, r.specs[2].Args[1], "rm -f")
-
-	r.err = nil
-	r.res = codeexecutor.RunResult{ExitCode: 1, Stderr: errRunFail}
-	err = rt.saveWorkspaceMetadata(ctx, eng, ws, md)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "exit code 1")
 }
 
 func TestRunTool_skillLinksPresent_ExitCodes(t *testing.T) {
 	rt := &RunTool{}
 	ctx := context.Background()
-	ws := codeexecutor.Workspace{}
+	ws := codeexecutor.Workspace{Path: t.TempDir()}
 
 	r := &stubRunner{res: codeexecutor.RunResult{ExitCode: 1}}
 	eng := &stubEngine{r: r}
 
+	// Link presence is a pure filesystem check now: the runner is not
+	// consulted and missing links report (false, nil).
 	ok, err := rt.skillLinksPresent(ctx, eng, ws, testSkillName)
 	require.NoError(t, err)
 	require.False(t, ok)
+	require.Equal(t, 0, r.calls)
 
+	// Runner failures can no longer influence the outcome.
 	r.err = fmt.Errorf(errRunFail)
 	ok, err = rt.skillLinksPresent(ctx, eng, ws, testSkillName)
-	require.Error(t, err)
+	require.NoError(t, err)
 	require.False(t, ok)
-
-	r.res = codeexecutor.RunResult{ExitCode: 0}
-	r.err = fmt.Errorf(errRunFail)
-	ok, err = rt.skillLinksPresent(ctx, eng, ws, testSkillName)
-	require.Error(t, err)
-	require.False(t, ok)
+	require.Equal(t, 0, r.calls)
 }
 
 func TestCopySkillStager_StageSkill_Validation(t *testing.T) {

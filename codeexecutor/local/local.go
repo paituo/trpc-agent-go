@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"trpc.group/trpc-go/trpc-agent-go/codeexecutor"
-	"trpc.group/trpc-go/trpc-agent-go/internal/platform"
 )
 
 // CodeExecutor that executes code on the local host (unsafe).
@@ -274,17 +273,27 @@ func (e *CodeExecutor) buildCommandArgs(
 	case "python", "py", "python3":
 		return []string{"python3", filePath}
 	case "bash", "sh":
-		shell, err := platform.Shell()
-		if err != nil {
-			// Fallback to "bash" if platform shell detection fails.
-			// This preserves existing behavior and avoids nil return
-			// which would cause a panic in executeCommand.
-			return []string{"bash", filePath}
-		}
-		return []string{shell.Command, filePath}
+		return []string{posixShellInterpreter(), filePath}
 	default:
 		return nil
 	}
+}
+
+// posixShellInterpreter returns an interpreter able to execute POSIX shell
+// script files. Shell code blocks carry bash semantics, so they must run
+// through a POSIX interpreter rather than the platform's general-purpose
+// command shell: on Windows, handing a ".sh" path to cmd.exe or PowerShell
+// falls back to ShellExecute and pops up the file-association dialog
+// instead of running the script. The search order keeps "bash" first to
+// match historical behavior, and returns "bash" unchanged when nothing is
+// found so the failure stays a regular exec error.
+func posixShellInterpreter() string {
+	for _, name := range []string{"bash", "sh"} {
+		if p, err := exec.LookPath(name); err == nil {
+			return p
+		}
+	}
+	return "bash"
 }
 
 func (e *CodeExecutor) executeCommand(

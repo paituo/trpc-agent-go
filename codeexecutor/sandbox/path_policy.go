@@ -513,17 +513,41 @@ func (r *Runtime) deniedReadMatches(
 			if rule.Glob == "" {
 				continue
 			}
-			pattern := strings.TrimPrefix(
-				filepath.ToSlash(filepath.Join(ws.Path, rule.Glob)), "/",
+			fsRoot, pattern := globRootAndPattern(
+				filepath.Join(ws.Path, rule.Glob),
 			)
-			globMatches, err := ds.Glob(os.DirFS("/"), pattern)
+			globMatches, err := ds.Glob(os.DirFS(fsRoot), pattern)
 			if err != nil {
 				return nil, err
 			}
 			for _, m := range globMatches {
-				matches = append(matches, "/"+strings.TrimPrefix(m, "/"))
+				matches = append(matches, globMatchToAbs(fsRoot, m))
 			}
 		}
 	}
 	return matches, nil
+}
+
+// globRootAndPattern maps an OS-specific absolute path to a filesystem
+// root and a slash-separated doublestar pattern usable with
+// ds.Glob(os.DirFS(root), pattern) on every platform. On Unix the root
+// is "/" and the pattern drops the leading separator; on Windows the
+// root is the volume (e.g. "D:\") and the pattern is the remainder.
+func globRootAndPattern(abs string) (string, string) {
+	if volume := filepath.VolumeName(abs); volume != "" {
+		rest := strings.TrimPrefix(
+			abs[len(volume):], string(os.PathSeparator),
+		)
+		return volume + string(os.PathSeparator), filepath.ToSlash(rest)
+	}
+	return "/", strings.TrimPrefix(abs, "/")
+}
+
+// globMatchToAbs converts a doublestar match produced for the root
+// returned by globRootAndPattern back into an OS-specific absolute path.
+func globMatchToAbs(root, match string) string {
+	if root == "/" {
+		return "/" + strings.TrimPrefix(match, "/")
+	}
+	return root + filepath.FromSlash(match)
 }

@@ -217,3 +217,9 @@ func processTreeAlive(
 		return false
 	}
 }
+
+// isAlreadyExitedKillError reports whether a Process.Kill error means the
+// process had already exited. Unix exposes the dedicated
+// [os.ErrProcessDone] sentinel for that case, which the caller already
+// handles, so nothing else qualifies here.
+func isAlreadyExitedKillError(_ error) bool { return false }

@@ -1205,9 +1205,13 @@ func resolveCWD(cwd string, name string) string {
 
 // filepathBase returns the last element of a path, trimming trailing
 // separators. It avoids importing path/filepath at top-level.
+// filepathBase returns the last path element. It accepts both POSIX
+// "/" and Windows "\" separators so command-policy basename matching
+// works for foreign-style paths and cannot be bypassed by choosing a
+// separator style the matcher would not split on.
 func filepathBase(p string) string {
-	p = strings.TrimRight(p, "/")
-	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+	p = strings.TrimRight(p, `/\`)
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
 		return p[i+1:]
 	}
 	return p

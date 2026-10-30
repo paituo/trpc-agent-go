@@ -326,7 +326,11 @@ func TestStartScriptSupportsRelativePythonPathWithTemporaryWorkDir(t *testing.T)
 	currentDir, err := os.Getwd()
 	require.NoError(t, err)
 	relativePython, err := filepath.Rel(currentDir, pythonPath)
-	require.NoError(t, err)
+	if err != nil {
+		// Windows keeps each volume in its own root, so an interpreter
+		// installed on another drive cannot be expressed relatively.
+		t.Skipf("python3 is not relative to the module: %v", err)
+	}
 	require.False(t, filepath.IsAbs(relativePython))
 
 	proc, err := StartScript(
@@ -358,7 +362,7 @@ func TestProcessStdinAndKill(t *testing.T) {
 		[]byte("import sys, time\nprint(sys.stdin.readline().strip(), flush=True)\ntime.sleep(30)\n"),
 		nil,
 		nil,
-		io.Discard,
+		os.Stderr,
 	)
 	require.NoError(t, err)
 	_, err = io.WriteString(proc.Stdin(), "ready\n")

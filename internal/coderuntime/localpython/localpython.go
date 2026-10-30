@@ -196,6 +196,7 @@ func startResolved(
 		cancel()
 		return nil, fmt.Errorf("localpython: start Python: %w", err)
 	}
+	attachProcessTree(cmd)
 	return &Process{
 		cmd:    cmd,
 		stdin:  stdin,

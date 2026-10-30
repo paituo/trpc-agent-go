@@ -124,6 +124,7 @@ func (r *Runtime) runProgram(
 		}
 		return codeexecutor.RunResult{}, backendError(ErrSetupFailed, backendName, err)
 	}
+	attachProcessTree(cmd)
 	// Parent ExtraFiles are no longer needed once the child has inherited them.
 	releaseCmdExtraFiles(cmd)
 	waitErr := cmd.Wait()
@@ -283,7 +284,7 @@ func exitCodeFromWait(waitErr error, timedOut bool) (int, error) {
 	}
 	var exitErr *exec.ExitError
 	if errors.As(waitErr, &exitErr) {
-		return exitErr.ExitCode(), nil
+		return normalizeTimeoutExitCode(timedOut, exitErr.ExitCode()), nil
 	}
 	if timedOut {
 		return -1, nil
