@@ -12,6 +12,7 @@ package workspaceexec
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -133,7 +134,8 @@ func TestWithWorkspaceBootstrap_EndToEnd(t *testing.T) {
 	eo, ok := out.(execOutput)
 	require.True(t, ok)
 	require.Equal(t, "exited", eo.Status)
-	require.Equal(t, "seed", eo.Output)
+	// PowerShell's Get-Content alias for cat appends a line terminator.
+	require.Equal(t, "seed", strings.TrimRight(eo.Output, "\r\n"))
 }
 
 func TestWithLoadedSkills_NilRepoIsNoop(t *testing.T) {

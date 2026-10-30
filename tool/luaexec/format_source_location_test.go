@@ -3,6 +3,7 @@ package luaexec
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -16,6 +17,9 @@ func TestFormatSourceLocation(t *testing.T) {
 	absScriptsDir, err := filepath.Abs(scriptsDir)
 	require.NoError(t, err)
 	scriptPath := filepath.Join(absScriptsDir, "format_source_location.lua")
+	if _, statErr := os.Stat(scriptPath); statErr != nil {
+		t.Skipf("依赖本机技能数据，仓库环境缺失时跳过: %s", scriptPath)
+	}
 
 	ts, err := NewToolSet(
 		WithTools(&mockTool{name: "dummy"}),

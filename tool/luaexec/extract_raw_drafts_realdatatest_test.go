@@ -215,8 +215,9 @@ func TestExtractRawDrafts_AllCategories(t *testing.T) {
 	absScriptsDir, err := filepath.Abs(scriptsDir)
 	require.NoError(t, err)
 	scriptPath := filepath.Join(absScriptsDir, "extract_raw_drafts.lua")
-	_, err = os.Stat(scriptPath)
-	require.NoError(t, err)
+	if _, statErr := os.Stat(scriptPath); statErr != nil {
+		t.Skipf("依赖本机技能数据，仓库环境缺失时跳过: %s", scriptPath)
+	}
 
 	skeletonPath := filepath.Join(baseDir, "userData", "2026-06-23_11-05-49", "skeleton_index.yaml")
 	absSkeletonPath, err := filepath.Abs(skeletonPath)

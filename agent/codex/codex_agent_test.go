@@ -16,7 +16,6 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -900,16 +899,14 @@ func TestExecCommandRunner_Run(t *testing.T) {
 	require.Empty(t, string(result.stderr))
 	result = runner.Run(context.Background(), command{
 		bin:  "sh",
-		args: []string{"-c", "pwd"},
+		args: []string{"-c", "echo x > marker.txt"},
 		dir:  tmp,
 	}, nil)
 	require.NoError(t, result.err())
-	got := strings.TrimSpace(string(result.stdout))
-	gotResolved, err := filepath.EvalSymlinks(got)
-	require.NoError(t, err)
-	wantResolved, err := filepath.EvalSymlinks(tmp)
-	require.NoError(t, err)
-	require.Equal(t, wantResolved, gotResolved)
+	// Verify the working directory took effect through the filesystem
+	// instead of parsing pwd output, whose format differs between POSIX
+	// shells and Windows (MSYS maps the temp dir to /tmp).
+	require.FileExists(t, filepath.Join(tmp, "marker.txt"))
 	require.Empty(t, string(result.stderr))
 }
 

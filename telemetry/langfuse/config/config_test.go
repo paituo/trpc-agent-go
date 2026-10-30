@@ -27,6 +27,13 @@ func TestFromEnv(t *testing.T) {
 }
 
 func TestFromEnv_Defaults(t *testing.T) {
+	// Isolate from LANGFUSE_* variables that may exist in a developer
+	// shell but never in a clean CI environment.
+	t.Setenv("LANGFUSE_PUBLIC_KEY", "")
+	t.Setenv("LANGFUSE_SECRET_KEY", "")
+	t.Setenv("LANGFUSE_BASE_URL", "")
+	t.Setenv("LANGFUSE_HOST", "")
+
 	cfg := FromEnv()
 
 	assert.Empty(t, cfg.PublicKey)

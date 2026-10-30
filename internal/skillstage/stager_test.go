@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -550,6 +551,17 @@ func TestSkillStagingHelpers_DirectFileOps(t *testing.T) {
 	require.NotZero(t, fi.Mode()&0o200)
 }
 
+// shellQuote quotes a string for POSIX shells. The production code stopped
+// using it after the Go-native refactor, but these tests still compose
+// bash snippets and need the same quoting semantics.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	q := strings.ReplaceAll(s, "'", "'\\''")
+	return "'" + q + "'"
+}
+
 // pathPrefixRunner prepends a directory to PATH inside bash -lc scripts
 // so the login shell's profile cannot clobber the test shim.
 type pathPrefixRunner struct {
@@ -612,6 +624,9 @@ func writeSkillDir(t *testing.T, root, body string) string {
 }
 
 func TestRemoveWorkspacePath_ChmodDeniedStillRemoves(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX chmod denial is not reproducible on Windows")
+	}
 	ctx := context.Background()
 	rt := localexec.NewRuntime("")
 	eng, marker := engineWithChmodDenied(t, rt)
@@ -640,6 +655,9 @@ func TestRemoveWorkspacePath_ChmodDeniedStillRemoves(t *testing.T) {
 }
 
 func TestRemoveWorkspacePath_RemoveFailureStillReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission denial is not reproducible on Windows")
+	}
 	ctx := context.Background()
 	rt := localexec.NewRuntime("")
 	eng, _ := engineWithChmodDenied(t, rt)
@@ -672,6 +690,9 @@ func TestRemoveWorkspacePath_RemoveFailureStillReported(t *testing.T) {
 }
 
 func TestStager_StageSkill_RestagesWhenChmodDenied(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX chmod denial is not reproducible on Windows")
+	}
 	ctx := context.Background()
 	rt := localexec.NewRuntime("")
 	eng, marker := engineWithChmodDenied(t, rt)

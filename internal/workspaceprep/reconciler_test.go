@@ -688,12 +688,12 @@ func TestReconciler_StaleRetryDisposition(t *testing.T) {
 
 	t.Run("metadata commit stale after command is retry unsafe",
 		func(t *testing.T) {
-			fs := &fakeFS{}
+			// Metadata commits go through the FS (temp-file put plus
+			// rename), so stale must surface from PutFiles.
+			fs := &fakeFS{putErr: stale}
 			eng := &fakeEngine{
-				fs: fs,
-				runner: &fakeRunner{
-					err: stale,
-				},
+				fs:     fs,
+				runner: &fakeRunner{},
 			}
 			req := &orderReq{
 				key:   "successful-command",

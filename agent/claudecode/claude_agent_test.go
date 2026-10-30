@@ -534,16 +534,14 @@ func TestExecCommandRunner_Run(t *testing.T) {
 
 	stdout, stderr, err = runner.Run(context.Background(), command{
 		bin:  "sh",
-		args: []string{"-c", "pwd"},
+		args: []string{"-c", "echo x > marker.txt"},
 		dir:  tmp,
 	})
 	require.NoError(t, err)
-	got := strings.TrimSpace(string(stdout))
-	gotResolved, err := filepath.EvalSymlinks(got)
-	require.NoError(t, err)
-	wantResolved, err := filepath.EvalSymlinks(tmp)
-	require.NoError(t, err)
-	require.Equal(t, wantResolved, gotResolved)
+	// Verify the working directory took effect through the filesystem
+	// instead of parsing pwd output, whose format differs between POSIX
+	// shells and Windows (MSYS maps the temp dir to /tmp).
+	require.FileExists(t, filepath.Join(tmp, "marker.txt"))
 	require.Empty(t, string(stderr))
 }
 

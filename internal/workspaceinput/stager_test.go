@@ -35,16 +35,42 @@ type stubFS struct {
 	putErr       error
 	putCalls     int
 	putFiles     []codeexecutor.PutFile
+	// putFailOnCall, when > 0, makes only the Nth PutFiles call return
+	// putFailErr instead of writing files to disk.
+	putFailOnCall int
+	putFailErr    error
 }
 
+// PutFiles records the requested files and, when the workspace declares a
+// host Path, materializes them on disk so production code paths that later
+// rename or stat those files behave realistically in tests.
 func (s *stubFS) PutFiles(
 	_ context.Context,
-	_ codeexecutor.Workspace,
+	ws codeexecutor.Workspace,
 	files []codeexecutor.PutFile,
 ) error {
 	s.putCalls++
 	s.putFiles = append(s.putFiles, files...)
-	return s.putErr
+	if s.putErr != nil {
+		return s.putErr
+	}
+	if s.putFailOnCall > 0 && s.putCalls == s.putFailOnCall {
+		return s.putFailErr
+	}
+	if ws.Path == "" {
+		return nil
+	}
+	mode := os.FileMode(0o644)
+	for _, f := range files {
+		target := filepath.Join(ws.Path, filepath.FromSlash(f.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, f.Content, mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (*stubFS) StageDirectory(
@@ -204,11 +230,16 @@ func TestStageConversationFiles_Warnings(t *testing.T) {
 
 	t.Run("save metadata warning", func(t *testing.T) {
 		ctx := newInvocationCtx(msg, nil, nil, nil)
-		fs := &stubFS{}
-		runner := &stubRunner{err: fmt.Errorf("move failed")}
-		eng := codeexecutor.NewEngine(nil, fs, runner)
+		// Metadata saving commits via a second PutFiles call for the
+		// temp file; failing that call surfaces a save-metadata warning.
+		fs := &stubFS{
+			putFailOnCall: 2,
+			putFailErr:    fmt.Errorf("move failed"),
+		}
+		eng := codeexecutor.NewEngine(nil, fs, nil)
+		wsDisk := codeexecutor.Workspace{ID: "ws", Path: t.TempDir()}
 
-		staged, warnings, err := StageConversationFiles(ctx, eng, ws)
+		staged, warnings, err := StageConversationFiles(ctx, eng, wsDisk)
 		require.NoError(t, err)
 		require.Len(t, staged, 1)
 		require.Len(t, warnings, 1)
@@ -251,13 +282,15 @@ func TestStageConversationFiles_Warnings(t *testing.T) {
 
 	t.Run("save metadata stale", func(t *testing.T) {
 		ctx := newInvocationCtx(msg, nil, nil, nil)
-		fs := &stubFS{}
-		runner := &stubRunner{
-			err: fmt.Errorf("move: %w", codeexecutor.ErrWorkspaceStale),
+		fs := &stubFS{
+			putFailOnCall: 2,
+			putFailErr: fmt.Errorf(
+				"move: %w", codeexecutor.ErrWorkspaceStale),
 		}
-		eng := codeexecutor.NewEngine(nil, fs, runner)
+		eng := codeexecutor.NewEngine(nil, fs, nil)
+		wsDisk := codeexecutor.Workspace{ID: "ws", Path: t.TempDir()}
 
-		staged, warnings, err := StageConversationFiles(ctx, eng, ws)
+		staged, warnings, err := StageConversationFiles(ctx, eng, wsDisk)
 		require.ErrorIs(t, err, codeexecutor.ErrWorkspaceStale)
 		require.Len(t, staged, 1)
 		require.Empty(t, warnings)
@@ -552,7 +585,7 @@ func TestStageConversationFiles_MergesSessionAndMessageFiles(t *testing.T) {
 	fs := &stubFS{}
 	runner := &stubRunner{}
 	eng := codeexecutor.NewEngine(nil, fs, runner)
-	ws := codeexecutor.Workspace{ID: "ws"}
+	ws := codeexecutor.Workspace{ID: "ws", Path: t.TempDir()}
 
 	sessionFile := model.File{Name: "session.txt", Data: []byte("from session")}
 	message := model.NewUserMessage("include current file too")

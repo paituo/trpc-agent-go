@@ -1007,7 +1007,14 @@ func TestURLRootHelpers(t *testing.T) {
 	t.Setenv("HOME", "")
 
 	got := skillsCacheDir()
+	// The fallback to the temp directory only applies when the user
+	// cache directory is unavailable (e.g. HOME unset on Unix).
+	// Platforms like Windows resolve a user cache directory regardless
+	// of HOME, so mirror the production selection here.
 	want := filepath.Join(os.TempDir(), cacheAppDir, cacheSkillsDir)
+	if uc, err := os.UserCacheDir(); err == nil && uc != "" {
+		want = filepath.Join(uc, cacheAppDir, cacheSkillsDir)
+	}
 	require.Equal(t, want, got)
 
 	srv := httptest.NewServer(http.HandlerFunc(
