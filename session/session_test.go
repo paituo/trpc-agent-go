@@ -1789,6 +1789,12 @@ func TestUpdateUserSession(t *testing.T) {
 
 			oldUpdateTime := time.Time{}
 			if testSession != nil {
+				if tt.expectTimestamp {
+					// Seed a clearly older timestamp so the update is
+					// observable even on platforms whose wall clock has
+					// coarse resolution (e.g. Windows).
+					testSession.UpdatedAt = time.Now().Add(-time.Hour)
+				}
 				oldUpdateTime = testSession.UpdatedAt
 			}
 

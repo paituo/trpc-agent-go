@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,8 +28,19 @@ type Saver struct {
 	mu      sync.RWMutex
 	storage map[string]map[string]map[string]*graph.CheckpointTuple // lineageID -> namespace -> checkpointID -> tuple
 	writes  map[string]map[string]map[string][]graph.PendingWrite   // lineageID -> namespace -> checkpointID -> writes
+	// sequences assigns a strictly increasing ordinal to every stored
+	// checkpoint (keyed by seqKey). Checkpoints written within one
+	// clock tick share an identical timestamp; the ordinal keeps
+	// "latest" resolution deterministic instead of random.
+	sequences    map[string]uint64
+	nextSequence uint64
 	// maxCheckpointsPerLineage limits the number of checkpoints per lineage.
 	maxCheckpointsPerLineage int
+}
+
+// seqKey builds the sequences map key for a stored checkpoint.
+func seqKey(lineageID, namespace, checkpointID string) string {
+	return lineageID + "\x00" + namespace + "\x00" + checkpointID
 }
 
 // NewSaver creates a new in-memory checkpoint saver.
@@ -36,6 +48,7 @@ func NewSaver() *Saver {
 	return &Saver{
 		storage:                  make(map[string]map[string]map[string]*graph.CheckpointTuple),
 		writes:                   make(map[string]map[string]map[string][]graph.PendingWrite),
+		sequences:                make(map[string]uint64),
 		maxCheckpointsPerLineage: graph.DefaultMaxCheckpointsPerLineage,
 	}
 }
@@ -86,7 +99,7 @@ func (s *Saver) getLatestCheckpoint(lineageID, namespace string,
 		return nil, nil
 	}
 
-	latestTuple := s.findLatestTuple(namespaces, namespace)
+	latestTuple := s.findLatestTuple(namespaces, namespace, lineageID)
 	if latestTuple == nil {
 		return nil, nil
 	}
@@ -99,27 +112,21 @@ func (s *Saver) getLatestCheckpoint(lineageID, namespace string,
 	return s.createResultTuple(latestTuple, lineageID, namespace, checkpointID), nil
 }
 
-// findLatestTuple finds the latest checkpoint tuple.
+// findLatestTuple finds the latest checkpoint tuple. Ties on identical
+// timestamps resolve to the most recently stored checkpoint through the
+// insertion ordinal, keeping map iteration order irrelevant.
 func (s *Saver) findLatestTuple(namespaces map[string]map[string]*graph.CheckpointTuple,
-	namespace string) *graph.CheckpointTuple {
+	namespace string, lineageID string) *graph.CheckpointTuple {
 
 	var latestTuple *graph.CheckpointTuple
-	var latestTime time.Time
+	var latestID string
 	if checkpoints, exists := namespaces[namespace]; exists {
-		latestTuple = s.findLatestInMap(checkpoints, &latestTime)
-	}
-	return latestTuple
-}
-
-// findLatestInMap finds the latest tuple in a map of checkpoints.
-func (s *Saver) findLatestInMap(checkpoints map[string]*graph.CheckpointTuple,
-	latestTime *time.Time) *graph.CheckpointTuple {
-
-	var latestTuple *graph.CheckpointTuple
-	for _, tuple := range checkpoints {
-		if tuple.Checkpoint != nil && tuple.Checkpoint.Timestamp.After(*latestTime) {
-			*latestTime = tuple.Checkpoint.Timestamp
-			latestTuple = tuple
+		for id, tuple := range checkpoints {
+			if s.isMoreRecent(lineageID, namespace, id, tuple,
+				latestID, latestTuple) {
+				latestTuple = tuple
+				latestID = id
+			}
 		}
 	}
 	return latestTuple
@@ -189,16 +196,22 @@ func (s *Saver) List(ctx context.Context, config map[string]any, filter *graph.C
 		return results, nil
 	}
 
+	// Insertion ordinal per result so equal timestamps keep the
+	// most recently stored checkpoint first regardless of the map
+	// iteration order the results were collected in.
+	seqOf := make(map[*graph.CheckpointTuple]uint64)
 	// If namespace is empty, search across all namespaces (cross-namespace search like GetTuple)
 	if namespace == "" {
 		// Search across all namespaces. Do not apply limit until after sorting to avoid
 		// bias from map iteration order.
 		for ns, checkpoints := range namespaces {
 			for checkpointID, tuple := range checkpoints {
-				if !s.passesFilters(checkpointID, tuple, checkpoints, filter) {
+				if !s.passesFilters(checkpointID, tuple, checkpoints,
+					filter, lineageID, ns) {
 					continue
 				}
 				result := s.createCheckpointResult(tuple, lineageID, ns, checkpointID)
+				seqOf[result] = s.sequences[seqKey(lineageID, ns, checkpointID)]
 				results = append(results, result)
 			}
 		}
@@ -210,16 +223,24 @@ func (s *Saver) List(ctx context.Context, config map[string]any, filter *graph.C
 		}
 		// Apply filters and collect results.
 		for checkpointID, tuple := range checkpoints {
-			if !s.passesFilters(checkpointID, tuple, checkpoints, filter) {
+			if !s.passesFilters(checkpointID, tuple, checkpoints,
+				filter, lineageID, namespace) {
 				continue
 			}
 			result := s.createCheckpointResult(tuple, lineageID, namespace, checkpointID)
+			seqOf[result] = s.sequences[seqKey(lineageID, namespace, checkpointID)]
 			results = append(results, result)
 		}
 	}
-	// Sort results by timestamp (newest first).
+	// Sort results by timestamp (newest first), breaking timestamp
+	// ties by insertion order (newest stored first).
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Checkpoint.Timestamp.After(results[j].Checkpoint.Timestamp)
+		iTime := results[i].Checkpoint.Timestamp
+		jTime := results[j].Checkpoint.Timestamp
+		if !iTime.Equal(jTime) {
+			return iTime.After(jTime)
+		}
+		return seqOf[results[i]] > seqOf[results[j]]
 	})
 	// Apply limit after sorting to ensure correct ordering.
 	if filter != nil && filter.Limit > 0 && len(results) > filter.Limit {
@@ -272,6 +293,7 @@ func (s *Saver) Put(ctx context.Context, req graph.PutRequest) (map[string]any, 
 
 	// Store the checkpoint.
 	s.storage[lineageID][namespace][req.Checkpoint.ID] = tuple
+	s.rememberSequence(lineageID, namespace, req.Checkpoint.ID)
 
 	// Clean up old checkpoints if we exceed the limit.
 	s.cleanupOldCheckpoints(lineageID, namespace)
@@ -360,6 +382,7 @@ func (s *Saver) PutFull(ctx context.Context, req graph.PutFullRequest) (map[stri
 
 	// Store the checkpoint.
 	s.storage[lineageID][namespace][req.Checkpoint.ID] = tuple
+	s.rememberSequence(lineageID, namespace, req.Checkpoint.ID)
 
 	// Store the writes atomically (make a copy to avoid external modification).
 	if len(req.PendingWrites) > 0 {
@@ -382,6 +405,12 @@ func (s *Saver) DeleteLineage(ctx context.Context, lineageID string) error {
 
 	delete(s.storage, lineageID)
 	delete(s.writes, lineageID)
+	prefix := lineageID + "\x00"
+	for key := range s.sequences {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.sequences, key)
+		}
+	}
 	return nil
 }
 
@@ -434,22 +463,65 @@ func (s *Saver) cleanupOldCheckpoints(lineageID, namespace string) {
 		delete(checkpoints, checkpointInfos[i].id)
 		// Also remove associated writes.
 		delete(s.writes[lineageID][namespace], checkpointInfos[i].id)
+		delete(s.sequences, seqKey(lineageID, namespace,
+			checkpointInfos[i].id))
 	}
 }
 
+// rememberSequence assigns the next insertion ordinal to a checkpoint.
+// Callers must hold the lock.
+func (s *Saver) rememberSequence(
+	lineageID string,
+	namespace string,
+	checkpointID string,
+) {
+	s.nextSequence++
+	s.sequences[seqKey(lineageID, namespace, checkpointID)] =
+		s.nextSequence
+}
+
+// isMoreRecent reports whether the candidate checkpoint is newer than
+// the current one. Identical timestamps (coarse clocks store several
+// checkpoints within one tick) are resolved by insertion ordinal so
+// the most recently stored checkpoint wins deterministically.
+func (s *Saver) isMoreRecent(
+	lineageID string,
+	namespace string,
+	id string,
+	candidate *graph.CheckpointTuple,
+	currentID string,
+	current *graph.CheckpointTuple,
+) bool {
+	if candidate == nil || candidate.Checkpoint == nil {
+		return false
+	}
+	if current == nil || current.Checkpoint == nil {
+		return true
+	}
+	candidateTime := candidate.Checkpoint.Timestamp
+	currentTime := current.Checkpoint.Timestamp
+	if !candidateTime.Equal(currentTime) {
+		return candidateTime.After(currentTime)
+	}
+	return s.sequences[seqKey(lineageID, namespace, id)] >
+		s.sequences[seqKey(lineageID, namespace, currentID)]
+}
+
 // passesFilters checks if a checkpoint passes all filter criteria.
-func (s *Saver) passesFilters(checkpointID string, tuple *graph.CheckpointTuple, checkpoints map[string]*graph.CheckpointTuple, filter *graph.CheckpointFilter) bool {
+func (s *Saver) passesFilters(checkpointID string, tuple *graph.CheckpointTuple, checkpoints map[string]*graph.CheckpointTuple, filter *graph.CheckpointFilter, lineageID, namespace string) bool {
 	if filter == nil {
 		return true
 	}
-	if !s.passesBeforeFilter(tuple, checkpoints, filter.Before) {
+	if !s.passesBeforeFilter(checkpointID, tuple, checkpoints, filter.Before, lineageID, namespace) {
 		return false
 	}
 	return s.passesMetadataFilter(tuple, filter.Metadata)
 }
 
 // passesBeforeFilter checks if checkpoint passes the before filter.
-func (s *Saver) passesBeforeFilter(tuple *graph.CheckpointTuple, checkpoints map[string]*graph.CheckpointTuple, before map[string]any) bool {
+// Checkpoints stored with an identical timestamp (coarse clocks) are
+// ordered by their insertion ordinal so "before" tracks write order.
+func (s *Saver) passesBeforeFilter(checkpointID string, tuple *graph.CheckpointTuple, checkpoints map[string]*graph.CheckpointTuple, before map[string]any, lineageID, namespace string) bool {
 	if before == nil {
 		return true
 	}
@@ -461,7 +533,16 @@ func (s *Saver) passesBeforeFilter(tuple *graph.CheckpointTuple, checkpoints map
 	if !exists {
 		return false
 	}
-	return tuple.Checkpoint.Timestamp.Before(beforeTuple.Checkpoint.Timestamp)
+	if checkpointID == beforeID {
+		return false
+	}
+	tupleTime := tuple.Checkpoint.Timestamp
+	beforeTime := beforeTuple.Checkpoint.Timestamp
+	if !tupleTime.Equal(beforeTime) {
+		return tupleTime.Before(beforeTime)
+	}
+	return s.sequences[seqKey(lineageID, namespace, checkpointID)] <
+		s.sequences[seqKey(lineageID, namespace, beforeID)]
 }
 
 // passesMetadataFilter checks if checkpoint passes the metadata filter.

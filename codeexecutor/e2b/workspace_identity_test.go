@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -29,6 +30,11 @@ import (
 )
 
 func TestWorkspaceProcessIdentity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// The mock kernel executes POSIX shell snippets against the
+		// sandbox path layout; those semantics do not hold on Windows.
+		t.Skip("simulates a Linux sandbox kernel")
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("requires bash")
 	}

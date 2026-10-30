@@ -397,11 +397,28 @@ func SaveMetadata(root string, md WorkspaceMetadata) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, filepath.Join(root, MetaFileName)); err != nil {
+	if err := replaceMetadataFile(tmp, filepath.Join(root, MetaFileName)); err != nil {
 		return err
 	}
 	removeTmp = false
 	return nil
+}
+
+// replaceMetadataFile atomically replaces dest with src, retrying briefly
+// when the rename fails with a permission error. Windows reports a
+// transient sharing violation ("Access is denied") while another
+// concurrent writer or reader still holds the destination open; the
+// condition clears on its own, and retrying keeps direct (unlocked)
+// concurrent writers compatible across platforms.
+func replaceMetadataFile(src, dest string) error {
+	err := os.Rename(src, dest)
+	for attempt := 0;
+		err != nil && errors.Is(err, os.ErrPermission) && attempt < 50;
+		attempt++ {
+		time.Sleep(2 * time.Millisecond)
+		err = os.Rename(src, dest)
+	}
+	return err
 }
 
 // DirDigest computes a stable digest of a directory tree. It walks

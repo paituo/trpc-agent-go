@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -85,6 +86,10 @@ func newWorkspaceRuntime(c *CodeExecutor) *workspaceRuntime {
 	}}
 }
 
+// perTurnWorkspaceCounter disambiguates per-turn workspace paths when the
+// wall clock cannot distinguish consecutive CreateWorkspace calls.
+var perTurnWorkspaceCounter atomic.Uint64
+
 // CreateWorkspace creates a per-execution directory inside the sandbox.
 func (r *workspaceRuntime) CreateWorkspace(
 	ctx context.Context,
@@ -116,8 +121,17 @@ func (r *workspaceRuntime) CreateWorkspace(
 		h := stableWorkspaceHash(execID)
 		wsPath = path.Join(r.cfg.runBase, fmt.Sprintf("ws_%s", h))
 	} else {
-		suf := time.Now().UnixNano()
-		wsPath = path.Join(r.cfg.runBase, fmt.Sprintf("ws_%s_%d", safe, suf))
+		// Combine the wall-clock nanoseconds with a process-wide
+		// counter: platforms with a coarse clock (e.g. Windows) can
+		// return identical UnixNano values for consecutive calls, which
+		// would otherwise collapse two per-turn workspaces onto one
+		// path.
+		suf := fmt.Sprintf(
+			"%d-%d",
+			time.Now().UnixNano(),
+			perTurnWorkspaceCounter.Add(1),
+		)
+		wsPath = path.Join(r.cfg.runBase, fmt.Sprintf("ws_%s_%s", safe, suf))
 	}
 
 	var sb strings.Builder
